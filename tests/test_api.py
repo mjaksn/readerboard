@@ -260,10 +260,17 @@ class TestUnreachableSign:
 
 
 class TestTheSimpleEndpoints:
-    """The exact payloads the example integrations in this repository send."""
+    """The payload shapes these endpoints accept, written out in full.
+
+    They exist for callers that post a fixed body to a fixed path, so the
+    bodies below are spelled out rather than built. A change that breaks one
+    of them breaks somebody's configuration file, which is exactly what these
+    tests are here to notice.
+    """
 
     def test_the_home_assistant_rest_command_payload(self, client):
-        # Home_Assistant_Sign_REST_Commands.yaml, with the template filled in.
+        # A temperature and the time, the common shape: a value from somewhere
+        # else, then <time> for the sign to fill in on its own.
         response = client.post(
             "/Write/Message",
             json={
@@ -280,7 +287,7 @@ class TestTheSimpleEndpoints:
         }
 
     def test_the_cron_line_payload(self, client):
-        # BetaBrite_Sign_Cron_Set_Time.txt sends SET_TIME with HHMM.
+        # SET_TIME takes the time as HHMM on a 24 hour clock.
         response = client.post(
             "/Write/ControlCommand",
             json={"command": "SET_TIME", "parameter": "2359"},
