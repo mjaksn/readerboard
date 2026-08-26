@@ -154,10 +154,11 @@ def step_4_priority(link: serial.Serial, settle: float) -> None:
     )
     ask("Has ALERT taken over the whole sign, with the rotation stopped? [y/n]")
 
-    print("\n  The important one. The document says a write to the run time or run")
-    print("  day table cancels a running priority message, and says nothing about")
-    print("  the run sequence. If the next write drops ALERT, the service must keep")
-    print("  deferring run sequence writes during an alert, which is what it does now.")
+    print("\n  The important one. The document says a write to the run time table or")
+    print("  the run day table cancels a running priority message, and says nothing")
+    print("  either way about the run sequence.")
+    print("  If ALERT survives the next write, run sequence writes are safe during an")
+    print("  alert, and the service could stop deferring them.")
     send(link, frames.set_run_sequence([b"A", b"B"]), label="run sequence A B", settle=settle)
     ask("Is ALERT still on the sign after that run sequence write? [y/n]")
 
@@ -169,9 +170,9 @@ def step_4_priority(link: serial.Serial, settle: float) -> None:
 def step_5_reads(link: serial.Serial) -> None:
     """Find out whether the sign answers read commands through this adapter."""
     print("\nStep 5: can the sign be asked what it is holding?")
-    print("  Two-way traffic over the Ethernet adapter has never been tried. If it")
-    print("  works, divergence can be detected by asking rather than by re-pushing")
-    print("  everything on a timer.")
+    print("  Two-way traffic over the Ethernet adapter has never been tried.")
+    print("  If it works, divergence can be detected by asking the sign rather")
+    print("  than by re-pushing everything on a timer.")
 
     replies = {
         "memory configuration": read_back(
@@ -200,9 +201,8 @@ def step_5_reads(link: serial.Serial) -> None:
 def step_6_timing(link: serial.Serial, settle: float) -> None:
     """Find the shortest gap between writes this sign will actually accept."""
     print("\nStep 6: how much settling time the sign actually needs")
-    print("  inter_packet_delay defaults to a conservative value rather than a")
-    print("  measured one. The protocol's own inter-byte timeout is %.0fs."
-          % c.INTER_BYTE_TIMEOUT_SECONDS)
+    print("  inter_packet_delay defaults to a conservative value, not a measured one.")
+    print("  The protocol's own inter-byte timeout is %.0fs." % c.INTER_BYTE_TIMEOUT_SECONDS)
 
     for gap in (1.0, 0.5, 0.25, 0.1, 0.05):
         print("\n  gap %.2fs" % gap)
