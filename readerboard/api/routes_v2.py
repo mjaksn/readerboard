@@ -2,8 +2,8 @@
 
 Status codes mean what they say here: 400 for a message the sign cannot render,
 401 for a missing key, 404 for a slot that does not exist, 409 when the pool is
-full, and 503 when the sign is unreachable. The compatibility routes in
-``routes_compat`` deliberately do none of that.
+full, and 503 when the sign is unreachable. The routes in ``routes_simple``
+deliberately do none of that, and answer 200 to everything instead.
 """
 
 from __future__ import annotations

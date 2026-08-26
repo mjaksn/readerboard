@@ -1,13 +1,15 @@
 """Turning a named control command and its parameter into a payload.
 
 These are the commands that act on the sign itself rather than on a message:
-setting its clock, its day of week, and how it renders the time. They are the
-same three the old API exposed, and the compatibility endpoint still reaches
-them by the same names and with the same parameter strings.
+setting its clock, its day of week, and how it renders the time.
 
-One of those parameters was documented wrongly before. The old API described the
-day of week as "0-6"; the protocol defines it as 1 for Sunday through 7 for
-Saturday. A request sending 0 was never going to work, and now says so.
+The set is deliberately closed. Anything reaching the sign from here is one of
+these three, none of which touches the memory configuration or the run time
+table, so a caller cannot use this route to disturb the file layout the service
+believes it has.
+
+Note the day of week numbering, which is easy to get wrong: the protocol defines
+1 for Sunday through 7 for Saturday, not 0 through 6.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ class BadParameter(ValueError):
 def build(name: str, parameter: str) -> bytes:
     """Build the payload for a named control command.
 
-    ``name`` is matched case insensitively, as the old API did.
+    ``name`` is matched case insensitively.
     """
     command = name.strip().upper()
     if command not in COMMAND_BY_NAME:

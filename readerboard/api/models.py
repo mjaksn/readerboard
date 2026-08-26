@@ -1,8 +1,8 @@
 """Request and response shapes.
 
-The ``/v2`` models are new. The ``Legacy*`` ones reproduce exactly what the old
-flask-restx API accepted and returned, field for field, because Home Assistant
-and a crontab line are already sending and reading them.
+The ``Simple*`` models are the shapes the ``/Write`` and ``/Enumerations``
+endpoints use, where every response is a 200 carrying the outcome in the body.
+The rest belong to ``/v2``, which reports through status codes instead.
 
 Every ``description`` here ends up in the OpenAPI page, so it is documentation
 in the same sense the README is, and it rots the same way.
@@ -208,11 +208,11 @@ class TokenInfo(BaseModel):
 
 
 # ===========================================================================
-# The old API's shapes, reproduced exactly.
+# The simple API's shapes. Every response is a 200 with the outcome in the body.
 # ===========================================================================
 
 
-class LegacyMessageRequest(BaseModel):
+class SimpleMessageRequest(BaseModel):
     """The body POST /Write/Message has always accepted."""
 
     display_mode: str = Field(description="the display mode to use when showing the message")
@@ -221,45 +221,45 @@ class LegacyMessageRequest(BaseModel):
     )
 
 
-class LegacyCommandRequest(BaseModel):
+class SimpleCommandRequest(BaseModel):
     """The body POST /Write/ControlCommand has always accepted."""
 
     command: str = Field(description="the control command to send to the sign")
     parameter: str = Field(default="", description="a parameter for the command")
 
 
-class LegacyResult(BaseModel):
+class SimpleResult(BaseModel):
     """The body the old endpoints have always returned, whatever happened."""
 
     result: str = Field(description="OK or ERROR")
     result_message: str = Field(description="text description of the command result")
 
     @classmethod
-    def ok(cls, message: str) -> LegacyResult:
+    def ok(cls, message: str) -> SimpleResult:
         """Build a success, in the old shape."""
         return cls(result="OK", result_message=message)
 
     @classmethod
-    def error(cls, message: str) -> LegacyResult:
+    def error(cls, message: str) -> SimpleResult:
         """Build a failure, in the old shape and still with a 200 status."""
         return cls(result="ERROR", result_message=message)
 
 
-class LegacyDisplayMode(BaseModel):
+class SimpleDisplayMode(BaseModel):
     """One entry of GET /Enumerations/DisplayModes."""
 
     display_mode: str
     description: str
 
 
-class LegacyControlCommand(BaseModel):
+class SimpleControlCommand(BaseModel):
     """One entry of GET /Enumerations/ControlCommands."""
 
     control_command: str
     description: str
 
 
-class LegacyToken(BaseModel):
+class SimpleToken(BaseModel):
     """One entry of GET /Enumerations/MarkupTokens."""
 
     token_text: str

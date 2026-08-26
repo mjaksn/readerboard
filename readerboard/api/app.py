@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from readerboard import __version__, logging_setup
-from readerboard.api import routes_compat, routes_v2
+from readerboard.api import routes_simple, routes_v2
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
 from readerboard.config import Settings
@@ -54,8 +54,9 @@ whole display over until it is released, then the rotation resumes.
 
 Every write needs an `X-API-Key` header. `GET /health` does not.
 
-The `/Write` and `/Enumerations` paths are the previous version of this API,
-kept working unchanged apart from the API key.
+The `/Write` and `/Enumerations` paths are a smaller surface for clients that
+would rather not read status codes: every response there is a 200 with the
+outcome in the body.
 """
 
 
@@ -200,7 +201,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
 
     _install_error_handlers(app)
     app.include_router(routes_v2.router)
-    app.include_router(routes_compat.router)
+    app.include_router(routes_simple.router)
 
     @app.get("/health", tags=["Health"], summary="Is the service talking to the sign")
     async def health(request: Request) -> HealthResponse:

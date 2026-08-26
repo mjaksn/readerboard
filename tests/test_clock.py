@@ -1,4 +1,4 @@
-"""Tests for the clock sync that replaces the crontab line."""
+"""Tests for the clock sync."""
 
 from datetime import UTC, datetime, timedelta
 
@@ -14,8 +14,8 @@ from readerboard.transport.fake import FakeTransport
 class TestSignDayOfWeek:
     """The sign numbers 1 for Sunday through 7 for Saturday.
 
-    The old API's help text said "0-6", which was wrong in both the base and the
-    starting day.
+    Easy to get wrong in both the base and the starting day, so it is pinned
+    here rather than left to a comment.
     """
 
     @pytest.mark.parametrize(
@@ -115,7 +115,7 @@ class TestFailure:
 
 
 async def test_it_syncs_when_the_link_comes_back():
-    """The reconnect trigger is what the hourly crontab line could only approximate."""
+    """The reconnect trigger is the one a schedule alone cannot provide."""
     transport = FakeTransport(open_fails_with="no route to host")
     controller = SignController(transport, inter_packet_delay=0)
     moment = datetime(2026, 8, 25, 9, 5, tzinfo=UTC)

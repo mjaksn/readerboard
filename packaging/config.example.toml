@@ -21,9 +21,9 @@ serial_url = "socket://192.168.2.51:4001"
 baud_rate = 9600
 serial_timeout = 10.0
 
-# Seconds to wait after each transmission before sending another. The old server
-# always slept 2 seconds, a number nobody measured. Run
-# scripts/protocol_spike.py to find what this sign actually needs.
+# Seconds to wait after each transmission before sending another. The default is
+# deliberately conservative. Run scripts/protocol_spike.py to measure what this
+# sign actually needs rather than guessing high forever.
 inter_packet_delay = 0.5
 
 # Reconnection backoff, in seconds, doubling from the first to the second.
@@ -57,18 +57,18 @@ refresh_interval_seconds = 900.0
 # is the default, is exactly how that endpoint has always behaved: the message
 # stays until something replaces it. Set it and a Home Assistant automation that
 # dies leaves a visibly empty sign rather than a quietly wrong temperature.
-#legacy_slot_ttl_seconds = 10800
+#default_slot_ttl_seconds = 10800
 
 # == the sign's clock ========================================================
 
 # The service sets the sign's clock at startup, on this interval, and every time
-# the link comes back. That last one is what the old hourly crontab line could
-# only approximate. Remove that crontab line once this is running.
+# the link comes back. That last one matters most: a sign returning from a power
+# cut does so at no particular minute, which no schedule can anticipate.
 clock_sync_enabled = true
 clock_sync_interval_seconds = 3600.0
 
-# IANA name. Unset means the machine's own local time, which is what the crontab
-# line relied on. Set it if the machine runs on UTC but the sign should not.
+# IANA name. Unset means the machine's own local time. Set it if the machine runs
+# on UTC but the sign should show something else.
 #timezone = "America/New_York"
 
 # == the HTTP surface ========================================================

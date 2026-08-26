@@ -28,10 +28,10 @@ from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
-# The key the compatibility endpoint writes to. It has no TTL, so a message sent
-# by the old API stays until something replaces it, which is how that endpoint
-# has always behaved.
-LEGACY_SLOT_KEY = "legacy"
+# The slot the simple write endpoint uses, for callers that do not name one of
+# their own. It has no TTL by default, so what it holds stays on the sign until
+# something replaces it.
+DEFAULT_SLOT_KEY = "default"
 
 
 class RegistryError(Exception):
@@ -221,7 +221,7 @@ class MessageRegistry:
                 # sign, so a request that validated is a request we can satisfy
                 # even with the sign unplugged. Keep it, and converge when the
                 # link is back, rather than making Home Assistant hold the retry
-                # logic this rewrite exists to take off it. /health says the
+                # logic this service exists to take off it. /health says the
                 # sign is out of sync in the meantime.
                 self._dirty = True
                 logger.warning(
@@ -393,7 +393,7 @@ class MessageRegistry:
 
 
 __all__ = [
-    "LEGACY_SLOT_KEY",
+    "DEFAULT_SLOT_KEY",
     "LayoutFull",
     "MessageRegistry",
     "MessageTooLong",

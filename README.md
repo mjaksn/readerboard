@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/mjaksn/readerboard/actions/workflows/ci.yml/badge.svg)](https://github.com/mjaksn/readerboard/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/readerboard)](https://pypi.org/project/readerboard/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mjaksn/readerboard/blob/main/LICENSE)
 
 An HTTP service that drives a BetaBrite Classic sign, either through a serial cable or
 through an Ethernet to RS-232 adapter.
@@ -18,9 +19,11 @@ until it is released, after which the rotation resumes.
   cycles them on its own, so rotation costs no serial traffic at all.
 - **Alerts.** Take the display over, optionally with a deadline, then hand it back.
 - **It keeps the sign's clock right**, at startup, hourly, and whenever the link comes
-  back. This replaces the crontab line the previous version needed.
+  back. That last trigger is the one that matters: a sign returning from a power cut
+  does so at no particular minute.
 - **It does not redraw the sign for nothing.** A write of bytes the sign already holds is
-  suppressed, so re-sending an unchanged temperature no longer makes the display flicker.
+  suppressed, so a source re-sending an unchanged temperature does not make the display
+  flicker.
 - **It survives restarts and outages.** The registered messages are persisted, and a
   write that arrives while the sign is unreachable is accepted and delivered when the
   link returns.
@@ -102,52 +105,38 @@ them all.
 
 Text is encoded against the sign's own character table rather than as UTF-8, so `café`
 displays correctly. A character the sign cannot render is rejected with a 400 on `/v2`,
-and replaced with `?` on the compatibility endpoints.
+and replaced with `?` on the simpler endpoints described below.
 
-## The previous API still works
+## A simpler set of endpoints
 
-`POST /Write/Message`, `POST /Write/ControlCommand` and the `/Enumerations` endpoints
-keep their exact request and response shapes, including returning HTTP 200 with
-`{"result": "ERROR", ...}` on failure. An existing Home Assistant `rest_command` needs
-only the API key header added.
+Alongside `/v2` there is a smaller surface: `POST /Write/Message`,
+`POST /Write/ControlCommand`, and the `/Enumerations` reads.
 
-There are two deliberate differences.
+These follow one convention that `/v2` does not. **Every response is HTTP 200**, with the
+outcome in the body:
 
-`POST /Write/Message` no longer writes the sign's **priority** file. It registers a
-reserved slot instead. This is what made the old version a one-message service: by
-protocol, a priority message suppresses everything else on the sign. Routed to an
-ordinary slot it looks identical while it is the only message registered, and it coexists
-once anything else registers.
+```json
+{"result": "OK", "result_message": "Message displayed on sign"}
+```
 
-And these endpoints now need the API key, which is the one thing that can make them
-return something other than 200. A caller without the key gets a 401.
+That suits a client which finds branching on status codes awkward, such as a Home
+Assistant `rest_command` or a shell one-liner in a cron job. The single exception is a
+missing or wrong API key, which is a 401: a caller the service will not talk to is not the
+same as a request that failed.
 
-### Moving over from the old version
-
-Do this in order and nothing breaks in between:
-
-1. **Add the `X-API-Key` header to your Home Assistant `rest_command` and to the crontab
-   line, while the old service is still running.** The old Flask app ignores headers it
-   does not recognise, so this is harmless and it means there is no window where writes
-   fail.
-2. Stop the old service and run `scripts/install.sh`.
-3. Confirm `curl -s http://localhost:5001/health` reports the link connected.
-4. Remove the crontab line that set the sign's clock. This service does it now, and does
-   it after a power cut rather than only on the hour.
-
-`update_sign_temperature.yaml` in this repository shows the automation with its
-`mode: queued` and hand-tuned `delay` steps removed. Those were working around the old
-server's inability to handle two calls at once, and are no longer doing anything.
+`POST /Write/Message` writes to one reserved slot, named `default`. It deliberately does
+not touch the sign's **priority** file, which by protocol suppresses every other message on
+the sign. Written to an ordinary slot it looks identical while it is the only message
+registered, and it shares the sign the moment anything else registers.
 
 ## Configuration
 
 Settings come from `/etc/readerboard/config.toml`, overridden by environment variables
 prefixed `READERBOARD_`. `packaging/config.example.toml` documents every one of them.
 
-The setting that changed shape from the old version is the sign's address. The old
-`config.json` held `com_port`, a bare device name that the server prefixed with `/dev/`.
-This one takes a full pyserial URL in `serial_url`, so a sign on an adapter is
-`socket://192.168.2.51:4001` and a sign on a cable is `/dev/ttyUSB0`.
+The sign's address is a full pyserial URL in `serial_url`: `socket://192.168.2.51:4001`
+for an Ethernet to RS-232 adapter, `/dev/ttyUSB0` for a cable plugged straight in, or
+`loop://` to run the service with no sign attached.
 
 Two settings reallocate the sign's memory when changed, and **that erases every message
 on it**: `slot_count` and `slot_capacity`. The service will do it, and say so loudly in
@@ -155,16 +144,14 @@ the log, but they are not settings to fiddle with.
 
 ## Security
 
-An API key is required on every write, compared in constant time, and never logged. That
-closes the second of the two risks the previous version documented. The first is still
-worth understanding.
+An API key is required on every write, compared in constant time, and never logged.
 
-**Message content reaches the sign as protocol bytes.** The markup renderer only emits
-bytes for tokens it recognises and for characters in the sign's own character table, so a
-client cannot inject arbitrary control sequences the way it could before. What a client
-holding the key can do is display anything it likes on your wall, and issue the sign's
-clock commands. There is nothing beyond the sign to reach: the service opens one serial
-link and touches nothing else.
+**Message content reaches the sign as protocol bytes**, so it is worth knowing what a
+client holding the key can do. The markup renderer emits bytes only for tokens it
+recognises and for characters in the sign's own table, so arbitrary control sequences
+cannot be injected through a message. What the holder of a key can do is display
+anything they like on your wall and set the sign's clock. There is nothing beyond the
+sign to reach: the service opens one serial link and touches nothing else.
 
 Sensible precautions remain sensible:
 

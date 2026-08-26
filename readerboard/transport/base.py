@@ -8,9 +8,10 @@ from typing import Protocol, runtime_checkable
 class TransportError(RuntimeError):
     """The bytes did not reach the sign.
 
-    This is the one failure the API turns into a 503. The old server reported it
-    as HTTP 200 with an error string in the body, which meant a dead serial link
-    looked exactly like success to Home Assistant.
+    This is the one failure the ``/v2`` API turns into a 503. Reporting it any
+    other way, in particular as a 200 with an error string in the body, makes a
+    dead serial link indistinguishable from success to anything that reads the
+    status code.
     """
 
 

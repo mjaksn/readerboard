@@ -124,8 +124,8 @@ class TestConcurrency:
 
 class TestFailures:
     async def test_a_failed_write_raises_rather_than_reporting_success(self):
-        # The old server turned this into HTTP 200 with an error string, so a
-        # dead link looked exactly like success to Home Assistant.
+        # Reported as a 200 with an error string in the body, a dead link is
+        # indistinguishable from success to anything reading the status code.
         transport = FakeTransport(fail_with="cable unplugged")
         controller = SignController(transport, inter_packet_delay=0)
 

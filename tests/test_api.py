@@ -79,7 +79,7 @@ class TestAuth:
     def test_reads_do_not_need_a_key(self, client):
         assert client.get("/v2/messages").status_code == 200
 
-    def test_the_compat_endpoints_also_need_it(self, client):
+    def test_the_simple_endpoints_also_need_it(self, client):
         # The single exception to their always-200 rule.
         response = client.post(
             "/Write/Message", json={"display_mode": "HOLD", "message": "HI"}
@@ -259,8 +259,8 @@ class TestUnreachableSign:
         assert response.status_code == 503
 
 
-class TestCompatibility:
-    """The exact payloads the yaml files and the cron line already send."""
+class TestTheSimpleEndpoints:
+    """The exact payloads the example integrations in this repository send."""
 
     def test_the_home_assistant_rest_command_payload(self, client):
         # Home_Assistant_Sign_REST_Commands.yaml, with the template filled in.
@@ -293,7 +293,7 @@ class TestCompatibility:
             "result_message": "Control command sent to sign",
         }
 
-    def test_the_legacy_message_goes_to_a_slot_not_the_priority_file(self, client):
+    def test_the_simple_message_goes_to_a_slot_not_the_priority_file(self, client):
         client.post(
             "/Write/Message",
             json={"display_mode": "HOLD", "message": "HI"},
@@ -301,12 +301,12 @@ class TestCompatibility:
         )
 
         slots = client.get("/v2/messages").json()
-        assert [slot["key"] for slot in slots] == ["legacy"]
-        # File "0" is the priority file. The old server wrote every message
-        # there, which is what made it a one-message service.
+        assert [slot["key"] for slot in slots] == ["default"]
+        # File "0" is the priority file, which by protocol suppresses every
+        # other message. Writing here would make this a one-message service.
         assert slots[0]["label"] != "0"
 
-    def test_a_legacy_message_coexists_with_a_registered_one(self, client):
+    def test_a_simple_message_coexists_with_a_registered_one(self, client):
         client.post(
             "/Write/Message",
             json={"display_mode": "HOLD", "message": "TEMP"},
@@ -315,7 +315,7 @@ class TestCompatibility:
         client.put("/v2/messages/doorbell", json={"message": "DING"}, headers=HEADERS)
 
         keys = sorted(slot["key"] for slot in client.get("/v2/messages").json())
-        assert keys == ["doorbell", "legacy"]
+        assert keys == ["default", "doorbell"]
 
     def test_a_bad_display_mode_is_still_a_200_with_an_error_body(self, client):
         response = client.post(
@@ -352,8 +352,8 @@ class TestCompatibility:
         assert response.json()["result"] == "ERROR"
 
     def test_an_unknown_markup_token_is_passed_through_rather_than_rejected(self, client):
-        # The old parser emitted unknown tags literally, so a payload that
-        # worked before must not start failing now.
+        # Lenient rendering, so a message written against a newer token set
+        # still displays rather than failing outright.
         response = client.post(
             "/Write/Message",
             json={"display_mode": "HOLD", "message": "<nosuchtag>HI"},
@@ -418,7 +418,8 @@ class TestNoApiKeyConfigured:
 
 
 def test_the_openapi_schema_can_be_produced_without_a_sign(settings, sign):
-    # update_static_swagger no longer needs to boot a server for this.
+    # No server, no port and no sign: FastAPI builds the whole description
+    # offline, which is what lets CI check the committed copy for drift.
     schema = create_app(settings, transport=sign).openapi()
 
     assert schema["info"]["title"] == "readerboard"

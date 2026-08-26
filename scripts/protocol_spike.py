@@ -28,8 +28,8 @@ a summary to paste into docs/protocol-notes.md.
 
     python scripts/protocol_spike.py --url socket://192.168.2.51:4001 --confirm-erase
 
-Nothing else may be talking to the sign while this runs. Stop the service and
-disable the crontab line first.
+Nothing else may be talking to the sign while this runs. Stop the service, and
+anything else that writes to the sign, first.
 """
 
 from __future__ import annotations
@@ -200,8 +200,8 @@ def step_5_reads(link: serial.Serial) -> None:
 def step_6_timing(link: serial.Serial, settle: float) -> None:
     """Find the shortest gap between writes this sign will actually accept."""
     print("\nStep 6: how much settling time the sign actually needs")
-    print("  The old service slept 2 seconds after every write, a number nobody")
-    print("  measured. The protocol's own inter-byte timeout is %.0fs."
+    print("  inter_packet_delay defaults to a conservative value rather than a")
+    print("  measured one. The protocol's own inter-byte timeout is %.0fs."
           % c.INTER_BYTE_TIMEOUT_SECONDS)
 
     for gap in (1.0, 0.5, 0.25, 0.1, 0.05):
@@ -253,8 +253,8 @@ def main() -> int:
 
     if not args.confirm_erase:
         parser.error(
-            "this spike erases every message on the sign. Stop the service and the "
-            "crontab line first, then pass --confirm-erase."
+            "this spike erases every message on the sign. Stop the service, and "
+            "anything else that writes to it, then pass --confirm-erase."
         )
 
     print("readerboard protocol spike")

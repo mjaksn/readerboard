@@ -103,7 +103,7 @@ class Settings(BaseSettings):
             "still-connected Ethernet adapter, which nothing else can detect"
         ),
     )
-    legacy_slot_ttl_seconds: float | None = Field(
+    default_slot_ttl_seconds: float | None = Field(
         default=None,
         gt=0,
         description=(
@@ -120,8 +120,7 @@ class Settings(BaseSettings):
         default=None,
         description=(
             "IANA name such as America/New_York, used when setting the sign's clock. "
-            "Unset means the machine's own local time, which is what the crontab line "
-            "this replaces relied on"
+            "Unset means the machine's own local time"
         ),
     )
 

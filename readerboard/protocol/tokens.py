@@ -1,9 +1,9 @@
 """The vocabulary a caller can use: markup tokens, display modes, control commands.
 
-Every name here is part of the service's public surface. The markup token texts
-and the three original display mode names are what existing Home Assistant
-payloads already send, so they are fixed; the rest of the table extends what the
-sign has always been able to do but the old API never exposed.
+Every name here is part of the service's public surface, so renaming one is a
+breaking change for whatever is already sending it. The table covers what the
+sign can actually do rather than a convenient subset, because a mode missing
+from here is a mode nobody can reach.
 """
 
 from __future__ import annotations

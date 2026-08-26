@@ -2,8 +2,8 @@
 """Write the API's OpenAPI description to a file.
 
 FastAPI can produce this without running anything, so no server is started, no
-sign is touched and no port is listened on. The previous version of this project
-had to boot a Flask app and fetch the schema over HTTP to get the same result.
+sign is touched and no port is listened on. CI regenerates it and fails if the
+committed file has drifted from the routes.
 
     python scripts/dump_openapi.py docs/openapi.json
 """

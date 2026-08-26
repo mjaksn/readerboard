@@ -4,16 +4,17 @@ The message language is deliberately small: printable text, plus tokens written
 as ``<name>``. ``<red>Hello <degree>`` is a colour change, the word Hello, and a
 degree symbol.
 
-Two rules are worth stating because the previous implementation got both wrong.
+Two rules here are load bearing, and both have an obvious wrong answer.
 
-First, the cursor advances on every branch. The old parser skipped the advance
-when it met a ``<`` with no closing ``>`` after it, so any message containing a
-bare ``<`` spun forever and wedged the request thread. That shape of bug cannot
-recur here: the loop body always moves ``index`` forward.
+First, the cursor advances on every branch. A tokenizer that only moves forward
+inside the branch that found a closing ``>`` will spin forever on a message
+containing a bare ``<``, wedging whichever thread is rendering it. The loop body
+below always moves ``index``, whatever it decided about the character it just
+looked at.
 
-Second, text is encoded against the sign's own character table rather than as
-UTF-8. The sign has never understood UTF-8, so the old behaviour turned an
-accented letter into two bytes of noise on the display. Characters the sign can
+Second, text is encoded against the sign's own character table, not as UTF-8.
+The sign does not understand UTF-8, so encoding it that way puts two bytes of
+noise on the display in place of each accented letter. Characters the sign can
 render are mapped to it, and characters it cannot are either rejected or
 replaced depending on how strict the caller asked us to be.
 """
@@ -90,7 +91,7 @@ def render(message: str, *, strict: bool = True) -> bytes:
     When ``strict`` is true an unknown tag, an unterminated tag or a character
     the sign cannot display raises :class:`MarkupError`. When it is false each
     of those is passed through as literal text instead, which is what the
-    compatibility endpoints need so that payloads that worked against the old
+    simple endpoints need so that payloads that worked against the old
     server keep working against this one.
     """
     out = bytearray()

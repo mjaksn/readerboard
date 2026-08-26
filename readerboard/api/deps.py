@@ -62,7 +62,7 @@ def require_api_key(
     narrowed down by timing. The key itself is never logged or echoed, here or
     anywhere else.
 
-    This is the one place the compatibility endpoints are allowed to break their
+    This is the one place the simple endpoints are allowed to break their
     "always 200" rule. A caller without the key is not a caller whose request
     failed; it is a caller the service will not talk to.
     """
