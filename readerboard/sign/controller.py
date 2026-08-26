@@ -45,11 +45,21 @@ class SignController:
         *,
         inter_packet_delay: float = 0.5,
         now: Callable[[], datetime] = _utcnow,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
-        """Wrap a transport. Nothing is sent until :meth:`start`."""
+        """Wrap a transport. Nothing is sent until :meth:`start`.
+
+        ``sleep`` is injected for the same reason ``now`` is: so a test can ask
+        what the controller waited for rather than how long it actually took.
+        Measuring elapsed wall time to check the inter-packet delay is a flaky
+        thing to do, because a platform whose timer granularity is coarser than
+        the delay can return from two of them in less than twice the delay, and
+        the test then fails on a margin that says nothing about the code.
+        """
         self._transport = transport
         self._inter_packet_delay = inter_packet_delay
         self._now = now
+        self._sleep = sleep
 
         self._lock = asyncio.Lock()
         self._file_contents: dict[bytes, bytes] = {}
@@ -233,7 +243,7 @@ class SignController:
             logger.debug("wrote %d bytes: %s", len(packet), packet.hex())
 
             if self._inter_packet_delay:
-                await asyncio.sleep(self._inter_packet_delay)
+                await self._sleep(self._inter_packet_delay)
 
     async def _connect(self) -> None:
         was_open = self._transport.is_open
