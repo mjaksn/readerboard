@@ -111,15 +111,42 @@ class TestConcurrency:
         assert len(transport.packets) == len(bodies)
 
     async def test_the_inter_packet_delay_is_honoured(self):
-        transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0.05)
+        """Assert what the controller waited for, not how long the test took.
 
-        started = asyncio.get_running_loop().time()
+        An earlier version of this timed two writes and asserted the elapsed
+        wall clock was at least twice the delay. That fails on Windows, whose
+        timer granularity is around 15ms: two 50ms sleeps came back in 94ms,
+        six short, which says nothing about whether the delay was applied.
+        Recording the requested durations tests the same contract and cannot
+        flake.
+        """
+        slept: list[float] = []
+
+        async def record(seconds: float) -> None:
+            slept.append(seconds)
+
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.05, sleep=record)
+
         await controller.write_text_file(b"A", b"ONE")
         await controller.write_text_file(b"A", b"TWO")
-        elapsed = asyncio.get_running_loop().time() - started
 
-        assert elapsed >= 0.1
+        assert slept == [0.05, 0.05]
+
+    async def test_no_delay_is_requested_when_it_is_configured_away(self):
+        """A zero delay must not become a zero-length sleep on every packet."""
+        slept: list[float] = []
+
+        async def record(seconds: float) -> None:
+            slept.append(seconds)
+
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0, sleep=record)
+
+        await controller.write_text_file(b"A", b"ONE")
+        await controller.write_text_file(b"A", b"TWO")
+
+        assert slept == []
 
 
 class TestFailures:
