@@ -1,8 +1,9 @@
 # readerboard
 
 [![CI](https://github.com/mjaksn/readerboard/actions/workflows/ci.yml/badge.svg)](https://github.com/mjaksn/readerboard/actions/workflows/ci.yml)
+[![Release](https://github.com/mjaksn/readerboard/actions/workflows/release.yml/badge.svg)](https://github.com/mjaksn/readerboard/actions/workflows/release.yml)
 [![PyPI](https://img.shields.io/pypi/v/readerboard)](https://pypi.org/project/readerboard/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mjaksn/readerboard/blob/main/LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mjaksn/readerboard/blob/main/LICENSE)
 
 An HTTP service that drives a BetaBrite Classic sign, either through a serial cable or
 through an Ethernet to RS-232 adapter.
