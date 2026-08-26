@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "readerboard"
-version = "0.1.1"
+version = "0.1.2"
 description = "An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, scheduling and clock sync"
 readme = "README.md"
 requires-python = ">=3.11"

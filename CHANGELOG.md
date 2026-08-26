@@ -10,6 +10,17 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [0.1.2] - 2026-08-26
+
+### Documentation
+
+- The README now carries the same badge set as the sibling projects: CI,
+  Release, PyPI version, and licence. Released so that the badges appear on the
+  PyPI project page, which is rendered from the README inside the uploaded
+  distribution and cannot be edited in place.
+
+No code changed in this release.
+
 ## [0.1.1] - 2026-08-26
 
 ### Changed
@@ -84,5 +95,6 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.1.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.0
