@@ -1,0 +1,91 @@
+# readerboard configuration.
+#
+# scripts/install.sh copies this to /etc/readerboard/config.toml, mode 0640, owned
+# by the service user, and fills in a generated API key. Every setting here can
+# also be given as an environment variable with a READERBOARD_ prefix, which wins
+# over the file: READERBOARD_SERIAL_URL, READERBOARD_API_KEY, and so on.
+#
+# Every value shown is the default unless the comment says otherwise.
+
+# == the link to the sign ====================================================
+
+# A pyserial URL. Use socket://host:port for an Ethernet to RS-232 adapter, or a
+# device path such as /dev/ttyUSB0 for a cable plugged straight in. loop://
+# runs the service against nothing, which is useful for trying the API out.
+#
+# This replaces the old config.json "com_port", which held a bare device name
+# that the server prefixed with /dev/. There is no prefixing here, and the old
+# key could not express a sign on the network at all.
+serial_url = "socket://192.168.2.51:4001"
+
+baud_rate = 9600
+serial_timeout = 10.0
+
+# Seconds to wait after each transmission before sending another. The old server
+# always slept 2 seconds, a number nobody measured. Run
+# scripts/protocol_spike.py to find what this sign actually needs.
+inter_packet_delay = 0.5
+
+# Reconnection backoff, in seconds, doubling from the first to the second.
+backoff_initial = 1.0
+backoff_max = 60.0
+
+# == the pool of sign files the rotation uses ================================
+
+# How many messages can share the sign at once. Each takes one sign file.
+#
+# Changing either of these reallocates the sign's memory on the next start, and
+# that ERASES every message on it. The service will do it and say so in the log,
+# but do not change them casually.
+slot_count = 8
+slot_capacity = 256
+
+# == behaviour ===============================================================
+
+default_display_mode = "HOLD"
+default_text_position = "MIDDLE"
+
+# How often to expire messages and alerts whose deadlines have passed.
+registry_sweep_seconds = 15.0
+
+# How often to push every message to the sign again whether or not anything
+# changed. This is what repairs a sign that was power cycled while the Ethernet
+# adapter stayed connected, which nothing else can detect.
+refresh_interval_seconds = 900.0
+
+# Expire the slot POST /Write/Message writes to, after this long. Unset, which
+# is the default, is exactly how that endpoint has always behaved: the message
+# stays until something replaces it. Set it and a Home Assistant automation that
+# dies leaves a visibly empty sign rather than a quietly wrong temperature.
+#legacy_slot_ttl_seconds = 10800
+
+# == the sign's clock ========================================================
+
+# The service sets the sign's clock at startup, on this interval, and every time
+# the link comes back. That last one is what the old hourly crontab line could
+# only approximate. Remove that crontab line once this is running.
+clock_sync_enabled = true
+clock_sync_interval_seconds = 3600.0
+
+# IANA name. Unset means the machine's own local time, which is what the crontab
+# line relied on. Set it if the machine runs on UTC but the sign should not.
+#timezone = "America/New_York"
+
+# == the HTTP surface ========================================================
+
+host = "0.0.0.0"
+port = 5001
+
+# Required on every write. install.sh generates one if this is empty. Anyone
+# holding it can write to the sign, so keep this file mode 0640.
+api_key = ""
+
+# == state and logging =======================================================
+
+# systemd creates this directory and gives it to the service user.
+state_path = "/var/lib/readerboard/state.json"
+
+log_level = "INFO"
+
+# Logs go to stderr for journald. Set this as well for a rotating file copy.
+#log_file = "/var/log/readerboard/readerboard.log"

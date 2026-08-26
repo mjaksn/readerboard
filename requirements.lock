@@ -1,0 +1,39 @@
+# Exact runtime pins for the machine that drives the sign.
+#
+# pyproject.toml carries compatible-release ranges, which is the right thing for
+# anyone installing the package fresh. This file is what scripts/install.sh uses,
+# so that the Pi gets the same versions twice running and an upstream release
+# cannot change what is on the wall without someone deciding it should.
+#
+# Every version here was published more than fourteen days before it was pinned.
+# The two markers below are the same ones uvicorn's own metadata carries: uvloop
+# is not built for Windows, and colorama is only needed there.
+#
+# Development tools are not pinned here; they live in the "dev" extra.
+#
+# To refresh: install the "dev" extra into a clean virtual environment, check
+# each candidate's release date, then update the versions below.
+
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+click==8.4.2
+colorama==0.4.6; sys_platform == 'win32'
+fastapi==0.141.1
+h11==0.16.0
+httptools==0.8.0
+idna==3.18
+pydantic==2.13.4
+pydantic-core==2.46.4
+pydantic-settings==2.15.0
+pyserial==3.5
+python-dotenv==1.2.2
+PyYAML==6.0.3
+starlette==1.6.0
+typing-inspection==0.4.3
+typing_extensions==4.16.0
+tzdata==2026.3; sys_platform == 'win32'
+uvicorn==0.52.1
+uvloop==0.22.1; sys_platform != 'win32' and sys_platform != 'cygwin' and platform_python_implementation != 'PyPy'
+watchfiles==1.2.0
+websockets==17.0.1

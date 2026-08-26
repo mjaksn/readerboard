@@ -1,0 +1,171 @@
+"""Tests for the persisted state and the file pool layout."""
+
+from datetime import UTC, datetime
+
+import pytest
+
+from readerboard.sign.layout import Layout, LayoutFull
+from readerboard.sign.state import (
+    STATE_VERSION,
+    AppliedLayout,
+    ServiceState,
+    SlotState,
+    StateStore,
+)
+
+
+def a_slot(key: str = "temperature", label: str = "A") -> SlotState:
+    return SlotState(
+        key=key,
+        label=label,
+        message="<green>18.4<degree>",
+        mode="HOLD",
+        position="MIDDLE",
+        updated_at=datetime(2026, 8, 25, 12, 0, tzinfo=UTC),
+    )
+
+
+class TestStateStore:
+    def test_a_missing_file_gives_an_empty_state(self, tmp_path):
+        store = StateStore(tmp_path / "state.json")
+        state = store.load()
+        assert state.slots == {}
+        assert state.alert is None
+        assert state.layout is None
+
+    def test_a_round_trip_preserves_the_slots(self, tmp_path):
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        restored = store.load()
+        assert restored.slots["temperature"].message == "<green>18.4<degree>"
+        assert restored.slots["temperature"].label == "A"
+
+    def test_it_creates_the_directory_it_needs(self, tmp_path):
+        store = StateStore(tmp_path / "deeper" / "still" / "state.json")
+        store.save(ServiceState())
+        assert store.path.exists()
+
+    def test_saving_leaves_no_temporary_files_behind(self, tmp_path):
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_corrupt_json_does_not_stop_the_service_starting(self, tmp_path, caplog):
+        path = tmp_path / "state.json"
+        path.write_text("{ this is not json", encoding="utf-8")
+
+        state = StateStore(path).load()
+
+        assert state.slots == {}
+        assert "could not read state" in caplog.text
+
+    def test_a_state_from_a_future_version_is_set_aside(self, tmp_path, caplog):
+        path = tmp_path / "state.json"
+        path.write_text('{"version": 999, "slots": {}}', encoding="utf-8")
+
+        state = StateStore(path).load()
+
+        assert state.slots == {}
+        assert "not %d" % STATE_VERSION in caplog.text or "999" in caplog.text
+
+    def test_state_that_does_not_validate_is_set_aside(self, tmp_path, caplog):
+        path = tmp_path / "state.json"
+        path.write_text(
+            '{"version": %d, "slots": {"a": {"key": "a"}}}' % STATE_VERSION,
+            encoding="utf-8",
+        )
+
+        state = StateStore(path).load()
+
+        assert state.slots == {}
+        assert "did not validate" in caplog.text
+
+
+class TestAppliedLayout:
+    def test_it_matches_the_same_shape(self):
+        applied = AppliedLayout(slot_count=4, slot_capacity=256, labels=list("ABCD"))
+        assert applied.matches(4, 256)
+
+    def test_a_different_count_does_not_match(self):
+        applied = AppliedLayout(slot_count=4, slot_capacity=256, labels=list("ABCD"))
+        assert not applied.matches(5, 256)
+
+    def test_a_different_capacity_does_not_match(self):
+        applied = AppliedLayout(slot_count=4, slot_capacity=256, labels=list("ABCD"))
+        assert not applied.matches(4, 512)
+
+
+class TestLayout:
+    def test_the_pool_starts_at_a(self):
+        assert Layout(3, 256).labels == (b"A", b"B", b"C")
+
+    def test_an_impossible_pool_is_rejected(self):
+        with pytest.raises(ValueError, match="between 1 and 26"):
+            Layout(27, 256)
+
+    def test_allocations_describe_every_file(self):
+        allocations = Layout(2, 256).allocations()
+        assert [entry.label for entry in allocations] == [b"A", b"B"]
+        assert all(entry.capacity == 256 for entry in allocations)
+
+    def test_assigning_is_stable_for_the_same_key(self):
+        layout = Layout(3, 256)
+        assert layout.assign("temperature") == b"A"
+        assert layout.assign("temperature") == b"A"
+
+    def test_different_keys_get_different_files(self):
+        layout = Layout(3, 256)
+        assert layout.assign("one") == b"A"
+        assert layout.assign("two") == b"B"
+
+    def test_a_released_file_is_handed_out_again(self):
+        layout = Layout(2, 256)
+        layout.assign("one")
+        layout.assign("two")
+        assert layout.release("one") == b"A"
+        assert layout.assign("three") == b"A"
+
+    def test_releasing_something_that_was_never_assigned_is_harmless(self):
+        assert Layout(2, 256).release("nobody") is None
+
+    def test_a_full_pool_refuses_rather_than_dropping_a_message(self):
+        layout = Layout(2, 256)
+        layout.assign("one")
+        layout.assign("two")
+        with pytest.raises(LayoutFull, match="all 2 message slots"):
+            layout.assign("three")
+
+    def test_free_count_tracks_assignments(self):
+        layout = Layout(3, 256)
+        assert layout.free_count == 3
+        layout.assign("one")
+        assert layout.free_count == 2
+
+    def test_restoring_an_assignment_from_the_state_file(self):
+        layout = Layout(3, 256)
+        layout.restore("temperature", b"C")
+        assert layout.label_for("temperature") == b"C"
+        # The restored file must not then be handed to somebody else.
+        assert layout.assign("other") == b"A"
+
+    def test_restoring_a_file_outside_a_shrunken_pool_is_refused(self):
+        # slot_count was lowered between runs, so file D no longer exists.
+        layout = Layout(3, 256)
+        with pytest.raises(ValueError, match="outside the pool"):
+            layout.restore("temperature", b"D")
+
+
+class TestNeedsReconfiguration:
+    def test_a_sign_that_was_never_configured_needs_it(self):
+        assert Layout(4, 256).needs_reconfiguration(None)
+
+    def test_an_unchanged_pool_does_not(self):
+        layout = Layout(4, 256)
+        assert not layout.needs_reconfiguration(layout.as_applied())
+
+    def test_a_changed_pool_does(self):
+        applied = Layout(4, 256).as_applied()
+        assert Layout(5, 256).needs_reconfiguration(applied)
+        assert Layout(4, 512).needs_reconfiguration(applied)

@@ -1,0 +1,44 @@
+# Home Assistant rest_command entries for the sign, served by readerboard.
+#
+# Add the X-API-Key header BEFORE switching over to the new service. The old
+# Flask app ignores headers it does not recognise, so doing it early is harmless
+# and it means there is no window in which writes fail with a 401.
+#
+# Put the key in secrets.yaml rather than here.
+
+update_readerboard_temperature:
+  url: "http://192.168.2.96:5001/Write/Message"
+  payload: '{ "display_mode": "HOLD", "message": "<green>{{ temperature }}<degree> <red><time>" }'
+  method: POST
+  content_type: "application/json; charset=UTF-8"
+  headers:
+    X-API-Key: !secret readerboard_api_key
+
+# The same thing against the current API. It behaves identically on the sign,
+# but it reports failure properly: a 400 for a message the sign cannot render, a
+# 503 when the sign is unreachable, rather than an HTTP 200 with the word ERROR
+# in the body. Home Assistant will then log a failed service call instead of
+# quietly believing it worked.
+#
+# "temperature" here is the slot name, not the value. Any other source that
+# registers a different slot name will share the sign with this one, and the
+# sign will rotate between them.
+#
+#update_readerboard_temperature_v2:
+#  url: "http://192.168.2.96:5001/v2/messages/temperature"
+#  payload: '{ "message": "<green>{{ temperature }}<degree> <red><time>", "display_mode": "HOLD", "source": "home-assistant" }'
+#  method: PUT
+#  content_type: "application/json; charset=UTF-8"
+#  headers:
+#    X-API-Key: !secret readerboard_api_key
+
+# Take the whole sign over for a minute. The rotation resumes by itself when the
+# alert expires, so nothing has to remember to clear it.
+#
+#readerboard_alert:
+#  url: "http://192.168.2.96:5001/v2/alerts"
+#  payload: '{ "message": "{{ message }}", "display_mode": "FLASH", "ttl_seconds": 60 }'
+#  method: POST
+#  content_type: "application/json; charset=UTF-8"
+#  headers:
+#    X-API-Key: !secret readerboard_api_key

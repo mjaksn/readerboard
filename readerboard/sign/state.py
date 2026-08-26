@@ -1,0 +1,171 @@
+"""What the service remembers across a restart.
+
+Three things have to survive: which messages are registered and where on the
+sign each one lives, whether an alert is currently holding the display, and
+which memory configuration was last applied.
+
+The last of those matters more than it looks. Writing a memory configuration
+erases every file on the sign, so the service must be able to tell "the pool I
+want is the pool that is already there" from "the pool changed", and only
+reconfigure in the second case. Without this record, every restart would wipe
+the sign.
+
+Writes are atomic. A half-written state file after a power cut would strand the
+sign, and a Pi losing power is exactly the event this service is expected to
+recover from.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import tempfile
+from datetime import datetime
+from pathlib import Path
+
+from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
+
+STATE_VERSION = 1
+
+
+class SlotState(BaseModel):
+    """One registered message."""
+
+    key: str
+    label: str
+    message: str
+    mode: str
+    position: str
+    order: int = 0
+    source: str | None = None
+    expires_at: datetime | None = None
+    updated_at: datetime
+
+
+class AlertState(BaseModel):
+    """An alert holding the priority file."""
+
+    message: str
+    mode: str
+    position: str
+    started_at: datetime
+    expires_at: datetime | None = None
+
+
+class AppliedLayout(BaseModel):
+    """The memory configuration currently believed to be on the sign."""
+
+    slot_count: int
+    slot_capacity: int
+    labels: list[str]
+
+    def matches(self, slot_count: int, slot_capacity: int) -> bool:
+        """Whether this layout is already what the given settings ask for."""
+        return self.slot_count == slot_count and self.slot_capacity == slot_capacity
+
+
+class ServiceState(BaseModel):
+    """Everything persisted, in one document."""
+
+    version: int = STATE_VERSION
+    slots: dict[str, SlotState] = Field(default_factory=dict)
+    alert: AlertState | None = None
+    layout: AppliedLayout | None = None
+
+
+class StateStore:
+    """Loads and saves :class:`ServiceState` as JSON, atomically."""
+
+    def __init__(self, path: Path) -> None:
+        """Point the store at a file. The file need not exist yet."""
+        self.path = path
+        self._last_written: str | None = None
+        self.writes = 0
+        self.skipped = 0
+
+    def load(self) -> ServiceState:
+        """Read the state, returning a fresh one if there is nothing usable to read.
+
+        A corrupt or unreadable state file is a bad reason to refuse to start.
+        The sign can be repopulated by its sources; refusing to boot cannot be
+        fixed without someone logging in. So it is logged loudly and set aside.
+        """
+        if not self.path.exists():
+            logger.info("no state file at %s; starting empty", self.path)
+            return ServiceState()
+
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as err:
+            logger.error("could not read state from %s (%s); starting empty", self.path, err)
+            return ServiceState()
+
+        version = raw.get("version")
+        if version != STATE_VERSION:
+            logger.error(
+                "state at %s is version %r, not %d; starting empty",
+                self.path,
+                version,
+                STATE_VERSION,
+            )
+            return ServiceState()
+
+        try:
+            state = ServiceState.model_validate(raw)
+        except ValueError as err:
+            logger.error("state at %s did not validate (%s); starting empty", self.path, err)
+            return ServiceState()
+
+        logger.info(
+            "restored %d slot(s)%s from %s",
+            len(state.slots),
+            " and an active alert" if state.alert else "",
+            self.path,
+        )
+        return state
+
+    def save(self, state: ServiceState) -> None:
+        """Write the state out, replacing the old file in one step.
+
+        A save whose content is identical to the last one written is skipped.
+        This runs on a Raspberry Pi with an SD card underneath it, and the
+        service saves on every operation whether or not the operation changed
+        anything: sweeps that expire nothing, restores, releases with no alert
+        to release.
+
+        An upsert that genuinely re-sends the same temperature is not one of
+        those, because ``updated_at`` moves. That is deliberate. Knowing when a
+        source last wrote is how a dead automation becomes visible, and it is
+        worth one small write per message to keep.
+        """
+        payload = state.model_dump_json(indent=2)
+        if payload == self._last_written and self.path.exists():
+            self.skipped += 1
+            return
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+
+        handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed, then renamed
+            mode="w",
+            encoding="utf-8",
+            dir=self.path.parent,
+            prefix=self.path.name + ".",
+            suffix=".tmp",
+            delete=False,
+        )
+        temporary = Path(handle.name)
+        try:
+            with handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, self.path)
+        except OSError:
+            temporary.unlink(missing_ok=True)
+            raise
+
+        self._last_written = payload
+        self.writes += 1

@@ -1,0 +1,152 @@
+[build-system]
+requires = ["setuptools>=77"]        # PEP 639 licence expressions
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "readerboard"
+version = "0.1.0"
+description = "An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, scheduling and clock sync"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "mjaksn" }]
+keywords = ["betabrite", "alpha", "led sign", "readerboard", "home assistant", "rs-232", "signage"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: System :: Hardware",
+    "Typing :: Typed",
+]
+
+# Floors and ceilings rather than exact pins. This is something people install
+# beside other things, and `==` would make it a package that has to be
+# uninstalled before anything else can move. requirements.lock carries the exact
+# versions, and that is what the installer feeds the machine driving the sign.
+#
+# The ceilings sit at the next major for the settled packages, and at the next
+# minor for the two still on 0.x, where a minor bump is where a breaking change
+# is allowed to live.
+dependencies = [
+    "fastapi>=0.141.1,<0.142",
+    "uvicorn[standard]>=0.52.1,<0.53",
+    "pydantic>=2.13.4,<3",
+    "pydantic-settings>=2.15.0,<3",
+    "pyserial>=3.5,<4",
+    # Linux ships a system time zone database and zoneinfo reads it directly.
+    # Windows ships none, so the `timezone` setting would fail there without it.
+    "tzdata>=2026.3; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4.0,<2",
+    # starlette's TestClient moved to httpx2; plain httpx now raises a
+    # deprecation warning, which this suite is configured to treat as an error.
+    "httpx2>=2.10.0,<3",
+    "ruff>=0.16.2,<0.17",
+    "mypy>=2.3.0,<3",
+]
+
+[project.scripts]
+# The whole command line. `python -m readerboard` runs the same thing out of a
+# checkout, which is what the systemd unit and the editor launch config use.
+readerboard = "readerboard.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/mjaksn/readerboard"
+Source = "https://github.com/mjaksn/readerboard"
+Issues = "https://github.com/mjaksn/readerboard/issues"
+Changelog = "https://github.com/mjaksn/readerboard/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+# Named explicitly rather than auto-discovered: the flat layout puts `tests`
+# beside the package and it has an __init__.py, so discovery would ship it.
+packages = [
+    "readerboard",
+    "readerboard.api",
+    "readerboard.protocol",
+    "readerboard.services",
+    "readerboard.sign",
+    "readerboard.transport",
+]
+
+[tool.setuptools.package-data]
+# Without this the marker is left out of the wheel and the annotations are
+# invisible to anyone type checking against the installed package.
+readerboard = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+# Stricter than the other projects here, and deliberately so. This one is a
+# service rather than a command: it runs unattended for months, and the prose it
+# emits is part of what it delivers, so the docstring rules are carrying weight
+# rather than decorating.
+select = [
+    "E",    # pycodestyle
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # import sorting
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "SIM",  # simplify
+    "RUF",  # ruff's own rules
+    "D",    # docstrings
+]
+ignore = [
+    "D203",  # incompatible with D211, which is the one we want
+    "D213",  # incompatible with D212, which is the one we want
+    # This project formats with %, matching the lazy % that logging takes, so
+    # that one idiom covers both a log line and the exception text next to it.
+    "UP031",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The vendored constants table is a wall of assignments with trailing comments,
+# and rewriting it into docstring-bearing prose would only obscure its origin.
+"readerboard/protocol/constants.py" = ["E501", "RUF001", "RUF003"]
+# A test's name is its documentation, and a docstring repeating it would be
+# worse than none. Tests that need explaining have one anyway.
+"tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "pep257"
+
+[tool.mypy]
+python_version = "3.11"
+files = ["readerboard"]
+strict = true
+warn_unreachable = true
+enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
+
+[[tool.mypy.overrides]]
+# pyserial ships no type information.
+module = ["serial", "serial.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The vendored constants module is a flat table of byte literals; annotating
+# every one of them would add nothing a reader does not already see.
+module = "readerboard.protocol.constants"
+disallow_untyped_defs = false

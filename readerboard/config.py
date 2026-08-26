@@ -1,0 +1,223 @@
+"""Everything the service reads from its environment, in one place.
+
+Settings come from three places, later ones winning: the defaults below, a TOML
+file (``/etc/readerboard/config.toml`` unless ``READERBOARD_CONFIG_FILE`` says
+otherwise), and environment variables prefixed ``READERBOARD_``.
+
+One change here is worth calling out because it will bite on upgrade. The old
+``config.json`` held ``com_port``, a bare device name that the server prefixed
+with ``/dev/`` before opening. This service takes a full pyserial URL in
+``serial_url`` instead, so a sign on an Ethernet adapter is
+``socket://192.168.2.51:4001`` and a sign on a cable is ``/dev/ttyUSB0``. There
+is no prefixing, and no way to express a network sign in the old key.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Any
+
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
+
+DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
+
+# A BetaBrite Classic holds roughly 30000 bytes of messages and graphics all
+# told. Allocating the whole of it leaves the sign no room for anything else, so
+# the service refuses a pool that claims more than this much of it. The protocol
+# charges eleven bytes of directory overhead per configured file on top of each
+# file's own size, and that is counted too.
+SIGN_MEMORY_BUDGET = 26000
+
+
+def _config_file() -> Path:
+    override = os.environ.get("READERBOARD_CONFIG_FILE")
+    return Path(override) if override else DEFAULT_CONFIG_FILE
+
+
+class Settings(BaseSettings):
+    """The service's configuration."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="READERBOARD_",
+        toml_file=_config_file(),
+        extra="forbid",
+    )
+
+    # == the link to the sign ==============================================
+
+    serial_url: str = Field(
+        default="loop://",
+        description=(
+            "pyserial URL for the sign: socket://host:port for an Ethernet to RS-232 "
+            "adapter, /dev/ttyUSB0 for a direct cable, or loop:// to run without one"
+        ),
+    )
+    baud_rate: int = Field(default=9600, ge=110, le=921600)
+    serial_timeout: float = Field(default=10.0, gt=0)
+    inter_packet_delay: float = Field(
+        default=0.5,
+        ge=0,
+        le=10,
+        description=(
+            "seconds to wait after each transmission before sending another. The old "
+            "server always slept 2 seconds; run scripts/protocol_spike.py to find what "
+            "this sign actually needs"
+        ),
+    )
+    backoff_initial: float = Field(default=1.0, gt=0)
+    backoff_max: float = Field(default=60.0, gt=0)
+
+    # == the pool of sign files the rotation uses ==========================
+
+    slot_count: int = Field(
+        default=8,
+        ge=1,
+        le=26,
+        description="how many messages can share the sign at once, one sign file each",
+    )
+    slot_capacity: int = Field(
+        default=256,
+        ge=16,
+        le=4096,
+        description="bytes allocated to each message, after markup has been rendered",
+    )
+
+    # == behaviour =========================================================
+
+    default_display_mode: str = "HOLD"
+    default_text_position: str = "MIDDLE"
+    registry_sweep_seconds: float = Field(default=15.0, gt=0)
+    refresh_interval_seconds: float = Field(
+        default=900.0,
+        gt=0,
+        description=(
+            "how often to push every message to the sign again whether or not it looks "
+            "necessary. This is what repairs a sign that was power cycled behind a "
+            "still-connected Ethernet adapter, which nothing else can detect"
+        ),
+    )
+    legacy_slot_ttl_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "expire the slot POST /Write/Message writes to, after this long. Unset, "
+            "which is the default, reproduces the old behaviour exactly: the message "
+            "stays until something replaces it. Setting it means a Home Assistant "
+            "automation that dies leaves a visibly empty sign rather than a quietly "
+            "wrong temperature"
+        ),
+    )
+    clock_sync_enabled: bool = True
+    clock_sync_interval_seconds: float = Field(default=3600.0, gt=0)
+    timezone: str | None = Field(
+        default=None,
+        description=(
+            "IANA name such as America/New_York, used when setting the sign's clock. "
+            "Unset means the machine's own local time, which is what the crontab line "
+            "this replaces relied on"
+        ),
+    )
+
+    # == the HTTP surface ==================================================
+
+    host: str = "0.0.0.0"
+    port: int = Field(default=5001, ge=1, le=65535)
+    api_key: SecretStr = Field(
+        default=SecretStr(""),
+        description="required on every write. Generated by scripts/install.sh if absent",
+    )
+
+    # == where state and logs go ===========================================
+
+    state_path: Path = Path("/var/lib/readerboard/state.json")
+    log_level: str = "INFO"
+    log_file: Path | None = None
+
+    @field_validator("log_level")
+    @classmethod
+    def _check_log_level(cls, value: str) -> str:
+        allowed = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
+        upper = value.upper()
+        if upper not in allowed:
+            raise ValueError("log_level must be one of %s" % ", ".join(sorted(allowed)))
+        return upper
+
+    @field_validator("default_display_mode")
+    @classmethod
+    def _check_mode(cls, value: str) -> str:
+        from readerboard.protocol.tokens import MODE_BY_NAME
+
+        upper = value.upper()
+        if upper not in MODE_BY_NAME:
+            raise ValueError("unknown display mode %r" % value)
+        return upper
+
+    @field_validator("default_text_position")
+    @classmethod
+    def _check_position(cls, value: str) -> str:
+        from readerboard.protocol.tokens import POSITION_BY_NAME
+
+        upper = value.upper()
+        if upper not in POSITION_BY_NAME:
+            raise ValueError("unknown text position %r" % value)
+        return upper
+
+    @field_validator("timezone")
+    @classmethod
+    def _check_timezone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as err:
+            raise ValueError("unknown timezone %r: %s" % (value, err)) from err
+        return value
+
+    @model_validator(mode="after")
+    def _check_pool_fits(self) -> Settings:
+        from readerboard.protocol.constants import FILE_OVERHEAD_BYTES
+
+        claimed = self.slot_count * (self.slot_capacity + FILE_OVERHEAD_BYTES)
+        if claimed > SIGN_MEMORY_BUDGET:
+            raise ValueError(
+                "slot_count %d at slot_capacity %d claims %d bytes of the sign's "
+                "memory pool, more than the %d this service is willing to take. "
+                "Lower one of them."
+                % (self.slot_count, self.slot_capacity, claimed, SIGN_MEMORY_BUDGET)
+            )
+        if self.backoff_max < self.backoff_initial:
+            raise ValueError("backoff_max must not be smaller than backoff_initial")
+        return self
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Put the TOML file below the environment but above the defaults."""
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            TomlConfigSettingsSource(settings_cls),
+            file_secret_settings,
+        )
+
+    def redacted(self) -> dict[str, Any]:
+        """Return the settings as a dict with the API key removed, safe to log."""
+        data = self.model_dump(mode="json")
+        data["api_key"] = "set" if self.api_key.get_secret_value() else "unset"
+        return data

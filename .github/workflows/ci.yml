@@ -1,0 +1,156 @@
+name: CI
+
+# Deliberately not on every push. A branch with no pull request open against
+# it runs nothing, and a merge runs the suite once rather than twice:
+#
+#   pull_request       while a change is up for review, re-running on each
+#                      push to it, so what passed is always the code being
+#                      merged.
+#   push to main       after the merge has happened.
+#   workflow_dispatch  on demand, for a run nobody asked for by pushing.
+#
+# The pull_request trigger is what makes the requirement enforceable, and it
+# is not interchangeable with dispatching by hand. A dispatched run does
+# attach its checks to the branch head commit, but they do not enter the pull
+# request's status check rollup, and the rollup, not the commit, is what a
+# ruleset evaluates. A repository configured the other way shows a head commit
+# covered in green checks while the merge stays blocked on an empty rollup. So
+# dispatch is a convenience here, never the gate.
+#
+# The ruleset on main should require the `gate` job below and nothing else.
+# Requiring the matrix jobs directly would mean naming all six of them, and
+# renaming one would quietly stop protecting anything.
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - name: install the tools
+        # mypy needs the dependencies to check anything useful about the code
+        # that calls them, so this installs the package rather than the two
+        # tools on their own.
+        run: pip install -e ".[dev]"
+      - name: ruff
+        run: ruff check .
+      - name: mypy
+        # Unlike nettail, this package ships annotations and a py.typed, so its
+        # types are part of what a consumer receives and are worth checking.
+        run: mypy readerboard
+
+  test:
+    name: tests ${{ matrix.python }} on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install
+        run: pip install -e ".[dev]"
+      - name: run the suite
+        # No sign is involved. The suite runs against a capturing fake
+        # transport and against pyserial's loop:// URL, so the real serial
+        # code path is exercised without any hardware. Nothing here opens a
+        # socket to anywhere.
+        run: pytest
+
+  build:
+    name: build and install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - name: build the distributions
+        run: python -m build
+      - name: check the metadata
+        run: twine check dist/*
+      - name: install the wheel somewhere else and run it
+        # From another directory on purpose. Running from the repository root
+        # would run the source tree and prove nothing about the wheel, which
+        # is the thing anybody else actually receives.
+        run: |
+          python -m venv /tmp/probe
+          /tmp/probe/bin/python -m pip install --quiet dist/*.whl
+          cd /tmp
+          /tmp/probe/bin/readerboard --version
+          /tmp/probe/bin/python - <<'PY'
+          import pathlib
+          import readerboard
+          here = pathlib.Path(readerboard.__file__).parent
+          assert (here / "py.typed").exists(), "py.typed missing from the wheel"
+          from readerboard.protocol import frames
+          from readerboard.protocol.markup import render
+          # One golden packet, from the wheel rather than the source tree, so a
+          # packaging mistake that dropped or shadowed a module shows up here.
+          built = frames.packet(frames.write_text_file(b"A", render("<green>18<degree>")))
+          assert built.endswith(b"\x04"), "the frame builder came back wrong"
+          print("ran", readerboard.__version__, "from", here)
+          PY
+
+  openapi:
+    name: the checked-in description matches the code
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: regenerate and compare
+        # docs/openapi.json is generated, so it can drift from the routes it
+        # describes without anything noticing. Regenerating and diffing fails
+        # the pull request that caused the drift, which is cheaper than
+        # discovering it from a wrong description months later. FastAPI emits
+        # the whole thing offline, so no server is started and no sign is
+        # touched.
+        run: |
+          python scripts/dump_openapi.py /tmp/openapi.json
+          diff -u docs/openapi.json /tmp/openapi.json || {
+            echo "::error::docs/openapi.json is stale; run scripts/dump_openapi.py docs/openapi.json"
+            exit 1
+          }
+
+  gate:
+    name: gate
+    # The single check for branch protection to require. Runs whatever the
+    # others did, so a failure upstream is reported here rather than leaving
+    # the gate skipped and the requirement satisfied by default.
+    if: always()
+    needs: [lint, test, build, openapi]
+    runs-on: ubuntu-latest
+    steps:
+      - name: every job must have succeeded
+        run: |
+          echo "lint    ${{ needs.lint.result }}"
+          echo "test    ${{ needs.test.result }}"
+          echo "build   ${{ needs.build.result }}"
+          echo "openapi ${{ needs.openapi.result }}"
+          [ "${{ needs.lint.result }}"    = "success" ] || exit 1
+          [ "${{ needs.test.result }}"    = "success" ] || exit 1
+          [ "${{ needs.build.result }}"   = "success" ] || exit 1
+          [ "${{ needs.openapi.result }}" = "success" ] || exit 1

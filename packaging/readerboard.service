@@ -1,0 +1,60 @@
+[Unit]
+Description=readerboard, a BetaBrite sign driver
+Documentation=https://github.com/mjaksn/readerboard
+# The sign is normally reached over the network, through an Ethernet to RS-232
+# adapter, so wait for a routable address rather than merely for the stack.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=readerboard
+Group=readerboard
+Environment=READERBOARD_CONFIG_FILE=/etc/readerboard/config.toml
+ExecStart=/opt/readerboard/venv/bin/readerboard
+Restart=always
+RestartSec=5
+
+# systemd creates /var/lib/readerboard and gives it to the service user. The
+# registry is persisted there, which is what lets the sign come back after a
+# restart without every source having to write to it again.
+StateDirectory=readerboard
+StateDirectoryMode=0750
+
+# Logs go to stderr, which journald collects.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=readerboard
+
+# Hardening. The service reads one config file, writes one state directory, and
+# talks to one sign. It needs nothing else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# AF_INET and AF_INET6 for the HTTP listener and for a socket:// sign;
+# AF_UNIX because the Python runtime uses it internally.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+# For a sign on a cable rather than on the network, uncomment both of these.
+# The first lets the service read /dev/ttyUSB0 and friends; the second is the
+# group that owns them on Debian and Raspberry Pi OS. PrivateDevices is left
+# off by default rather than on, because turning it on would hide exactly the
+# device a directly connected sign lives at.
+#DeviceAllow=char-ttyUSB rw
+#SupplementaryGroups=dialout
+
+[Install]
+WantedBy=multi-user.target

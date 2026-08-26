@@ -1,0 +1,261 @@
+"""Building the application and wiring its parts together.
+
+Startup order matters. The transport is opened first, then the memory
+configuration is settled, then the slots and any alert are put back, and only
+then does anything start on a timer. Getting that wrong would mean writing
+messages to files the sign has not allocated.
+
+Nothing here fails to start because the sign is unreachable. A service that
+refused to boot with the sign unplugged would need someone to notice and restart
+it once the sign came back, which is precisely the situation it exists to
+survive.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
+
+from readerboard import __version__, logging_setup
+from readerboard.api import routes_compat, routes_v2
+from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
+from readerboard.api.models import HealthResponse, LinkHealth
+from readerboard.config import Settings
+from readerboard.protocol.frames import ProtocolError
+from readerboard.protocol.markup import MarkupError
+from readerboard.services import commands
+from readerboard.services.alerts import AlertService, AlertTooLong
+from readerboard.services.clock import ClockService
+from readerboard.services.registry import (
+    MessageRegistry,
+    MessageTooLong,
+    UnknownSlot,
+)
+from readerboard.sign.controller import SignController
+from readerboard.sign.layout import Layout, LayoutFull
+from readerboard.sign.state import StateStore
+from readerboard.transport.base import Transport, TransportError
+from readerboard.transport.serial_link import SerialTransport
+
+logger = logging.getLogger(__name__)
+
+DESCRIPTION = """
+Drives a BetaBrite Classic sign over the Alpha protocol, either through a serial
+cable or through an Ethernet to RS-232 adapter.
+
+Several sources can share the sign at once. Each registers a named **slot**, and
+the sign rotates through the registered slots by itself. An **alert** takes the
+whole display over until it is released, then the rotation resumes.
+
+Every write needs an `X-API-Key` header. `GET /health` does not.
+
+The `/Write` and `/Enumerations` paths are the previous version of this API,
+kept working unchanged apart from the API key.
+"""
+
+
+def build_transport(settings: Settings) -> Transport:
+    """Create the link to the sign described by the settings."""
+    return SerialTransport(
+        settings.serial_url,
+        baud_rate=settings.baud_rate,
+        timeout=settings.serial_timeout,
+        backoff_initial=settings.backoff_initial,
+        backoff_max=settings.backoff_max,
+    )
+
+
+async def _refresh_loop(app: FastAPI, interval: float) -> None:
+    """Push everything to the sign again, periodically.
+
+    See ``MessageRegistry.refresh`` for why blind re-pushing is the only thing
+    that repairs a sign power cycled behind a still-connected adapter.
+    """
+    registry: MessageRegistry = app.state.registry
+    alerts: AlertService = app.state.alerts
+
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await registry.refresh()
+            # The refresh puts the slots back, but an alert lives in the
+            # priority file, which the registry does not touch. Without this a
+            # sign power cycled mid-alert would stay blank until the alert's
+            # deadline, and an alert with no deadline would stay blank for good.
+            await alerts.reassert()
+        except TransportError as err:
+            logger.debug("periodic refresh skipped, sign unreachable: %s", err)
+        except Exception:
+            logger.exception("the periodic refresh failed")
+
+
+async def _sweep_loop(app: FastAPI, interval: float) -> None:
+    """Expire slots and alerts whose deadlines have passed."""
+    registry: MessageRegistry = app.state.registry
+    alerts: AlertService = app.state.alerts
+
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await alerts.sweep()
+            await registry.sweep()
+        except TransportError as err:
+            logger.warning("could not apply expiries: %s", err)
+        except Exception:
+            # A sweep that raises must not take the loop down with it, or
+            # nothing would ever expire again.
+            logger.exception("the expiry sweep failed")
+
+
+def create_app(settings: Settings | None = None, transport: Transport | None = None) -> FastAPI:
+    """Build the application.
+
+    ``transport`` is for tests, which supply a capturing one. In the service it
+    is left unset and built from the settings.
+    """
+    settings = settings or Settings()
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        logging_setup.configure(settings.log_level, settings.log_file)
+        logger.info("readerboard %s starting; sign at %s", __version__, settings.serial_url)
+
+        link = transport if transport is not None else build_transport(settings)
+        controller = SignController(link, inter_packet_delay=settings.inter_packet_delay)
+        store = StateStore(settings.state_path)
+        state = store.load()
+        layout = Layout(settings.slot_count, settings.slot_capacity)
+        alerts = AlertService(controller, store, state)
+        registry = MessageRegistry(
+            controller, layout, store, state, alert_active=lambda: alerts.active is not None
+        )
+        # An alert holding the sign makes the registry hold back run sequence
+        # writes; releasing it is what lets them through.
+        alerts.set_release_hook(registry.flush_deferred)
+        clock = ClockService(
+            controller,
+            interval_seconds=settings.clock_sync_interval_seconds,
+            timezone=settings.timezone,
+        )
+
+        app.state.settings = settings
+        app.state.controller = controller
+        app.state.registry = registry
+        app.state.alerts = alerts
+        app.state.clock = clock
+
+        await controller.start()
+
+        # The sign may be unreachable, and that is not a reason to refuse to
+        # start. What is put back below happens again on the next reconnect.
+        try:
+            await registry.restore()
+            await alerts.restore()
+            if settings.clock_sync_enabled:
+                await clock.sync_quietly()
+        except TransportError as err:
+            logger.warning("could not restore the sign's contents yet: %s", err)
+
+        # Only now, so that opening the link above does not fire hooks that
+        # duplicate the work just done. Registering them earlier meant every
+        # startup set the clock twice and sent a run sequence for an empty
+        # registry before the pool had even been allocated.
+        if settings.clock_sync_enabled:
+            controller.on_reconnect(clock.sync_quietly)
+        # A link that just came back may be in front of a sign that was power
+        # cycled, so nothing the controller believes about its contents holds.
+        controller.on_reconnect(registry.refresh)
+
+        if settings.clock_sync_enabled:
+            await clock.start()
+        sweeper = asyncio.create_task(_sweep_loop(app, settings.registry_sweep_seconds))
+        refresher = asyncio.create_task(
+            _refresh_loop(app, settings.refresh_interval_seconds)
+        )
+
+        try:
+            yield
+        finally:
+            for task in (sweeper, refresher):
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            if settings.clock_sync_enabled:
+                await clock.stop()
+            await controller.stop()
+            logger.info("readerboard stopped")
+
+    app = FastAPI(
+        title="readerboard",
+        description=DESCRIPTION,
+        version=__version__,
+        lifespan=lifespan,
+    )
+    app.state.settings = settings
+
+    _install_error_handlers(app)
+    app.include_router(routes_v2.router)
+    app.include_router(routes_compat.router)
+
+    @app.get("/health", tags=["Health"], summary="Is the service talking to the sign")
+    async def health(request: Request) -> HealthResponse:
+        """Report the state of the link, the slots, and the clock.
+
+        Deliberately unauthenticated, so that a monitor can watch the sign
+        without holding a key that could write to it.
+        """
+        controller = get_controller(request)
+        registry = get_registry(request)
+        alerts = get_alerts(request)
+        clock = get_clock(request)
+
+        used, total = registry.occupancy
+        return HealthResponse(
+            status="ok" if controller.is_connected else "degraded",
+            version=__version__,
+            link=LinkHealth(
+                url=controller.link_description,
+                connected=controller.is_connected,
+                last_write_at=controller.last_write_at,
+                last_error=controller.last_error,
+                writes=controller.writes,
+                suppressed_writes=controller.suppressed,
+            ),
+            slots_used=used,
+            slots_total=total,
+            sign_in_sync=registry.in_sync,
+            alert_active=alerts.active is not None,
+            clock_last_synced_at=clock.last_sync_at,
+        )
+
+    return app
+
+
+def _install_error_handlers(app: FastAPI) -> None:
+    """Turn the service's own exceptions into the status codes they mean."""
+
+    def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
+        async def handle(_: Request, exc: Exception) -> JSONResponse:
+            if code >= 500:
+                logger.warning("request failed: %s", exc)
+            return JSONResponse(status_code=code, content={"detail": str(exc)})
+
+        return handle
+
+    app.add_exception_handler(MarkupError, handler(status.HTTP_400_BAD_REQUEST))
+    app.add_exception_handler(ProtocolError, handler(status.HTTP_400_BAD_REQUEST))
+    app.add_exception_handler(MessageTooLong, handler(status.HTTP_400_BAD_REQUEST))
+    app.add_exception_handler(AlertTooLong, handler(status.HTTP_400_BAD_REQUEST))
+    app.add_exception_handler(commands.UnknownCommand, handler(status.HTTP_400_BAD_REQUEST))
+    app.add_exception_handler(commands.BadParameter, handler(status.HTTP_400_BAD_REQUEST))
+    app.add_exception_handler(UnknownSlot, handler(status.HTTP_404_NOT_FOUND))
+    app.add_exception_handler(LayoutFull, handler(status.HTTP_409_CONFLICT))
+    app.add_exception_handler(TransportError, handler(status.HTTP_503_SERVICE_UNAVAILABLE))
+
+
+app = create_app()

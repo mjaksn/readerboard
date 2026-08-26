@@ -1,0 +1,54 @@
+{
+    // Two ways to start the service from the editor.
+    //
+    // "API against a fake sign" needs no hardware: loop:// is pyserial's
+    // loopback, so the service starts, serves /docs, and accepts writes that go
+    // nowhere. Use it for working on the API itself.
+    //
+    // "API against the real sign" reads the config file like the installed
+    // service does. Point READERBOARD_CONFIG_FILE at a copy you keep locally.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "API against a fake sign",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "readerboard.api.app:app",
+                "--reload",
+                "--port",
+                "5001"
+            ],
+            "env": {
+                "READERBOARD_SERIAL_URL": "loop://",
+                "READERBOARD_API_KEY": "local-development-key",
+                "READERBOARD_STATE_PATH": "${workspaceFolder}/.local-state.json",
+                "READERBOARD_LOG_LEVEL": "DEBUG",
+                "READERBOARD_CLOCK_SYNC_ENABLED": "false"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "API against the real sign",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "readerboard",
+            "env": {
+                "READERBOARD_CONFIG_FILE": "${workspaceFolder}/config.local.toml",
+                "READERBOARD_LOG_LEVEL": "DEBUG"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                "-v"
+            ],
+            "justMyCode": false
+        }
+    ]
+}
