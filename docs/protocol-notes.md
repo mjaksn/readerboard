@@ -1,6 +1,7 @@
 # Alpha protocol notes
 
-Findings that the rewrite depends on, gathered for Phase 0 of the ground-up rewrite.
+What the Alpha Sign Communications Protocol actually says about the parts of it this
+service depends on, with the quotation behind each claim.
 
 **Status: confirmed against the protocol document. Not yet confirmed on the hardware.**
 The wire formats below are quoted from the Alpha Sign Communications Protocol itself, so
@@ -24,7 +25,7 @@ to RS-232 adapter. Four questions remain open, and they are listed at the end.
 
 ## Packet frame
 
-Unchanged from the previous implementation and already proven on this sign:
+Proven on the hardware, and the one part of this that was never in doubt:
 
 ```
 WAKEUP  SOH  type  address  STX  <command and payload>  EOT
@@ -62,8 +63,8 @@ Three consequences that shape the design:
    touch `E$`.
 2. **Nothing else can be written until it has been.** "A message file cannot be written
    until a Memory Configuration is written first, unless the file is a Priority TEXT file
-   or the default TEXT file A." This is exactly why the old implementation worked without
-   ever configuring memory: it only ever wrote the priority file.
+   or the default TEXT file A." So a service that only ever writes the priority file can
+   work without configuring memory at all, and one that uses the file pool cannot.
 3. **Each file costs eleven bytes of overhead beyond its own size.** "The sum of all the
    file sizes plus 11 bytes of overhead for each file should not exceed the total amount
    of available memory in the pool." `Settings` counts that overhead when it checks a
@@ -95,9 +96,11 @@ Write Priority TEXT file without any ASCII Message is sent". Then: "Once a Prior
 file stops running, the sign will begin running the other TEXT files."
 
 That is precisely an alert: takeover, then release by writing an empty priority file, and
-the rotation resumes by itself. It is also why the previous implementation could only
-ever show one message at a time. It wrote every message to file `0`, which by protocol
-suppresses everything else on the sign.
+the rotation resumes by itself.
+
+It is also the trap. Writing ordinary messages to file `0` is the obvious shortcut, and it
+works right up until a second source wants the sign, at which point the protocol
+guarantees only one of them is visible.
 
 The 125 byte capacity is fixed and outside the memory pool. `frames.write_text_file`
 rejects a longer priority write rather than letting the sign truncate it silently.
@@ -122,7 +125,7 @@ error, which makes the run sequence forgiving of a race between a slot expiring 
 sequence being rewritten.
 
 Once the sequence is set, the sign cycles the named files by itself, with no host
-involvement and no serial traffic per rotation. This is what the rewrite is built on:
+involvement and no serial traffic per rotation. This is what the design rests on:
 rotation costs nothing, so several sources can share the sign without constant redraws.
 
 ## What the spike still has to confirm
@@ -220,5 +223,5 @@ ever switched on.
 
 **Timing.** The inter-byte timeout for a standard packet is one second, and a nested
 packet needs at least 100 ms after its `STX`. This service sends no nested packets. The
-`inter_packet_delay` setting defaults to a conservative 0.5s; the old implementation slept
-two seconds after every write, and nobody ever measured whether it needed to.
+`inter_packet_delay` setting defaults to a conservative 0.5s until the spike measures what
+this sign actually needs.

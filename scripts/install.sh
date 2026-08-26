@@ -171,13 +171,11 @@ cat <<NEXT
     2. Check it found the sign:
          curl -s http://localhost:$PORT/health
 
-    3. Add the X-API-Key header to your Home Assistant rest_command and to the
-       crontab line, if you have not already. Do this BEFORE switching over from
-       the old service: the old one ignores headers it does not recognise, so
-       adding the key early is harmless and means nothing fails in between.
+    3. Give every client the X-API-Key header shown above. Writes without it
+       are refused.
 
-    4. Once the clock is being kept by this service, remove the crontab line
-       that used to do it.
+    4. Nothing else needs to set the sign's clock. This service does it at
+       startup, hourly, and whenever the link to the sign comes back.
 
     5. The API and its documentation are at:
          http://localhost:$PORT/docs

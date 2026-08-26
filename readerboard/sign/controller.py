@@ -1,16 +1,15 @@
 """The one thing allowed to talk to the sign.
 
 Every byte that reaches the sign goes through here, behind a single lock. That
-is what makes concurrent requests safe. The old server opened the port, wrote,
-slept two seconds and closed it on every request, so two Home Assistant calls
-arriving together fought over the device; the automation worked around it with
-``mode: queued`` and hand-tuned delays. Those delays are no longer load-bearing.
+is what makes concurrent requests safe: the sign is one serial device with no
+notion of interleaved conversations, so two callers arriving together must be
+made to take turns rather than left to garble each other's packets. Callers
+therefore need no delays or queueing of their own.
 
 The controller also remembers the exact bytes it last put in each sign file and
-declines to write them again. Home Assistant re-sends the temperature on every
-restart and on a schedule whether or not it changed, and each of those writes
-used to make the sign visibly redraw. Suppressing them is what stops the sign
-flickering for no reason.
+declines to write them again. Sources tend to re-send on a schedule whether or
+not anything changed, and every such write makes the sign visibly redraw.
+Suppressing them is what stops the display flickering for no reason.
 
 pyserial blocks, so the actual write happens on a worker thread. The lock is
 held across the thread hop, so ordering is preserved.

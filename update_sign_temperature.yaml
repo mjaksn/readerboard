@@ -1,24 +1,19 @@
 # Home Assistant automation that keeps the outdoor temperature on the sign.
 #
-# What changed for the rewrite, and why:
+# Two things this automation deliberately does not do.
 #
-#   - The one second delay before the call and the four second delay after it
-#     are gone. They existed because the old server opened the serial port,
-#     wrote, slept two seconds and closed it on every request, so two calls
-#     arriving together fought over the device. The service now funnels every
-#     write through a single writer and there is nothing left to space out.
+#   - No delays around the call, and no "mode: queued". The service funnels
+#     every write through a single writer that owns the serial link, so
+#     concurrent calls are already made to take turns. Spacing them out here
+#     would be the automation doing the service's job for it.
 #
-#   - "mode: queued" with "max: 4" is gone for the same reason. Serialising the
-#     calls was the automation doing the server's job for it.
+#   - Nothing about the sign's clock. The service sets it whenever the link
+#     comes back, which is a better signal for "the sign may have just lost
+#     power" than any schedule an automation could run.
 #
-#   - The mains power outage trigger is kept, but it no longer has to carry the
-#     clock. The service sets the sign's clock whenever the link to it comes
-#     back, which is a better signal for "the sign may have just lost power"
-#     than any schedule.
-#
-# Re-sending an unchanged temperature is now free: the service notices the bytes
-# match what the sign already holds and does not write, so the display no longer
-# flickers on every Home Assistant restart.
+# Re-sending an unchanged temperature costs nothing: the service notices the
+# bytes match what the sign already holds and does not write, so the display
+# does not flicker on every Home Assistant restart.
 
 alias: Update outdoor temperature on Betabrite sign
 description: ''

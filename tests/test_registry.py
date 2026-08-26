@@ -260,7 +260,7 @@ class TestWritingWhileTheSignIsUnreachable:
     The registry is the durable record of what should be on the sign, so it
     accepts the message, persists it, and converges when the link comes back.
     Returning 503 here would make it a pass-through and push the retry logic
-    back onto Home Assistant, which is the thing this rewrite exists to take
+    back onto Home Assistant, which is the thing this service exists to take
     off it.
     """
 

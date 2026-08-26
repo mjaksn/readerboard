@@ -195,126 +195,6 @@
         "title": "HealthResponse",
         "type": "object"
       },
-      "LegacyCommandRequest": {
-        "description": "The body POST /Write/ControlCommand has always accepted.",
-        "properties": {
-          "command": {
-            "description": "the control command to send to the sign",
-            "title": "Command",
-            "type": "string"
-          },
-          "parameter": {
-            "default": "",
-            "description": "a parameter for the command",
-            "title": "Parameter",
-            "type": "string"
-          }
-        },
-        "required": [
-          "command"
-        ],
-        "title": "LegacyCommandRequest",
-        "type": "object"
-      },
-      "LegacyControlCommand": {
-        "description": "One entry of GET /Enumerations/ControlCommands.",
-        "properties": {
-          "control_command": {
-            "title": "Control Command",
-            "type": "string"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          }
-        },
-        "required": [
-          "control_command",
-          "description"
-        ],
-        "title": "LegacyControlCommand",
-        "type": "object"
-      },
-      "LegacyDisplayMode": {
-        "description": "One entry of GET /Enumerations/DisplayModes.",
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "display_mode": {
-            "title": "Display Mode",
-            "type": "string"
-          }
-        },
-        "required": [
-          "display_mode",
-          "description"
-        ],
-        "title": "LegacyDisplayMode",
-        "type": "object"
-      },
-      "LegacyMessageRequest": {
-        "description": "The body POST /Write/Message has always accepted.",
-        "properties": {
-          "display_mode": {
-            "description": "the display mode to use when showing the message",
-            "title": "Display Mode",
-            "type": "string"
-          },
-          "message": {
-            "description": "the message, including markup tokens, to display on the sign",
-            "title": "Message",
-            "type": "string"
-          }
-        },
-        "required": [
-          "display_mode",
-          "message"
-        ],
-        "title": "LegacyMessageRequest",
-        "type": "object"
-      },
-      "LegacyResult": {
-        "description": "The body the old endpoints have always returned, whatever happened.",
-        "properties": {
-          "result": {
-            "description": "OK or ERROR",
-            "title": "Result",
-            "type": "string"
-          },
-          "result_message": {
-            "description": "text description of the command result",
-            "title": "Result Message",
-            "type": "string"
-          }
-        },
-        "required": [
-          "result",
-          "result_message"
-        ],
-        "title": "LegacyResult",
-        "type": "object"
-      },
-      "LegacyToken": {
-        "description": "One entry of GET /Enumerations/MarkupTokens.",
-        "properties": {
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "token_text": {
-            "title": "Token Text",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token_text",
-          "description"
-        ],
-        "title": "LegacyToken",
-        "type": "object"
-      },
       "LinkHealth": {
         "description": "The state of the link to the sign.",
         "properties": {
@@ -430,6 +310,126 @@
           "message"
         ],
         "title": "MessageRequest",
+        "type": "object"
+      },
+      "SimpleCommandRequest": {
+        "description": "The body POST /Write/ControlCommand has always accepted.",
+        "properties": {
+          "command": {
+            "description": "the control command to send to the sign",
+            "title": "Command",
+            "type": "string"
+          },
+          "parameter": {
+            "default": "",
+            "description": "a parameter for the command",
+            "title": "Parameter",
+            "type": "string"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "title": "SimpleCommandRequest",
+        "type": "object"
+      },
+      "SimpleControlCommand": {
+        "description": "One entry of GET /Enumerations/ControlCommands.",
+        "properties": {
+          "control_command": {
+            "title": "Control Command",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "control_command",
+          "description"
+        ],
+        "title": "SimpleControlCommand",
+        "type": "object"
+      },
+      "SimpleDisplayMode": {
+        "description": "One entry of GET /Enumerations/DisplayModes.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "display_mode": {
+            "title": "Display Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_mode",
+          "description"
+        ],
+        "title": "SimpleDisplayMode",
+        "type": "object"
+      },
+      "SimpleMessageRequest": {
+        "description": "The body POST /Write/Message has always accepted.",
+        "properties": {
+          "display_mode": {
+            "description": "the display mode to use when showing the message",
+            "title": "Display Mode",
+            "type": "string"
+          },
+          "message": {
+            "description": "the message, including markup tokens, to display on the sign",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "display_mode",
+          "message"
+        ],
+        "title": "SimpleMessageRequest",
+        "type": "object"
+      },
+      "SimpleResult": {
+        "description": "The body the old endpoints have always returned, whatever happened.",
+        "properties": {
+          "result": {
+            "description": "OK or ERROR",
+            "title": "Result",
+            "type": "string"
+          },
+          "result_message": {
+            "description": "text description of the command result",
+            "title": "Result Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "result_message"
+        ],
+        "title": "SimpleResult",
+        "type": "object"
+      },
+      "SimpleToken": {
+        "description": "One entry of GET /Enumerations/MarkupTokens.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "token_text": {
+            "title": "Token Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token_text",
+          "description"
+        ],
+        "title": "SimpleToken",
         "type": "object"
       },
       "SlotResponse": {
@@ -565,9 +565,9 @@
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. `GET /health` does not.\n\nThe `/Write` and `/Enumerations` paths are the previous version of this API,\nkept working unchanged apart from the API key.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. `GET /health` does not.\n\nThe `/Write` and `/Enumerations` paths are a smaller surface for clients that\nwould rather not read status codes: every response there is a 200 with the\noutcome in the body.\n",
     "title": "readerboard",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -581,7 +581,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/LegacyControlCommand"
+                    "$ref": "#/components/schemas/SimpleControlCommand"
                   },
                   "title": "Response Control Commands Enumerations Controlcommands Get",
                   "type": "array"
@@ -593,7 +593,7 @@
         },
         "summary": "Available control commands",
         "tags": [
-          "Enumerations (compatibility)"
+          "Enumerations (simple)"
         ]
       }
     },
@@ -607,7 +607,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/LegacyDisplayMode"
+                    "$ref": "#/components/schemas/SimpleDisplayMode"
                   },
                   "title": "Response Display Modes Enumerations Displaymodes Get",
                   "type": "array"
@@ -619,13 +619,13 @@
         },
         "summary": "Available display modes",
         "tags": [
-          "Enumerations (compatibility)"
+          "Enumerations (simple)"
         ]
       }
     },
     "/Enumerations/MarkupTokens": {
       "get": {
-        "description": "List the markup tokens, in the old shape.\n\nThe old implementation had the two field descriptions the wrong way round,\ndescribing ``token_text`` as the description and ``description`` as the\ntoken text. The field names and values were always right, so only the\ndocumentation changes here.",
+        "description": "List the markup tokens, in the old shape.\n\n``token_text`` is the token to write in a message, such as ``<red>``, and\n``description`` says what it does. Easy to describe the wrong way round,\nwhich is why they are spelled out here.",
         "operationId": "markup_tokens_Enumerations_MarkupTokens_get",
         "responses": {
           "200": {
@@ -633,7 +633,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/LegacyToken"
+                    "$ref": "#/components/schemas/SimpleToken"
                   },
                   "title": "Response Markup Tokens Enumerations Markuptokens Get",
                   "type": "array"
@@ -645,13 +645,13 @@
         },
         "summary": "Available markup tokens",
         "tags": [
-          "Enumerations (compatibility)"
+          "Enumerations (simple)"
         ]
       }
     },
     "/Write/ControlCommand": {
       "post": {
-        "description": "Send one of the sign's control commands, as the old API did.",
+        "description": "Send one of the sign's control commands.",
         "operationId": "write_control_command_Write_ControlCommand_post",
         "parameters": [
           {
@@ -675,7 +675,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LegacyCommandRequest"
+                "$ref": "#/components/schemas/SimpleCommandRequest"
               }
             }
           },
@@ -686,7 +686,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LegacyResult"
+                  "$ref": "#/components/schemas/SimpleResult"
                 }
               }
             },
@@ -705,13 +705,13 @@
         },
         "summary": "Send a control command to the sign",
         "tags": [
-          "Write (compatibility)"
+          "Write (simple)"
         ]
       }
     },
     "/Write/Message": {
       "post": {
-        "description": "Display a message on the sign, as the old API did.\n\nThe message goes into a reserved slot rather than the sign's priority file,\nso other sources can share the sign with it.",
+        "description": "Display a message on the sign.\n\nThe message goes into a reserved slot rather than the sign's priority file,\nso other sources can share the sign with it.",
         "operationId": "write_message_Write_Message_post",
         "parameters": [
           {
@@ -735,7 +735,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/LegacyMessageRequest"
+                "$ref": "#/components/schemas/SimpleMessageRequest"
               }
             }
           },
@@ -746,7 +746,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LegacyResult"
+                  "$ref": "#/components/schemas/SimpleResult"
                 }
               }
             },
@@ -765,7 +765,7 @@
         },
         "summary": "Write a message to the sign",
         "tags": [
-          "Write (compatibility)"
+          "Write (simple)"
         ]
       }
     },

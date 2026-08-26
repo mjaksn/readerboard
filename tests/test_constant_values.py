@@ -146,9 +146,8 @@ def test_special_function_labels(actual, expected, citation):
 def test_the_day_of_week_range_starts_at_sunday():
     """Table 15: "1" 31H = Sunday through "7" 37H = Saturday.
 
-    The old API's help text said the parameter was "0-6", which was wrong in
-    both the base and the starting day. Pinned here because the wrong range
-    would be accepted silently by anything that only checks the byte width.
+    Pinned because a wrong range is accepted silently by anything that only
+    checks the byte width, and "0 to 6" is the guess most people make.
     """
     from readerboard.protocol import frames
 

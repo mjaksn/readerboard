@@ -1,4 +1,4 @@
-"""Tests for the markup tokenizer, including the hang the old parser had."""
+"""Tests for the markup tokenizer, including the unterminated-tag hang."""
 
 import pytest
 
@@ -34,10 +34,12 @@ def test_the_home_assistant_payload_renders():
 
 
 class TestUnterminatedTag:
-    """The old parser looped forever on a '<' with no '>' after it.
+    """A '<' with no '>' after it must not hang the tokenizer.
 
-    ``find('>', i)`` returned -1, the branch that advanced the cursor was
-    skipped, and the request thread never came back. Both behaviours below are
+    The obvious implementation searches for the closing bracket and advances the
+    cursor only when it finds one, so an unterminated tag leaves the cursor
+    where it was and the loop spins forever, taking the thread with it. Both
+    behaviours below are
     deliberate: reject it where we can, pass it through where we must.
     """
 
@@ -61,7 +63,8 @@ class TestUnknownTag:
             render("<nosuchtag>")
 
     def test_lenient_emits_it_literally(self):
-        # This is what the old parser did, and compat payloads may rely on it.
+        # Lenient mode passes an unknown tag through as literal text, so a
+        # message written for a newer token set still displays something.
         assert render("<nosuchtag>", strict=False) == b"<nosuchtag>"
 
 
@@ -88,8 +91,8 @@ class TestNonAscii:
         assert render("hello \U0001f600", strict=False) == b"hello ?"
 
     def test_utf8_is_not_emitted_raw(self):
-        # The old implementation encoded the whole message as UTF-8, so this
-        # produced two bytes that the sign rendered as garbage.
+        # Encoding the message as UTF-8 would put two bytes on the wire here,
+        # which the sign renders as garbage rather than as an accented letter.
         assert render("é") == c.e_ACCENT
         assert render("é") != "é".encode()
 

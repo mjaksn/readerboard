@@ -1,17 +1,14 @@
-r"""Keeping the sign's clock right.
+"""Keeping the sign's clock right.
 
 The sign has its own battery-backed clock and it drifts. It also loses the time
 when it loses power for long enough, and a sign showing ``<time>`` with a wrong
 clock is worse than one showing nothing, because it looks fine.
 
-This replaces the crontab line that used to do the job:
-
-    1 * * * * time_str=`date --date="next minute" +"\%H\%M"` && curl ... SET_TIME
-
-That line ran hourly whatever the state of the sign, and could do nothing about a
-sign that came back up at ten past the hour. This service syncs on startup,
-hourly, and on every reconnect, which is the closest signal available to "the
-sign may just have been power cycled".
+So the clock is set on startup, once an hour, and on every reconnect. The
+reconnect trigger is the one that earns its keep: a scheduled sync alone leaves
+a sign that came back at ten past the hour wrong until the next sync, and the
+link returning is the closest signal available to "the sign may just have been
+power cycled".
 
 ``now`` is injected rather than mocked, so the tests can be about what gets sent
 at a given time rather than about patching the clock out from under the code.
