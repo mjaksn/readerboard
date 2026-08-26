@@ -567,7 +567,7 @@
   "info": {
     "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. `GET /health` does not.\n\nThe `/Write` and `/Enumerations` paths are a smaller surface for clients that\nwould rather not read status codes: every response there is a 200 with the\noutcome in the body.\n",
     "title": "readerboard",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "openapi": "3.1.0",
   "paths": {
