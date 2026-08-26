@@ -25,8 +25,8 @@ def test_every_token_in_the_table_renders():
 
 
 def test_the_home_assistant_payload_renders():
-    # The exact shape Home_Assistant_Sign_REST_Commands.yaml sends, with the
-    # template already filled in.
+    # A temperature and the time, the common shape: a value from somewhere
+    # else, then <time> for the sign to fill in on its own.
     rendered = render("<green>18.4<degree> <red><time>")
     assert rendered == (
         c.TEXT_COLOR_GREEN + b"18.4" + c.XC_DEGREES + b" " + c.TEXT_COLOR_RED + c.CURTIME_INSERT
