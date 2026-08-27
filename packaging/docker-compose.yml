@@ -1,0 +1,90 @@
+# readerboard under Docker Compose.
+#
+# The other file beside this one, readerboard.service, is the same deployment
+# for a machine running systemd. Pick one; they do the same job.
+#
+#   docker compose --file packaging/docker-compose.yml up --detach
+#
+# Set READERBOARD_API_KEY in the environment or in a .env file next to this one
+# before starting. There is no default and the service will not accept a write
+# without it. Any long random string will do:
+#
+#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# Named explicitly. Compose otherwise names the project after the directory the
+# file is in, which here is `packaging`, and that name ends up on the volume and
+# the network as a prefix. Nobody wants to go looking for `packaging_readerboard-state`.
+name: readerboard
+
+services:
+  readerboard:
+    image: ghcr.io/mjaksn/readerboard:latest
+    container_name: readerboard
+    restart: unless-stopped
+
+    environment:
+      # The sign's address, as a pyserial URL. This is the arrangement the rest
+      # of the documentation treats as normal: the sign hangs off an Ethernet to
+      # RS-232 adapter, and the container reaches it over the network like any
+      # other host. Change the address to your adapter's.
+      #
+      # Use loop:// instead to run the service against nothing, which serves the
+      # whole API and is a good way to try it before there is a sign to point at.
+      READERBOARD_SERIAL_URL: socket://192.168.2.51:4001
+
+      # Required on every write, never logged. Taken from the environment rather
+      # than written here, so that this file can be committed and the key cannot.
+      READERBOARD_API_KEY: ${READERBOARD_API_KEY:?set READERBOARD_API_KEY before starting}
+
+      # Every setting in packaging/config.example.toml is available here with a
+      # READERBOARD_ prefix. A few worth knowing about:
+      #
+      # READERBOARD_TIMEZONE: America/New_York
+      #   The sign's clock. Unset means the container's own local time, which is
+      #   UTC unless you have changed it.
+      #
+      # READERBOARD_SLOT_COUNT and READERBOARD_SLOT_CAPACITY
+      #   Changing either reallocates the sign's memory on the next start, and
+      #   that ERASES every message on it. Not settings to fiddle with.
+      #
+      # READERBOARD_LOG_LEVEL: INFO
+      #   Logs go to stdout, where `docker compose logs` collects them.
+
+    ports:
+      # The service listens on 5001 inside the container. Bind it to the
+      # loopback address rather than to every interface if the clients are on
+      # this host: "127.0.0.1:5001:5001".
+      - "5001:5001"
+
+    volumes:
+      # The registered messages are persisted here, which is what lets the sign
+      # come back after a restart without every source having to write to it
+      # again. Losing this volume is not fatal, but the sign comes back empty.
+      - readerboard-state:/var/lib/readerboard
+
+      # A config file is optional. Everything above can be set here instead, in
+      # the format packaging/config.example.toml documents, and the environment
+      # still wins over the file. The container looks at this exact path.
+      #
+      #- ./config.toml:/etc/readerboard/config.toml:ro
+
+    # == a sign on a cable rather than on the network =========================
+    #
+    # Uncomment both of these for a sign plugged straight into this machine, and
+    # set READERBOARD_SERIAL_URL to /dev/ttyUSB0 above.
+    #
+    # The number in group_add is the numeric GID of the group that owns the
+    # device on the host, and it has to be the number rather than the name: the
+    # container has no /etc/group entry for the host's dialout, so a name would
+    # not resolve. It is 20 on Debian and Raspberry Pi OS and 18 on Fedora, but
+    # check rather than assume:
+    #
+    #   stat -c '%G %g' /dev/ttyUSB0
+    #
+    #devices:
+    #  - /dev/ttyUSB0:/dev/ttyUSB0
+    #group_add:
+    #  - "20"
+
+volumes:
+  readerboard-state:

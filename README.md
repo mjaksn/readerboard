@@ -3,6 +3,8 @@
 [![CI](https://github.com/mjaksn/readerboard/actions/workflows/ci.yml/badge.svg)](https://github.com/mjaksn/readerboard/actions/workflows/ci.yml)
 [![Release](https://github.com/mjaksn/readerboard/actions/workflows/release.yml/badge.svg)](https://github.com/mjaksn/readerboard/actions/workflows/release.yml)
 [![PyPI](https://img.shields.io/pypi/v/readerboard)](https://pypi.org/project/readerboard/)
+[![GHCR](https://img.shields.io/badge/ghcr.io-readerboard-blue)](https://github.com/mjaksn/readerboard/pkgs/container/readerboard)
+[![Docker Hub](https://img.shields.io/docker/v/mjaksn/readerboard?label=docker%20hub&sort=semver)](https://hub.docker.com/r/mjaksn/readerboard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/mjaksn/readerboard/blob/main/LICENSE)
 
 An HTTP service that drives a BetaBrite Classic sign, either through a serial cable or
@@ -36,13 +38,14 @@ until it is released, after which the rotation resumes.
 - Python 3.11 or newer.
 - A BetaBrite Classic, reachable either at a serial device such as `/dev/ttyUSB0` or over
   the network through an Ethernet to RS-232 adapter at `socket://host:port`.
-- For the installer, a machine running systemd. The service itself runs anywhere Python
-  does; only `scripts/install.sh` is Linux specific.
+- Either a machine running systemd, for `scripts/install.sh`, or a container runtime, for
+  the published image. The service itself runs anywhere Python does; only the installer
+  is Linux specific.
 
 ## Try it without a sign
 
 `loop://` is pyserial's loopback, so the service will start and serve its API with
-nothing attached.
+nothing attached. From a checkout:
 
 ```
 pip install -e ".[dev]"
@@ -51,9 +54,21 @@ READERBOARD_SERIAL_URL=loop:// READERBOARD_API_KEY=dev-key \
     python -m readerboard
 ```
 
+Or without one:
+
+```
+docker run --rm -p 5001:5001 \
+    -e READERBOARD_SERIAL_URL=loop:// -e READERBOARD_API_KEY=dev-key \
+    ghcr.io/mjaksn/readerboard:latest
+```
+
 Then open <http://127.0.0.1:5001/docs>.
 
 ## Installing it properly
+
+Two ways, which do the same job. Pick whichever suits the machine.
+
+### With systemd
 
 ```
 sudo scripts/install.sh --serial-url socket://192.168.2.51:4001
@@ -67,6 +82,40 @@ again after pulling a new version: your config file and key are left alone.
 `sudo scripts/uninstall.sh` removes the service and the program but keeps your config and
 your registered messages, so reinstalling puts the sign back as it was. Add `--purge` to
 remove those too.
+
+### With Docker
+
+The image is published to both registries on every release, for `linux/amd64`,
+`linux/arm64` and `linux/arm/v7`, so a Pi pulls the same tag an x86 server does.
+
+```
+docker run -d --name readerboard --restart unless-stopped -p 5001:5001 \
+    -e READERBOARD_SERIAL_URL=socket://192.168.2.51:4001 \
+    -e READERBOARD_API_KEY=YOUR-KEY \
+    -v readerboard-state:/var/lib/readerboard \
+    ghcr.io/mjaksn/readerboard:latest
+```
+
+`packaging/docker-compose.yml` is the same thing as a Compose file, with the settings
+worth knowing about written out beside it.
+
+The volume is what matters here. The registered messages are persisted to
+`/var/lib/readerboard`, and without it the sign comes back empty after a restart rather
+than putting back what was on it.
+
+Every setting is available as an environment variable, so no config file is needed. Mount
+one at `/etc/readerboard/config.toml` if you would rather have it, in the format
+`packaging/config.example.toml` documents; the environment still wins over the file.
+
+For a sign on a cable rather than on the network, the container needs the device passed
+in and needs to be in the group that owns it. The group has to be given as a number,
+because the container has no `/etc/group` entry for the host's `dialout`:
+
+```
+stat -c '%G %g' /dev/ttyUSB0        # 20 on Debian and Raspberry Pi OS, 18 on Fedora
+docker run ... --device /dev/ttyUSB0 --group-add 20 \
+    -e READERBOARD_SERIAL_URL=/dev/ttyUSB0 ...
+```
 
 ## Using it
 
@@ -135,6 +184,11 @@ registered, and it shares the sign the moment anything else registers.
 Settings come from `/etc/readerboard/config.toml`, overridden by environment variables
 prefixed `READERBOARD_`. `packaging/config.example.toml` documents every one of them.
 
+Every setting has both forms, and the container path relies on it: `slot_count` in the
+file is `READERBOARD_SLOT_COUNT` in the environment. Under Docker the file is optional
+and usually absent, which is not an error. `READERBOARD_CONFIG_FILE` moves the file if
+you want it somewhere other than the default.
+
 The sign's address is a full pyserial URL in `serial_url`: `socket://192.168.2.51:4001`
 for an Ethernet to RS-232 adapter, `/dev/ttyUSB0` for a cable plugged straight in, or
 `loop://` to run the service with no sign attached.
@@ -162,6 +216,19 @@ Sensible precautions remain sensible:
 - Give the key only to clients you trust, and prefer a firewall allow-list on top.
 - The service runs as a dedicated system user under a hardened systemd unit, which is
   worth keeping rather than running it as root for convenience.
+
+Under Docker the same points apply, with different mechanisms:
+
+- The image runs as an unprivileged user, UID and GID 10001, not as root. A bind-mounted
+  state directory has to be owned by that number on the host.
+- An API key passed as an environment variable is visible to anyone who can run
+  `docker inspect` on the container, and to anything that reads the Compose file's
+  environment. Mounting a config file mode 0640 keeps it out of both.
+- Bind the published port to the loopback address, `-p 127.0.0.1:5001:5001`, unless
+  clients on other machines need to reach it.
+- Passing a serial device in with `--device` gives the container that device and nothing
+  else. It does not need `--privileged`, and giving it that would hand it every device on
+  the host.
 
 ## Development
 

@@ -10,6 +10,47 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [0.1.3] - 2026-08-27
+
+### Added
+
+- **A container image**, published to `ghcr.io/mjaksn/readerboard` and
+  `docker.io/mjaksn/readerboard` on every release, for `linux/amd64`,
+  `linux/arm64` and `linux/arm/v7`. It is a peer of `scripts/install.sh` rather
+  than a replacement for it: the same service, the same settings, and the same
+  state file, on a machine that runs containers instead of systemd.
+  `packaging/docker-compose.yml` is a worked example, including what a sign on a
+  cable rather than on the network needs.
+- `scripts/lock_hashes.py`, which fills in the lock files from the index's own
+  digests. It reads the PyPI JSON API and downloads nothing.
+- `requirements-build.lock`, pinning and hashing setuptools, the one package
+  needed to build a wheel from this tree. Both the image and
+  `scripts/install.sh` now build with `--no-build-isolation` against it instead
+  of letting pip fetch an unverified setuptools of its own. The
+  `requires = ["setuptools>=77"]` floor in `pyproject.toml` is unchanged, since
+  that is what anyone else building from source resolves against.
+
+### Changed
+
+- **Plain `uvicorn` instead of the `uvicorn[standard]` extra**, which drops
+  `uvloop`, `httptools`, `PyYAML`, `websockets` and `watchfiles` from the
+  dependencies. That extra makes a busy server faster, and this one is not busy:
+  it answers a handful of requests and then waits on a 9600 baud serial line
+  behind a deliberate inter-packet delay, so a faster event loop and HTTP parser
+  buy nothing measurable here. The cost was measurable. None of the first three
+  publishes a 32-bit arm wheel, and building them under emulation took eight
+  minutes of a thirteen minute container build. Nothing in the HTTP surface
+  changes. An existing install keeps the packages until they are cleaned up, and
+  is not harmed by them.
+- **`requirements.lock` now carries a hash for every file of every pinned
+  version**, and both the image and `scripts/install.sh` install with
+  `--require-hashes`. A version pin says what to install; the hashes say what the
+  bytes must be, and pip now refuses anything else. Nothing about which versions
+  are installed has changed.
+
+Nothing in the service itself changed. Every setting the container needs was
+already reachable as a `READERBOARD_` environment variable.
+
 ## [0.1.2] - 2026-08-26
 
 ### Documentation
@@ -95,6 +136,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.1.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.0

@@ -1,0 +1,40 @@
+# What the build context does not need.
+#
+# The Dockerfile copies five things by name: the two lock files, pyproject.toml,
+# the licence and readme the build reads, and the package itself. Everything
+# else here is either large, wrong for the target platform, or both.
+
+# A Windows virtual environment, which is both the largest thing in the
+# checkout and useless inside a Linux image.
+.venv/
+venv/
+env/
+
+.git/
+.github/
+.gitignore
+.vscode/
+
+# The suite runs in CI against the source tree, not against the image.
+tests/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Prose and deployment artefacts for the other install path.
+docs/
+packaging/
+scripts/
+CHANGELOG.md
+AGENTS.md
+CLAUDE.md
+Dockerfile
+.dockerignore
+
+# Build leftovers. An egg-info from a local editable install names paths that do
+# not exist in the image.
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]

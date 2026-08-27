@@ -79,6 +79,11 @@ it there too.
 `tests/test_frames.py` asserts whole transmissions literally. When one of those
 fails, the frame builder is wrong, not the test.
 
+CI also builds the container image for amd64 and starts it against `loop://`,
+for the reason it diffs the checked-in OpenAPI description: a thing exercised
+only at tag time rots silently, and the first anybody hears of it is a failed
+release.
+
 ## Prose is part of the product
 
 Log lines, exception text, `--help` output and the OpenAPI descriptions are read
@@ -90,5 +95,30 @@ the same commit.
 
 Tag `vX.Y.Z`. The release workflow checks the tag against `pyproject.toml` and
 against `readerboard.__version__`, all three of which must agree, and lifts the
-release notes out of `CHANGELOG.md`. Publishing uses a PyPI trusted publisher,
-so there is no API token anywhere in the repository.
+release notes out of `CHANGELOG.md`.
+
+A tag publishes three things: the distributions to PyPI, the container image to
+GHCR and Docker Hub, and the GitHub release page. PyPI goes through a trusted
+publisher and GHCR through the workflow's own token, so neither has a secret in
+the repository. Docker Hub is the exception and needs `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN`.
+
+The image is built for `linux/amd64`, `linux/arm64` and `linux/arm/v7`, the arm
+legs under QEMU emulation. Keep every dependency on a platform that publishes a
+wheel for all three. This is why `pyproject.toml` takes plain `uvicorn` rather
+than the `standard` extra: that extra's `uvloop`, `httptools` and `PyYAML` have
+no 32-bit arm wheel, and compiling them under emulation took eight minutes of a
+thirteen minute build, to speed up an event loop that spends its life waiting on
+a 9600 baud serial line.
+
+`requirements.lock` carries a hash for every file of every pinned version, and
+both the image and `scripts/install.sh` install with `--require-hashes`.
+`requirements-build.lock` does the same for setuptools, the one package needed
+to turn this tree into a wheel, so that both installers can build with
+`--no-build-isolation` rather than fetching an unverified one. The floor in
+`pyproject.toml` stays a floor: it is what a third party building from source
+sees, and only the two installers here are pinned.
+
+When moving a version, edit the pin and then run `scripts/lock_hashes.py`, which
+brings the hashes with it from the index's own digests and covers both files.
+`--check` fails if either has drifted.

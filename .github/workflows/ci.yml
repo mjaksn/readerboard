@@ -135,13 +135,68 @@ jobs:
             exit 1
           }
 
+  docker:
+    name: the image builds and starts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: build it
+        # amd64 only, and no push. The point is that the Dockerfile still
+        # builds and the image still starts, which is the same reasoning the
+        # openapi job rests on: a thing exercised only at tag time rots
+        # silently, and the first anybody hears of it is a failed release.
+        # Whether emulation works is the release workflow's problem, and it
+        # takes minutes rather than seconds to answer.
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: readerboard:ci
+      - name: start it and ask it how it is
+        # loop:// is pyserial's loopback, so no sign is involved here either.
+        #
+        # This asserts that the request succeeds, not what the body says. The
+        # link reads as open against loop:// exactly as it does against a real
+        # adapter, so `status` would prove nothing; that the server came up at
+        # all inside the image is the thing worth checking.
+        run: |
+          docker run --detach --name probe \
+            --env READERBOARD_SERIAL_URL=loop:// \
+            --env READERBOARD_API_KEY=ci-key \
+            --publish 5001:5001 readerboard:ci
+          for attempt in $(seq 1 30); do
+            if curl --silent --fail http://127.0.0.1:5001/health > health.json; then
+              break
+            fi
+            sleep 1
+          done
+          cat health.json
+          docker logs probe
+          test -s health.json || {
+            echo "::error::the container never answered on /health"
+            exit 1
+          }
+      - name: it must be running as the unprivileged user
+        # The image sets USER readerboard. A change that dropped that line
+        # would still build, still start, and still pass everything above.
+        run: |
+          who="$(docker exec probe id --user --name)"
+          echo "running as $who"
+          [ "$who" = "readerboard" ] || {
+            echo "::error::the container is running as $who, not readerboard"
+            exit 1
+          }
+
   gate:
     name: gate
     # The single check for branch protection to require. Runs whatever the
     # others did, so a failure upstream is reported here rather than leaving
     # the gate skipped and the requirement satisfied by default.
     if: always()
-    needs: [lint, test, build, openapi]
+    needs: [lint, test, build, openapi, docker]
     runs-on: ubuntu-latest
     steps:
       - name: every job must have succeeded
@@ -150,7 +205,9 @@ jobs:
           echo "test    ${{ needs.test.result }}"
           echo "build   ${{ needs.build.result }}"
           echo "openapi ${{ needs.openapi.result }}"
+          echo "docker  ${{ needs.docker.result }}"
           [ "${{ needs.lint.result }}"    = "success" ] || exit 1
           [ "${{ needs.test.result }}"    = "success" ] || exit 1
           [ "${{ needs.build.result }}"   = "success" ] || exit 1
           [ "${{ needs.openapi.result }}" = "success" ] || exit 1
+          [ "${{ needs.docker.result }}"  = "success" ] || exit 1
