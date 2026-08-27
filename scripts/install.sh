@@ -92,13 +92,28 @@ fi
 "$INSTALL_DIR/venv/bin/python" -m pip install --quiet --upgrade pip
 
 # The lock file pins what the sign runs on, so that an upstream release cannot
-# change what is on the wall without somebody deciding it should.
+# change what is on the wall without somebody deciding it should. It carries a
+# hash for every file as well as a version, and --require-hashes makes pip check
+# them: a pin says what to install, the hashes say what the bytes must be.
 if [ -f "$SOURCE_DIR/requirements.lock" ]; then
-    "$INSTALL_DIR/venv/bin/python" -m pip install --quiet -r "$SOURCE_DIR/requirements.lock"
-    say "installed pinned dependencies from requirements.lock"
+    "$INSTALL_DIR/venv/bin/python" -m pip install --quiet --require-hashes \
+        -r "$SOURCE_DIR/requirements.lock"
+    say "installed pinned dependencies from requirements.lock, hashes verified"
 fi
 
-"$INSTALL_DIR/venv/bin/python" -m pip install --quiet --no-deps "$SOURCE_DIR"
+# The one package needed to turn the source tree into a wheel, pinned and hashed
+# for the same reason as the rest. Installing it here lets the build below skip
+# pip's build isolation, which would otherwise go out and fetch an unverified
+# setuptools of its own, the only unpinned thing in an otherwise pinned install.
+build_isolation=""
+if [ -f "$SOURCE_DIR/requirements-build.lock" ]; then
+    "$INSTALL_DIR/venv/bin/python" -m pip install --quiet --require-hashes \
+        -r "$SOURCE_DIR/requirements-build.lock"
+    build_isolation="--no-build-isolation"
+fi
+
+# shellcheck disable=SC2086  # deliberately unquoted: empty means "pass nothing"
+"$INSTALL_DIR/venv/bin/python" -m pip install --quiet --no-deps $build_isolation "$SOURCE_DIR"
 say "installed the readerboard package"
 
 chown -R root:root "$INSTALL_DIR"

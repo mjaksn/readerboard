@@ -5,6 +5,10 @@
 # also be given as an environment variable with a READERBOARD_ prefix, which wins
 # over the file: READERBOARD_SERIAL_URL, READERBOARD_API_KEY, and so on.
 #
+# Under Docker the file is optional and usually absent, because the environment
+# carries the settings instead. Mount one at /etc/readerboard/config.toml to use
+# it there, and the same precedence applies: the environment still wins.
+#
 # Every value shown is the default unless the comment says otherwise.
 
 # == the link to the sign ====================================================
@@ -82,10 +86,14 @@ api_key = ""
 
 # == state and logging =======================================================
 
-# systemd creates this directory and gives it to the service user.
+# Where the registered messages are persisted, so that a restart puts the sign
+# back as it was. systemd creates this directory and gives it to the service
+# user; the container image creates it as a volume owned by the same name. Either
+# way, do not point it somewhere that is not kept.
 state_path = "/var/lib/readerboard/state.json"
 
 log_level = "INFO"
 
-# Logs go to stderr for journald. Set this as well for a rotating file copy.
+# Logs go to stderr, which journald collects under systemd and `docker logs`
+# collects under a container. Set this as well for a rotating file copy.
 #log_file = "/var/log/readerboard/readerboard.log"

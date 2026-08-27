@@ -1,0 +1,21 @@
+# The build dependency, pinned and hashed the way the runtime ones are.
+#
+# pyproject.toml declares `requires = ["setuptools>=77"]`, which is the right
+# thing for anyone building this from source: a floor, not a pin. But a range is
+# resolved at build time from whatever the index is serving that day, and both
+# the container image and scripts/install.sh build a wheel from this tree as
+# part of an install. Left alone, they would fetch an unverified setuptools to
+# do it, which is the one unpinned thing in an otherwise pinned install.
+#
+# So both install this first, with --require-hashes, and then build with
+# --no-build-isolation so pip uses this setuptools rather than going out for
+# another one.
+#
+# The floor in pyproject.toml is what a third party sees and is deliberately
+# left as a floor. This file is only what the two installers we control use.
+#
+# Refreshed by scripts/lock_hashes.py, the same as requirements.lock.
+
+setuptools==84.0.0 \
+    --hash=sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670 \
+    --hash=sha256:f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73
