@@ -1,0 +1,45 @@
+version: 2
+
+# Actions, the packages the service runs on, and the base image. The cooldown
+# is deliberate everywhere: nothing released in the last seven days is offered,
+# because a version that young has had no time to be found wanting.
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "ci"
+    open-pull-requests-limit: 3
+
+  # One thing to know before merging one of these: the floor in
+  # pyproject.toml is not the whole story here. `requirements.lock` carries a
+  # version and a hash for every file, and both the image and
+  # scripts/install.sh install with --require-hashes, so a bump that touches
+  # only pyproject.toml leaves the lock behind. Run scripts/lock_hashes.py in
+  # the same pull request and commit what it writes.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 3
+
+  # The base image, pinned by digest in the Dockerfile. A digest never moves
+  # on its own, so without this the image would sit on whatever Debian and
+  # CPython shipped the day it was written. The Dockerfile takes a patch tag
+  # rather than the rolling one, and says why; keep that when accepting a bump.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "deps"
+    open-pull-requests-limit: 3
