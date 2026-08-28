@@ -109,6 +109,20 @@ one, and in a job of its own a rotated token or an outage there costs Docker
 Hub and nothing else. The GitHub release waits for GHCR, so a release page
 cannot announce an image that was never pushed.
 
+The publishing itself lives in `mjaksn/workflows` and is called from here,
+pinned by commit like any other third-party step. It was the same hundred and
+forty lines in three repositories before that, and they had begun to drift.
+Two calls rather than one, and that is load-bearing: a called workflow
+succeeds only when every job in it succeeds, so a single call covering both
+registries would put Docker Hub back in front of the release page. The
+Dockerfile stays here, with the thing it packages.
+
+Because the shared file is now one point of failure for three releases, and a
+release is the hardest thing here to rehearse, CI calls the GHCR half with
+`push: false` on one platform. That is what the `rehearsal` job is, and it is
+why the publishing path is exercised on a pull request rather than first at
+tag time.
+
 A tag also pushes `README.md` to the Docker Hub page as its overview. That page
 is not part of the image and no label reaches it, so without that step it stays
 blank however well the image is labelled. GHCR needs no equivalent: it reads the
