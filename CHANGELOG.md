@@ -10,6 +10,49 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [0.1.4] - 2026-08-28
+
+Release plumbing and documentation only. Nothing in the HTTP surface changes,
+and an existing install has no reason to move for it. The reason it is a
+release at all is that most of what changed only happens when a tag does.
+
+### Changed
+
+- **The two registries are separate jobs now.** GHCR authenticates with the
+  workflow's own token and cannot fail for want of a secret; Docker Hub needs a
+  stored one, so a rotated token or an outage there now costs the Docker Hub
+  mirror and nothing else. The image is built twice rather than retagged across
+  the two, which is the price of sharing nothing between them, and not a risk of
+  divergence: the base image is a digest and every dependency is a version and a
+  hash, so the second build has the same inputs as the first.
+- **The GitHub release waits for the image.** The notes lifted out of this file
+  say the image is published on every release, so a release page cut while that
+  job was failing would announce a pull that answers "manifest unknown".
+- **The base image is pinned to a patch tag, `python:3.13.14-slim`, rather than
+  the rolling `3.13-slim`.** A rolling tag is rebuilt every few days, so whatever
+  digest it points at is always a few days old. A patch tag stops moving once the
+  next one ships, so it can be both specific and old enough to use. The contents
+  are the same Debian and the same tzdata.
+- **`latest` is `latest=auto` rather than `latest=true`.** A prerelease tag such
+  as `v1.0.0-rc1` would otherwise move `latest` onto it, and `latest` is what an
+  unqualified `docker pull` takes.
+
+### Added
+
+- **The Docker Hub page now carries `README.md` as its overview**, pushed on
+  every release. That page is a field on the repository rather than part of the
+  image, so no label reaches it and it stayed blank however well the image was
+  labelled. One consequence worth knowing: it only moves when a tag does, so a
+  README change lands there at the next release rather than at the merge. This
+  needs the Docker Hub token to have write access, not only push.
+
+### Fixed
+
+- The licence link in `README.md` pointed at `LICENSE.md`, which does not exist.
+  It now points at `LICENSE`, by absolute URL, so that it also works on the
+  Docker Hub page, which renders the README somewhere the repository's relative
+  paths mean nothing.
+
 ## [0.1.3] - 2026-08-27
 
 ### Added
@@ -136,6 +179,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.1.4]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.2
 [0.1.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.1
