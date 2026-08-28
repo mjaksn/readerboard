@@ -21,13 +21,20 @@
 # time. The digest names a manifest list covering amd64, arm64 and arm/v7, and
 # the daemon picks the right one out of it.
 #
-# A patch tag rather than the rolling 3.13-slim, and that is not fussiness.
+# A patch tag rather than the rolling 3.14-slim, and that is not fussiness.
 # The rolling tags are rebuilt every few days, so whatever digest they point
-# at is always a few days old, and nothing that young may be used here. A
-# patch tag stops moving once the next one ships, so it can be both specific
-# and old enough. Check the age before bumping it: this one was 23 days when
-# it was pinned, and carries the same tzdata the note below relies on.
-FROM python:3.14.7-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5 AS builder
+# at is always a few days old, and nothing that young may be used here.
+#
+# A patch tag is quieter, but it is not still: while it is the newest of its
+# line it is rebuilt too. So the newest patch is exactly the one whose digest
+# keeps moving, which is how 3.14.7-slim was taken here on a digest a day old.
+# Take the patch behind the newest, which has stopped.
+#
+# Check the age rather than assuming it, and do not lean on Dependabot's
+# cooldown for this: the cooldown reads the version, and a rebuilt digest is
+# the same version it was yesterday. This one was 23 days old when it was
+# pinned, and carries the same tzdata the note below relies on.
+FROM python:3.14.6-slim@sha256:7bec7ddcddeff7975d6ba9b4be7dd6f6b2f55e7491539145e2978f7f97ce9144 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -64,7 +71,7 @@ RUN pip install --no-deps --no-build-isolation . \
     && pip uninstall --yes setuptools
 
 
-FROM python:3.14.7-slim@sha256:cae66f2ef0ec51a9891263eeee7f987dacf0a9879e8aa9353d5606e0530619a5
+FROM python:3.14.6-slim@sha256:7bec7ddcddeff7975d6ba9b4be7dd6f6b2f55e7491539145e2978f7f97ce9144
 
 LABEL org.opencontainers.image.title="readerboard" \
       org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, scheduling and clock sync" \
