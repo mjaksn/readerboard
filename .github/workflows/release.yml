@@ -90,150 +90,27 @@ jobs:
 
   docker:
     name: build and push the image
-    needs: [build]
-    runs-on: ubuntu-latest
     # Behind `build` for its version check rather than behind `publish`: the
-    # image does not contain the distributions and has nothing to wait for them
-    # for, so it goes out alongside the upload rather than after it. What it
-    # does need is the guarantee that the tag, pyproject.toml and __version__
-    # agree, and that is what `build` establishes.
+    # image does not contain the distributions and has nothing to wait for
+    # them for, so it goes out alongside the upload rather than after it.
+    # What it does need is the guarantee that the tag, pyproject.toml and
+    # __version__ agree, and that is what `build` establishes.
+    needs: [build]
     permissions:
       contents: read
       packages: write        # GHCR, through the token this job already has
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      # QEMU is what makes the two arm legs possible on an x86 runner. They stay
-      # quick only because every pinned dependency has a wheel for both, so
-      # nothing is compiled under emulation. A dependency added without one
-      # would show up here as a build that takes minutes rather than seconds.
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: log in to GHCR
-        # The workflow's own token, scoped by the `packages: write` above. No
-        # secret to store and none to rotate, which is the same reasoning the
-        # PyPI trusted publisher above rests on.
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: work out the tags
-        id: meta-ghcr
-        # The version comes from the git tag, which `build` has
-        # already checked against pyproject.toml and readerboard.__version__,
-        # so the image is a fourth place the same number appears rather than an
-        # independent opinion about it.
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-          labels: |
-            org.opencontainers.image.version=${{ github.ref_name }}
-          # auto, not true: a prerelease tag such as v1.0.0-rc1 would
-          # otherwise move `latest` onto it, and `latest` is what an
-          # unqualified docker pull takes.
-          flavor: latest=auto
-
-      - name: build and push to GHCR
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: ${{ steps.meta-ghcr.outputs.tags }}
-          labels: ${{ steps.meta-ghcr.outputs.labels }}
-          provenance: true
-          sbom: true
+    uses: mjaksn/workflows/.github/workflows/publish-ghcr.yml@4e3dd222b30281d7c355286508542800ca5de33d
 
   docker-hub:
     name: mirror the image to Docker Hub
+    # Called separately rather than as a second job inside the workflow above,
+    # and that is the point of it. A called workflow succeeds only when every
+    # job in it succeeds, so one call covering both registries would let a
+    # Docker Hub outage hold up the release page waiting on `docker`. Apart,
+    # a rotated token or an outage there costs Docker Hub and nothing else.
     needs: [build]
-    runs-on: ubuntu-latest
-    # A job of its own, and that is the point of it. Docker Hub is the one
-    # registry here that needs a stored secret, so it is the one that can
-    # fail for a reason nothing in this repository controls: a rotated
-    # token, a fork without the secrets, an outage. None of that should
-    # cost the GHCR image or the release page, and in a separate job it
-    # cannot.
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-
-      - name: work out the Docker Hub tags
-        id: meta-hub
-        # The same rules against the other registry, so the two can never
-        # be tagged differently.
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: |
-            docker.io/${{ github.repository }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-          labels: |
-            org.opencontainers.image.version=${{ github.ref_name }}
-          flavor: latest=auto
-
-      - name: log in to Docker Hub
-        # Docker Hub has no equivalent of the exchange above, so this one is a
-        # stored access token. Scope it to writing this repository and nothing
-        # else.
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: push to Docker Hub
-        # Built a second time rather than retagged. This is a separate job on a
-        # fresh runner with nothing cached across the two, so the context is
-        # built again from scratch.
-        #
-        # That is the price of the split, and it is worth paying: the two
-        # registries fail independently only because they share nothing. It is
-        # also not a risk of divergence, because every input is pinned. The base
-        # image is a digest and every dependency is a version and a hash, so the
-        # second build has the same inputs as the first.
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
-          push: true
-          tags: ${{ steps.meta-hub.outputs.tags }}
-          labels: ${{ steps.meta-hub.outputs.labels }}
-          provenance: true
-          sbom: true
-
-      - name: put the README on the Docker Hub page
-        # Docker Hub's overview is not part of the image. It is a field on the
-        # repository, and neither `docker push` nor the OCI labels above touch
-        # it, so without this step the page stays blank however good the labels
-        # are. GHCR needs no equivalent: it reads the description and the source
-        # link straight off the image.
-        #
-        # Pushed from README.md rather than written on the site, so there is one
-        # account of what this is and the page quotes it, the same arrangement
-        # the release notes and CHANGELOG.md already have.
-        #
-        # This needs a token with write access to the repository. A read-only or
-        # push-only one fails here, after the image has already gone out.
-        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          readme-filepath: ./README.md
-          # The overview only. The short description is deliberately left alone:
-          # Docker Hub caps it at 100 characters and the description this
-          # project uses everywhere else is 130, so feeding it in would fail
-          # this step every time, after the image had already gone out. The
-          # short one is set on the site and changes about never.
+    uses: mjaksn/workflows/.github/workflows/mirror-dockerhub.yml@4e3dd222b30281d7c355286508542800ca5de33d
+    secrets: inherit
 
   release:
     name: create the GitHub release

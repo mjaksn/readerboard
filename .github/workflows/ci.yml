@@ -190,13 +190,28 @@ jobs:
             exit 1
           }
 
+  rehearsal:
+    name: the publishing path still works
+    # The image jobs in release.yml are a `uses:` apiece now, and what they
+    # call lives in another repository. Left alone that is a file nothing
+    # exercises until the next release, which is exactly the arrangement that
+    # lets a thing rot silently and announce it by failing a release. So it is
+    # called here as well, one platform and nothing pushed. About a minute,
+    # and it proves the path rather than assuming it.
+    permissions:
+      contents: read
+    uses: mjaksn/workflows/.github/workflows/publish-ghcr.yml@4e3dd222b30281d7c355286508542800ca5de33d
+    with:
+      platforms: linux/amd64
+      push: false
+
   gate:
     name: gate
     # The single check for branch protection to require. Runs whatever the
     # others did, so a failure upstream is reported here rather than leaving
     # the gate skipped and the requirement satisfied by default.
     if: always()
-    needs: [lint, test, build, openapi, docker]
+    needs: [lint, test, build, openapi, docker, rehearsal]
     runs-on: ubuntu-latest
     steps:
       - name: every job must have succeeded
@@ -206,8 +221,10 @@ jobs:
           echo "build   ${{ needs.build.result }}"
           echo "openapi ${{ needs.openapi.result }}"
           echo "docker  ${{ needs.docker.result }}"
+          echo "rehearsal ${{ needs.rehearsal.result }}"
           [ "${{ needs.lint.result }}"    = "success" ] || exit 1
           [ "${{ needs.test.result }}"    = "success" ] || exit 1
           [ "${{ needs.build.result }}"   = "success" ] || exit 1
           [ "${{ needs.openapi.result }}" = "success" ] || exit 1
           [ "${{ needs.docker.result }}"  = "success" ] || exit 1
+          [ "${{ needs.rehearsal.result }}" = "success" ] || exit 1
