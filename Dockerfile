@@ -20,7 +20,14 @@
 # SHA, so that a rebuild of a released tag produces what it produced the first
 # time. The digest names a manifest list covering amd64, arm64 and arm/v7, and
 # the daemon picks the right one out of it.
-FROM python:3.13-slim@sha256:7e3a6aca9d74f93cca21a91d86a8dad8c34749afd5b4a98ee481c9c47b9f5ed4 AS builder
+#
+# A patch tag rather than the rolling 3.13-slim, and that is not fussiness.
+# The rolling tags are rebuilt every few days, so whatever digest they point
+# at is always a few days old, and nothing that young may be used here. A
+# patch tag stops moving once the next one ships, so it can be both specific
+# and old enough. Check the age before bumping it: this one was 23 days when
+# it was pinned, and carries the same tzdata the note below relies on.
+FROM python:3.13.14-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -57,7 +64,7 @@ RUN pip install --no-deps --no-build-isolation . \
     && pip uninstall --yes setuptools
 
 
-FROM python:3.13-slim@sha256:7e3a6aca9d74f93cca21a91d86a8dad8c34749afd5b4a98ee481c9c47b9f5ed4
+FROM python:3.13.14-slim@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6
 
 LABEL org.opencontainers.image.title="readerboard" \
       org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, scheduling and clock sync" \
