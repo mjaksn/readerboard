@@ -103,6 +103,12 @@ publisher and GHCR through the workflow's own token, so neither has a secret in
 the repository. Docker Hub is the exception and needs `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN`, and its token needs write access rather than only push.
 
+The two registries are separate jobs. GHCR authenticates with the workflow's
+own token, so it cannot fail for want of a secret; Docker Hub needs a stored
+one, and in a job of its own a rotated token or an outage there costs Docker
+Hub and nothing else. The GitHub release waits for GHCR, so a release page
+cannot announce an image that was never pushed.
+
 A tag also pushes `README.md` to the Docker Hub page as its overview. That page
 is not part of the image and no label reaches it, so without that step it stays
 blank however well the image is labelled. GHCR needs no equivalent: it reads the
