@@ -144,6 +144,31 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: put the README on the Docker Hub page
+        # Docker Hub's overview is not part of the image. It is a field on the
+        # repository, and neither `docker push` nor the OCI labels above touch
+        # it, so without this step the page stays blank however good the labels
+        # are. GHCR needs no equivalent: it reads the description and the source
+        # link straight off the image.
+        #
+        # Pushed from README.md rather than written on the site, so there is one
+        # account of what this is and the page quotes it, the same arrangement
+        # the release notes and CHANGELOG.md already have.
+        #
+        # This needs a token with write access to the repository. A read-only or
+        # push-only one fails here, after the image has already gone out.
+        uses: peter-evans/dockerhub-description@1b9a80c056b620d92cedb9d9b5a223409c68ddfa # v5.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          readme-filepath: ./README.md
+          # The overview only. The short description is deliberately left alone:
+          # Docker Hub caps it at 100 characters and the description this
+          # project uses everywhere else is 130, so feeding it in would fail
+          # this step every time, after the image had already gone out. The
+          # short one is set on the site and changes about never.
+
   release:
     name: create the GitHub release
     needs: [publish]

@@ -101,7 +101,14 @@ A tag publishes three things: the distributions to PyPI, the container image to
 GHCR and Docker Hub, and the GitHub release page. PyPI goes through a trusted
 publisher and GHCR through the workflow's own token, so neither has a secret in
 the repository. Docker Hub is the exception and needs `DOCKERHUB_USERNAME` and
-`DOCKERHUB_TOKEN`.
+`DOCKERHUB_TOKEN`, and its token needs write access rather than only push.
+
+A tag also pushes `README.md` to the Docker Hub page as its overview. That page
+is not part of the image and no label reaches it, so without that step it stays
+blank however well the image is labelled. GHCR needs no equivalent: it reads the
+description and the source link off the image itself. One consequence worth
+knowing: the overview only moves when a tag does, so a README change lands there
+at the next release rather than at the merge.
 
 The image is built for `linux/amd64`, `linux/arm64` and `linux/arm/v7`, the arm
 legs under QEMU emulation. Keep every dependency on a platform that publishes a
