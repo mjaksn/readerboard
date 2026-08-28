@@ -251,7 +251,7 @@ this particular sign. It is destructive and refuses to run without `--confirm-er
 
 ## Licence
 
-MIT. See [LICENSE.md](LICENSE.md).
+MIT. See [LICENSE](https://github.com/mjaksn/readerboard/blob/main/LICENSE).
 
 One caveat, recorded because it is easy to miss.
 `readerboard/protocol/constants.py` is vendored from
