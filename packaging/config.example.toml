@@ -17,6 +17,9 @@
 # device path such as /dev/ttyUSB0 for a cable plugged straight in. loop://
 # runs the service against nothing, which is useful for trying the API out.
 #
+# The address below is an example rather than the default, which is loop://.
+# scripts/install.sh replaces it when it is given --serial-url.
+#
 # This replaces the old config.json "com_port", which held a bare device name
 # that the server prefixed with /dev/. There is no prefixing here, and the old
 # key could not express a sign on the network at all.

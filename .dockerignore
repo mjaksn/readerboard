@@ -1,6 +1,6 @@
 # What the build context does not need.
 #
-# The Dockerfile copies five things by name: the two lock files, pyproject.toml,
+# The Dockerfile copies six things by name: the two lock files, pyproject.toml,
 # the licence and readme the build reads, and the package itself. Everything
 # else here is either large, wrong for the target platform, or both.
 

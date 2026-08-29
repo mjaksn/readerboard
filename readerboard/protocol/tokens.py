@@ -162,5 +162,5 @@ POSITION_BY_NAME: dict[str, Token] = {token.text: token for token in TEXT_POSITI
 
 
 def describe(tokens: tuple[Token, ...], key: str) -> list[dict[str, str]]:
-    """Render a token table as the list of dicts the enumeration endpoints return."""
+    """Render a token table as a list of dicts keyed by ``key`` and "description"."""
     return [{key: token.text, "description": token.description} for token in tokens]

@@ -217,7 +217,7 @@ feature. `constants.PROTOCOL_GENERATION` records this.
 sequence holds up to 128 of them, so the real ceiling on how many messages can share the
 sign is the memory pool in bytes rather than a count of files. This service allocates `A`
 through `Z` anyway, because a label a person can read in a log line is worth more than
-the extra capacity. Three ranges are avoided outright: `0`, which is the priority file,
+the extra capacity. Two ranges are avoided outright: `0`, which is the priority file,
 and `1` through `5`, which become reserved target files if the sign's counter feature is
 ever switched on.
 

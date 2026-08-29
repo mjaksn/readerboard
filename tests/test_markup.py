@@ -39,8 +39,8 @@ class TestUnterminatedTag:
     The obvious implementation searches for the closing bracket and advances the
     cursor only when it finds one, so an unterminated tag leaves the cursor
     where it was and the loop spins forever, taking the thread with it. Both
-    behaviours below are
-    deliberate: reject it where we can, pass it through where we must.
+    behaviours below are deliberate: reject it where we can, pass it through
+    where we must.
     """
 
     def test_strict_rejects(self):

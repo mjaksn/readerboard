@@ -1,6 +1,6 @@
 # Exact runtime pins for the machine that drives the sign.
 #
-# pyproject.toml carries compatible-release ranges, which is the right thing for
+# pyproject.toml carries floor-and-ceiling ranges, which is the right thing for
 # anyone installing the package fresh. This file is what scripts/install.sh uses,
 # so that the Pi gets the same versions twice running and an upstream release
 # cannot change what is on the wall without someone deciding it should.
