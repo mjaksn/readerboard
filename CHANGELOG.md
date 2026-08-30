@@ -10,6 +10,52 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+Nothing in the HTTP surface changes and nothing an install runs is touched. What
+is added is a development tool that lives beside the service rather than in it.
+
+### Added
+
+- **A sign simulator, `tools/signsim/`.** A PySide6 application that stands in
+  for the BetaBrite. It listens on a TCP port and decodes everything written to
+  it, showing each transmission byte by byte with the protocol's own meaning
+  beside each span, and keeping the state the sign would now be in: the file
+  table, the contents of each file, the run sequence and the priority file.
+
+  Pointing the service at it needs no change to the service. `serial_url`
+  already takes any pyserial URL, because that is how a sign on an Ethernet to
+  RS-232 adapter is reached, so `socket://127.0.0.1:4001` is the whole
+  integration.
+
+  The state is the reason it exists. A capturing transport shows one packet at a
+  time, and the failures worth catching are in the sequence rather than in any
+  single packet: a message written to a file the run sequence does not name, an
+  alert never released, a reconfiguration that erases everything at the wrong
+  moment. The simulator names each of those in the words of the protocol
+  document.
+
+  It is a debugging aid rather than a validator, and the distinction is written
+  down where it will be read: it decodes against `readerboard.protocol`'s own
+  tables, so it agrees with the encoder by construction and cannot tell you that
+  a byte value is the one the document asks for.
+
+  Qt is not a dependency of the service and does not become one. The simulator
+  has its own hash-pinned lock file, `tools/` is excluded from the container
+  build context, and `pyproject.toml` gains no extra. The image builds for
+  `linux/arm/v7` under emulation, which settles it.
+
+### Changed
+
+- **`pytest` at the root now collects the simulator's tests as well.** They
+  import only its pure half, never PySide6, so they run in CI where Qt is not
+  installed. Among them is a round trip that pushes the output of every frame
+  builder in `readerboard/protocol/frames.py` back through the decoder and
+  checks it reads as the command that built it.
+- **`scripts/lock_hashes.py` covers three lock files rather than two**, and
+  names them by path when reporting, since two of them are called
+  `requirements.lock`.
+
 ## [0.1.4] - 2026-08-28
 
 Release plumbing and documentation only. Nothing in the HTTP surface changes,

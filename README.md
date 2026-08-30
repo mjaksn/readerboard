@@ -64,6 +64,20 @@ docker run --rm -p 5001:5001 \
 
 Then open <http://127.0.0.1:5001/docs>.
 
+`loop://` swallows everything written to it, so the service runs but there is
+nothing to see. To watch what it would have sent, run the sign simulator in
+`tools/signsim/` and point the service at that instead:
+
+```
+pip install --require-hashes -r tools/signsim/requirements.lock
+python tools/signsim/run.py
+```
+
+Then start the service with `READERBOARD_SERIAL_URL=socket://127.0.0.1:4001`.
+The simulator decodes each transmission, says what every byte of it means, and
+shows what the sign would be holding as a result. `tools/signsim/README.md` has
+the details.
+
 ## Installing it properly
 
 Two ways, which do the same job. Pick whichever suits the machine.
@@ -250,6 +264,10 @@ claim. Read it before changing anything in `readerboard/protocol/`.
 
 `scripts/protocol_spike.py` settles the few questions the document cannot answer about
 this particular sign. It is destructive and refuses to run without `--confirm-erase`.
+
+`tools/signsim/` is a PySide6 stand-in for the sign, described above. Its own tests
+are collected by the `pytest` run here and need no Qt installed; the application does,
+and it is pinned separately so that nothing the service installs ever pulls Qt in.
 
 ## Licence
 
