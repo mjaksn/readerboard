@@ -4,9 +4,11 @@ Fixed paths, one message, and **every response is HTTP 200** with the outcome in
 the body. That suits a Home Assistant ``rest_command`` or a shell one-liner in a
 cron job, neither of which branches gracefully on a status code.
 
-There is one exception to always-200, and it is deliberate: a request without a
-valid API key gets a 401 like any other, because a caller the service will not
-talk to is not the same as a request that failed.
+The exceptions to always-200 are all requests that never reach the code below,
+and they are deliberate. A missing or wrong API key is a 401, and a service with
+no API key configured at all is a 503, because a caller the service will not talk
+to is not the same as a request that failed. A body that is not the shape the
+endpoint declares gets FastAPI's own 422 before any of this runs.
 
 ``POST /Write/Message`` writes to a reserved slot rather than to the sign's
 priority file. That distinction matters more than it looks. By protocol a

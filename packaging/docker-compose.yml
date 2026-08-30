@@ -48,7 +48,7 @@ services:
       #   that ERASES every message on it. Not settings to fiddle with.
       #
       # READERBOARD_LOG_LEVEL: INFO
-      #   Logs go to stdout, where `docker compose logs` collects them.
+      #   Logs go to stderr, where `docker compose logs` collects them.
 
     ports:
       # The service listens on 5001 inside the container. Bind it to the

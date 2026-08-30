@@ -80,7 +80,8 @@ class TestAuth:
         assert client.get("/v2/messages").status_code == 200
 
     def test_the_simple_endpoints_also_need_it(self, client):
-        # The single exception to their always-200 rule.
+        # One of the three exceptions to their always-200 rule; the others are
+        # a service with no API key configured (503) and a malformed body (422).
         response = client.post(
             "/Write/Message", json={"display_mode": "HOLD", "message": "HI"}
         )

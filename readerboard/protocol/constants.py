@@ -398,7 +398,7 @@ o_TILDE = b"\xc1"  # lowecase 'o' with tilde
 
 # ===========================================================================
 # Constants added for this service, sourced from the Alpha Sign Communications
-# Protocol (Adaptive Micro Systems, form 9708-8061F). See docs/protocol-notes.md
+# Protocol (Adaptive Micro Systems, form 9708-8061E). See docs/protocol-notes.md
 # for where each of these came from and what is still unconfirmed on hardware.
 # ===========================================================================
 

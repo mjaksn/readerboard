@@ -149,9 +149,9 @@ class MessageRegistry:
         Refreshing drops what the controller believes about the sign's contents
         and writes it all again. It runs on a timer, and on every reconnect.
 
-        If the Phase 0 spike shows the sign answers read commands through the
-        adapter, this can become a read-back comparison that only writes on a
-        real mismatch. The frame builders for those reads already exist; what is
+        If the spike shows the sign answers read commands through the adapter,
+        this can become a read-back comparison that only writes on a real
+        mismatch. The frame builders for those reads already exist; what is
         unproven is whether two-way traffic works over that path at all.
         """
         async with self._lock:

@@ -50,8 +50,8 @@ jobs:
       - name: ruff
         run: ruff check .
       - name: mypy
-        # Unlike nettail, this package ships annotations and a py.typed, so its
-        # types are part of what a consumer receives and are worth checking.
+        # This package ships annotations and a py.typed, so its types are part
+        # of what a consumer receives and are worth checking.
         run: mypy readerboard
 
   test:

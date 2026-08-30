@@ -51,8 +51,9 @@ declines to write them again.
   exactly the writes that would repair a blank sign.
 - **The simple routes return HTTP 200 with an error in the body.** That is the
   whole point of them: they exist for clients that do not branch on status
-  codes. The only thing that makes them return anything else is a missing API
-  key, which is a 401.
+  codes. The only things that make them answer otherwise are requests that never
+  reach the route: a missing or wrong API key is a 401, no configured API key at
+  all is a 503, and a malformed body is FastAPI's own 422.
 - **`%` formatting throughout, not f-strings.** It matches the lazy `%` that
   logging takes, so one idiom covers a log line and the exception text beside
   it. `UP031` is disabled for this reason.

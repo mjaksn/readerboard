@@ -56,7 +56,9 @@ Every write needs an `X-API-Key` header. `GET /health` does not.
 
 The `/Write` and `/Enumerations` paths are a smaller surface for clients that
 would rather not read status codes: every response there is a 200 with the
-outcome in the body.
+outcome in the body, unless the request never reaches the route at all. A missing
+or wrong `X-API-Key` is a 401, a service with no API key configured is a 503, and
+a body that is not the shape the endpoint declares is a 422.
 """
 
 

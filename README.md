@@ -170,9 +170,11 @@ outcome in the body:
 ```
 
 That suits a client which finds branching on status codes awkward, such as a Home
-Assistant `rest_command` or a shell one-liner in a cron job. The single exception is a
-missing or wrong API key, which is a 401: a caller the service will not talk to is not the
-same as a request that failed.
+Assistant `rest_command` or a shell one-liner in a cron job. The exceptions are the
+requests that never reach the endpoint at all: a missing or wrong API key is a 401, a
+service with no API key configured is a 503, and a body that is not the shape the endpoint
+declares gets FastAPI's own 422. A caller the service will not talk to, and a body it
+cannot read, are not the same as a request that failed.
 
 `POST /Write/Message` writes to one reserved slot, named `default`. It deliberately does
 not touch the sign's **priority** file, which by protocol suppresses every other message on
