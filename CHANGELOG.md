@@ -47,6 +47,10 @@ is added is a development tool that lives beside the service rather than in it.
 
 ### Changed
 
+- **CI type checks the simulator.** The lint job installs its lock file and runs
+  the `mypy` invocation its README documents, which nothing ran before. Same
+  reasoning as the container smoke test: a thing exercised only by hand rots
+  quietly.
 - **`pytest` at the root now collects the simulator's tests as well.** They
   import only its pure half, never PySide6, so they run in CI where Qt is not
   installed. Among them is a round trip that pushes the output of every frame

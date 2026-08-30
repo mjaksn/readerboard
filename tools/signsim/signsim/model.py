@@ -161,6 +161,21 @@ class SignState:
         """Do to this state what the sign would do, and say what that was."""
         self.transmissions += 1
 
+        if command.malformed:
+            # The decoder fills a malformed command's fields with placeholders
+            # so the detail pane has something to show. Applying those would
+            # overwrite good state with invented values: a truncated clock write
+            # would set the clock to 00:00, and a write cut off inside its start
+            # of mode would look like the empty priority write that releases an
+            # alert. Neither is something a sign would do.
+            return [
+                Note(
+                    NoteLevel.VIOLATION,
+                    "This transmission is too incomplete to act on, so the sign is "
+                    "left exactly as it was. See the problems listed against it.",
+                )
+            ]
+
         if isinstance(command, WriteText):
             return self._write_text(command)
         if isinstance(command, SetMemoryConfig):
@@ -211,14 +226,25 @@ class SignState:
                     )
                 )
             else:
-                notes.append(
-                    Note(
-                        NoteLevel.VIOLATION,
-                        "File %s is not in the sign's memory configuration, so there "
-                        "is nowhere for this message to go and the sign discards it."
-                        % _show(label),
+                wrong_type = self._wrong_type(label)
+                if wrong_type is not None:
+                    notes.append(
+                        Note(
+                            NoteLevel.VIOLATION,
+                            "File %s is allocated as a %s file, and a Write TEXT "
+                            "cannot address it. The sign discards this."
+                            % (_show(label), wrong_type),
+                        )
                     )
-                )
+                else:
+                    notes.append(
+                        Note(
+                            NoteLevel.VIOLATION,
+                            "File %s is not in the sign's memory configuration, so "
+                            "there is nowhere for this message to go and the sign "
+                            "discards it." % _show(label),
+                        )
+                    )
             return notes
 
         body = command.body
@@ -251,11 +277,22 @@ class SignState:
                 )
             )
 
+        # A Write TEXT with no start of mode carries no mode or position, and
+        # the document says the sign keeps the ones the file already had. Taking
+        # the decoder's empty values here would blank them, which is the
+        # opposite of what the detail pane says one pane over.
+        previous = self.files.get(label)
+        mode = command.mode
+        position = command.position
+        if not command.has_start_of_mode and previous is not None:
+            mode = previous.mode
+            position = previous.position
+
         self.files[label] = StoredFile(
             label=label,
             body=body,
-            mode=command.mode,
-            position=command.position,
+            mode=mode,
+            position=position,
             truncated_to=truncated_to,
         )
 
@@ -328,7 +365,14 @@ class SignState:
         return notes
 
     def _set_memory_config(self, command: SetMemoryConfig) -> list[Note]:
-        """Allocate the file table, which erases everything already stored."""
+        """Allocate the file table, erasing every file in the memory pool.
+
+        Not the priority file. It always exists, it sits outside the pool, and
+        the document lists exactly four things that cancel a running priority
+        message: an empty priority write, a write to the run time table, a write
+        to the run day table, and the PROG key. A memory configuration is not
+        one of them, so an alert that is up stays up through a reconfiguration.
+        """
         erased = sorted(self.files)
         notes: list[Note] = []
 
@@ -337,7 +381,7 @@ class SignState:
                 Note(
                     NoteLevel.WARNING,
                     "Writing a memory configuration overwrote the previous table, so "
-                    "the %d message(s) already on the sign are gone: %s"
+                    "the %d message(s) in the memory pool are gone: %s"
                     % (len(erased), _show_labels(erased)),
                 )
             )
@@ -345,7 +389,7 @@ class SignState:
             notes.append(
                 Note(
                     NoteLevel.INFO,
-                    "Memory configured. Any message already on the sign would have "
+                    "Memory configured. Any message already in the pool would have "
                     "been erased by this, and there were none.",
                 )
             )
@@ -396,7 +440,7 @@ class SignState:
         return notes
 
     def _clear_memory(self) -> list[Note]:
-        """Wipe the sign outright."""
+        """Wipe the file table and the pool, leaving the priority file alone."""
         had = len(self.files)
         self.memory_config = None
         self.memory_order = []
@@ -404,9 +448,11 @@ class SignState:
         return [
             Note(
                 NoteLevel.WARNING,
-                "Memory cleared. The sign now holds no file table and no messages%s. "
-                "Nothing but the priority file and the default file 'A' can be "
-                "written until a memory configuration arrives."
+                "Memory cleared. The sign now holds no file table and no pool "
+                "messages%s. Nothing but the priority file and the default file 'A' "
+                "can be written until a memory configuration arrives. A priority "
+                "message that is up stays up: the priority file is outside the pool "
+                "and a memory write is not one of the four things that cancel it."
                 % ("" if not had else ", and %d message(s) were lost" % had),
             )
         ]
@@ -480,23 +526,47 @@ class SignState:
     # == helpers ===========================================================
 
     def _exists(self, label: bytes) -> bool:
-        """Whether the sign has a file by this label to play."""
+        """Whether the sign has a TEXT file by this label to play.
+
+        A run sequence names TEXT files. A label allocated as a STRING or a
+        DOTS picture is not one, so it is skipped the same way a label naming
+        nothing at all is.
+        """
         if self.memory_config is None:
             return label == b"A"
-        return label in self.memory_config
+        return self._is_text_file(label)
 
     def _writable(self, label: bytes) -> bool:
-        """Whether a write to this label would land.
+        """Whether a Write TEXT to this label would land.
 
         "A message file cannot be written until a Memory Configuration is
         written first, unless the file is a Priority TEXT file or the default
         TEXT file A."
+
+        The file also has to be a TEXT file. A Write TEXT cannot address a
+        label the configuration allocated as a STRING or a DOTS picture.
         """
         if label == c.FILE_PRIORITY:
             return True
         if self.memory_config is None:
             return label == b"A"
-        return label in self.memory_config
+        return self._is_text_file(label)
+
+    def _is_text_file(self, label: bytes) -> bool:
+        """Whether the configuration allocated this label as a TEXT file."""
+        if self.memory_config is None:
+            return False
+        entry = self.memory_config.get(label)
+        return entry is not None and entry.file_type == c.FILE_TYPE_TEXT
+
+    def _wrong_type(self, label: bytes) -> str | None:
+        """Name the type this label was allocated as, when it is not TEXT."""
+        if self.memory_config is None:
+            return None
+        entry = self.memory_config.get(label)
+        if entry is None or entry.file_type == c.FILE_TYPE_TEXT:
+            return None
+        return decode.FILE_TYPE_NAMES.get(entry.file_type, "an unlisted type")
 
 
 def _show(label: bytes) -> str:

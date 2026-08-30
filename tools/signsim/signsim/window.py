@@ -51,11 +51,14 @@ from signsim.decode import (
 )
 from signsim.model import Note, NoteLevel, SignState
 from signsim.server import SignEndpoint
-from signsim.spans import Span, SpanKind
+from signsim.spans import Span, SpanKind, annotate, readable
 
 # Enough history to cover an afternoon of debugging without letting a window
 # left open over a weekend eat the machine.
 MAX_LOG_ROWS = 5000
+
+# Number, time, level, command, summary.
+_LOG_COLUMNS = 5
 
 _LIGHT_SPANS = {
     SpanKind.FRAMING: "#6b7280",
@@ -185,17 +188,16 @@ class MainWindow(QMainWindow):
     def _build_log_side(self) -> QWidget:
         """Build the transmission list, with the detail pane under it."""
         self._log = QTreeWidget()
-        self._log.setHeaderLabels(["#", "Time", "Command", "What it says"])
+        self._log.setHeaderLabels(["#", "Time", "Level", "Command", "What it says"])
         self._log.setRootIsDecorated(False)
         self._log.setUniformRowHeights(True)
         self._log.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._log.setAlternatingRowColors(True)
         self._log.currentItemChanged.connect(self.on_row_selected)
         header = self._log.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        for column in range(_LOG_COLUMNS - 1):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(_LOG_COLUMNS - 1, QHeaderView.ResizeMode.Stretch)
 
         # The widget font is left alone deliberately. Setting it to the fixed
         # width face wins over the inline sans-serif on the prose blocks, and
@@ -250,18 +252,29 @@ class MainWindow(QMainWindow):
         )
         self._entries.append(entry)
 
+        worst = _worst_level(entry)
+        # The level is spelled out as well as coloured. Colour alone puts the
+        # one thing worth spotting out of reach of anybody who cannot separate
+        # amber from grey, and out of reach of a screen reader entirely.
         item = QTreeWidgetItem(
             [
                 str(entry.number),
                 entry.when,
+                "" if worst is None else worst.value,
                 decoded.command.name,
                 decoded.command.summary,
             ]
         )
-        worst = _worst_level(entry)
+        spoken = "%s. %s" % (
+            "no problems reported" if worst is None else worst.value,
+            decoded.command.summary,
+        )
+        for column in range(_LOG_COLUMNS):
+            item.setToolTip(column, spoken)
+            item.setData(column, Qt.ItemDataRole.AccessibleDescriptionRole, spoken)
         if worst is not None:
             colour = QColor(self._note_colours[worst])
-            for column in range(4):
+            for column in range(_LOG_COLUMNS):
                 item.setForeground(column, colour)
         self._log.addTopLevelItem(item)
 
@@ -302,6 +315,11 @@ class MainWindow(QMainWindow):
         self._entries.clear()
         self._log.clear()
         self._detail.setHtml(self._empty_detail())
+        # The notes tab is drawn from the entries, so it has to be redrawn here
+        # or it keeps listing notes against transmissions that are gone. Nothing
+        # else would redraw it until the next one arrives, and traffic having
+        # stopped is the usual reason for clearing in the first place.
+        self._refresh_notes()
         self._update_status()
 
     @Slot()
@@ -503,7 +521,7 @@ class MainWindow(QMainWindow):
         rows.append(("Showing", showing))
 
         if state.priority_active:
-            rows.append(("Priority message", state.priority.decode("latin-1", "replace")))
+            rows.append(("Priority message", _rendered(state.priority)))
 
         if state.memory_config is None:
             rows.append(
@@ -579,7 +597,7 @@ class MainWindow(QMainWindow):
                     str(c.PRIORITY_FILE_CAPACITY),
                     "",
                     "",
-                    state.priority.decode("latin-1", "replace"),
+                    _rendered(state.priority),
                 ],
             )
             row += 1
@@ -753,6 +771,18 @@ def _fill(table: QTableWidget, row: int, values: list[str]) -> None:
         cell = QTableWidgetItem(value)
         cell.setToolTip(value)
         table.setItem(row, column, cell)
+
+
+def _rendered(body: bytes) -> str:
+    """Read a stored message back as the markup that produced it.
+
+    The priority file goes through this for the same reason every other file
+    does. An alert is rendered by the service exactly as a message is, so
+    showing its raw bytes puts control codes into a cell that draws them as
+    nothing: an alert of ``<red><flash_on>FIRE`` would appear as bare FIRE with
+    invisible noise around it, which is the case somebody opened this to see.
+    """
+    return readable(annotate(body))
 
 
 def _hex(data: bytes) -> str:

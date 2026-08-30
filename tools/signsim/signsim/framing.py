@@ -33,6 +33,13 @@ EXPECTED_WAKEUP_NULLS = 5
 # bytes stop being stored.
 MAX_STORED_JUNK = 256
 
+# The largest frame worth buffering. The sign's whole memory pool is around
+# 30000 bytes and a single transmission writes a fraction of that, so anything
+# past this is not a frame that lost its EOT, it is a peer that will never send
+# one. Without a ceiling the buffer grows for as long as such a peer keeps
+# talking.
+MAX_FRAME_BYTES = 65536
+
 # SOH, one sign type byte, two address bytes, STX.
 _HEADER_LENGTH = 5
 
@@ -81,6 +88,17 @@ class FrameScanner:
         """How many buffered bytes are not yet part of a complete transmission."""
         return len(self._buffer)
 
+    def reset(self) -> None:
+        """Throw away a part-read frame and start again at the next header.
+
+        Needed whenever bytes have been dropped rather than fed in. Left alone,
+        the prefix of the half frame already buffered would be joined to
+        whatever arrives next and reported as a corrupt transmission that
+        nobody sent.
+        """
+        self._buffer.clear()
+        self._reset_preamble()
+
     def feed(self, data: bytes) -> list[Transmission]:
         """Add bytes from the wire and return every transmission they completed."""
         self._buffer += data
@@ -124,7 +142,13 @@ class FrameScanner:
     def _read_frame(self) -> Transmission | None:
         """Read from a validated header to the `EOT`, or to the next header."""
         end = self._buffer.find(c.EOT, _HEADER_LENGTH)
-        restart = self._buffer.find(c.SOH, _HEADER_LENGTH)
+        restart, waiting = self._next_header(end)
+
+        if waiting:
+            # A candidate header this close to the end of the buffer cannot be
+            # judged yet. Wait rather than guess, since guessing wrong either
+            # cuts a good frame short or swallows the next one.
+            return None
 
         truncated = restart >= 0 and (end < 0 or restart < end)
         if truncated:
@@ -133,17 +157,76 @@ class FrameScanner:
             frame = bytes(self._buffer[:restart])
             del self._buffer[:restart]
         elif end < 0:
-            return None
+            return self._overlong()
         else:
             frame = bytes(self._buffer[: end + 1])
             del self._buffer[: end + 1]
 
         payload_end = len(frame) - 1 if not truncated else len(frame)
         transmission = self._build(frame, frame[_HEADER_LENGTH:payload_end], truncated)
+        self._reset_preamble()
+        return transmission
+
+    def _next_header(self, end: int) -> tuple[int, bool]:
+        """Find the next real header after this one, or say to wait for more.
+
+        A bare `SOH` is not a header. The payload of a DOTS picture is binary
+        and may contain 0x01 anywhere, so treating every one as the start of a
+        new transmission cuts good frames in half and loses the rest of them.
+        A header is only a header when an `STX` follows four bytes later, which
+        is the same test :meth:`_take_one` applies.
+
+        Returns the offset of the next header and whether the answer has to
+        wait for more bytes. Only candidates before ``end`` matter: past the
+        `EOT` this frame is finished and the next one is somebody else's
+        problem.
+
+        Waiting is only ever right while this frame is unterminated. Once an
+        `EOT` has been seen the frame is complete, and a candidate too close to
+        that `EOT` to carry its own `STX` cannot be a header, because a header's
+        sign type and address bytes are printable and can never be the 0x04
+        that was found. More data would not change that, so deciding now is
+        safe and waiting would deadlock a frame that has already arrived whole.
+        """
+        terminated = end >= 0
+        limit = len(self._buffer) if not terminated else end
+        at = _HEADER_LENGTH
+        while True:
+            found = self._buffer.find(c.SOH, at, limit)
+            if found < 0:
+                return -1, False
+            if len(self._buffer) - found < _HEADER_LENGTH:
+                if terminated:
+                    return -1, False
+                # Not enough bytes yet to tell a header from a payload byte.
+                return -1, True
+            if self._buffer[found + 4 : found + 5] == c.STX:
+                return found, False
+            at = found + 1
+
+    def _overlong(self) -> Transmission | None:
+        """Give up on a frame that has run past any length a sign would accept.
+
+        Without this the buffer grows for as long as a peer keeps sending bytes
+        that are neither an `EOT` nor a header, which is reachable from the
+        network whenever somebody takes the ``--host`` option. Everything else
+        malformed here ends as a transmission with a complaint on it, so this
+        does too rather than by silently dropping the connection's data.
+        """
+        if len(self._buffer) <= MAX_FRAME_BYTES:
+            return None
+
+        frame = bytes(self._buffer)
+        self._buffer.clear()
+        transmission = self._build(frame, frame[_HEADER_LENGTH:], truncated=True)
+        self._reset_preamble()
+        return transmission
+
+    def _reset_preamble(self) -> None:
+        """Forget the nulls and junk counted for the frame just emitted."""
         self._nulls = 0
         self._junk.clear()
         self._junk_count = 0
-        return transmission
 
     def _build(self, frame: bytes, payload: bytes, truncated: bool) -> Transmission:
         """Assemble a transmission and work out what to complain about."""
@@ -168,7 +251,13 @@ class FrameScanner:
                 "transmission addressed to another type"
                 % (sign_type.decode("latin-1"), c.SIGN_TYPE_BETABRITE.decode("latin-1"))
             )
-        if truncated:
+        if truncated and len(frame) > MAX_FRAME_BYTES:
+            complaints.append(
+                "no EOT after %d bytes, which is past anything the sign has room "
+                "for. The scanner gave up on this frame and will resynchronise at "
+                "the next header" % len(frame)
+            )
+        elif truncated:
             complaints.append(
                 "no EOT: a new transmission began before this one ended, so the sign "
                 "would have discarded it"

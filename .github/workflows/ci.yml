@@ -54,6 +54,19 @@ jobs:
         # of what a consumer receives and are worth checking.
         run: mypy readerboard
 
+      # The sign simulator is not part of the package and is not installed with
+      # it, so `mypy readerboard` above does not reach it and neither does the
+      # test job, which deliberately runs without Qt. Left out, the invocation
+      # its README documents would be run by nothing at all, which is the same
+      # way the release path used to rot: a thing exercised only by hand is a
+      # thing nobody finds out about until they need it.
+      - name: install the simulator's dependencies
+        run: pip install --require-hashes -r tools/signsim/requirements.lock
+      - name: mypy the sign simulator
+        run: mypy tools/signsim/signsim
+        env:
+          MYPYPATH: tools/signsim
+
   test:
     name: tests ${{ matrix.python }} on ${{ matrix.os }}
     strategy:

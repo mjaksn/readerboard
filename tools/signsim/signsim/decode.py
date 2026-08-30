@@ -81,6 +81,17 @@ class Command:
     spans: tuple[Span, ...] = ()
     complaints: tuple[str, ...] = ()
 
+    malformed: bool = False
+    """Whether the command is too broken for a sign to act on.
+
+    This is narrower than having a complaint. A complaint says the sign would
+    do something surprising; ``malformed`` says there is not enough of a
+    command here to do anything with, so the model must not apply it. A
+    truncated clock write must not be allowed to set the clock to 00:00, and a
+    write cut off after its start of mode must not be allowed to look like the
+    empty priority write that releases an alert.
+    """
+
 
 @dataclass(frozen=True)
 class WriteText(Command):
@@ -95,7 +106,11 @@ class WriteText(Command):
 
 @dataclass(frozen=True)
 class SetMemoryConfig(Command):
-    """A Set Memory Configuration, which erases every message on the sign."""
+    """A Set Memory Configuration, which erases every file in the memory pool.
+
+    Not the priority file. That one always exists, sits outside the pool, and is
+    not among the four things the document says cancel a priority message.
+    """
 
     entries: tuple[MemoryEntry, ...] = ()
 
@@ -353,6 +368,7 @@ def _write_text(payload: bytes, offset: int) -> Command:
     code = payload[0:1]
     label = payload[1:2]
     complaints: list[str] = []
+    malformed = False
     spans = [_command_span(code, offset)]
 
     if not label:
@@ -417,6 +433,16 @@ def _write_text(payload: bytes, offset: int) -> Command:
             )
         if mode and mode not in _MODES_BY_VALUE:
             complaints.append("display mode %r is not one the protocol lists" % printable(mode))
+        if not position or not mode:
+            # Nothing follows the start of mode. Left alone this reads as a
+            # well formed write of an empty message, which to the priority file
+            # is the one thing that releases an alert.
+            malformed = True
+            complaints.append(
+                "the transmission ends inside the start of mode, which needs a "
+                "position and a display mode after it. There is not enough here for "
+                "the sign to act on"
+            )
     else:
         body = rest
         complaints.append(
@@ -459,6 +485,7 @@ def _write_text(payload: bytes, offset: int) -> Command:
         details=tuple(details),
         spans=tuple(spans),
         complaints=tuple(complaints),
+        malformed=malformed,
         label=label,
         position=position,
         mode=mode,
@@ -529,8 +556,14 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
         return ClearMemory(
             code=code,
             name="Clear memory",
-            summary="Clear memory: every file on the sign is erased",
-            details=(Detail("Effect", "The sign keeps no files at all after this"),),
+            summary="Clear memory: every file in the memory pool is erased",
+            details=(
+                Detail(
+                    "Effect",
+                    "The sign is left with no file table and no pool files",
+                    "the priority file is outside the pool and is untouched",
+                ),
+            ),
             spans=tuple(spans),
             complaints=(),
         )
@@ -586,7 +619,7 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
         code=code,
         name="Set memory configuration",
         summary="Set memory configuration: %d file(s), %d bytes claimed. This erases "
-        "everything already on the sign" % (len(entries), claimed),
+        "every file in the memory pool" % (len(entries), claimed),
         details=(
             Detail("Files", "%d" % len(entries)),
             Detail(
@@ -725,13 +758,16 @@ def _set_time(code: bytes, parameter: bytes, offset: int, spans: list[Span]) -> 
     hour = minute = 0
     text = printable(parameter)
 
+    malformed = False
     if len(parameter) != 4 or not parameter.isdigit():
         complaints.append("the time should be four digits as HHMM, and this is %r" % text)
+        malformed = True
     else:
         hour = int(parameter[0:2])
         minute = int(parameter[2:4])
         if hour > 23 or minute > 59:
             complaints.append("%02d:%02d is not a time of day" % (hour, minute))
+            malformed = True
 
     spans.append(
         Span(SpanKind.COMMAND, offset + 2, parameter, "time %s" % text,
@@ -744,6 +780,7 @@ def _set_time(code: bytes, parameter: bytes, offset: int, spans: list[Span]) -> 
         details=(Detail("Time", "%02d:%02d" % (hour, minute), text),),
         spans=tuple(spans),
         complaints=tuple(complaints),
+        malformed=malformed,
         hour=hour,
         minute=minute,
     )
@@ -755,11 +792,13 @@ def _set_day(code: bytes, parameter: bytes, offset: int, spans: list[Span]) -> C
     text = printable(parameter)
     day = 0
 
+    malformed = False
     if len(parameter) != 1 or not parameter.isdigit() or not 1 <= int(parameter) <= 7:
         complaints.append(
             "the day of week should be a single digit from 1 for Sunday to 7 for "
             "Saturday, and this is %r" % text
         )
+        malformed = True
     else:
         day = int(parameter)
 
@@ -775,6 +814,7 @@ def _set_day(code: bytes, parameter: bytes, offset: int, spans: list[Span]) -> C
         details=(Detail("Day", name, text),),
         spans=tuple(spans),
         complaints=tuple(complaints),
+        malformed=malformed,
         day=day,
     )
 
@@ -801,6 +841,7 @@ def _set_time_format(code: bytes, parameter: bytes, offset: int, spans: list[Spa
         details=(Detail("Format", "24 hour" if military else "12 hour", text),),
         spans=tuple(spans),
         complaints=tuple(complaints),
+        malformed=parameter not in (b"S", b"M"),
         military=military,
     )
 
@@ -820,6 +861,11 @@ def _read(payload: bytes, offset: int) -> Command:
                 SPECIAL_FUNCTION_NAMES.get(label, "A label this tool has no reading for"),
             )
         )
+
+    # Anything past the label still belongs to this transmission. Leaving it
+    # out silently breaks the invariant that the spans cover the whole frame,
+    # and the hex view then renders fewer bytes than its own header announces.
+    spans.extend(annotate(payload[2:], offset=offset + 2))
 
     what = SPECIAL_FUNCTION_NAMES.get(label, "file %s" % printable(label))
     return ReadCommand(

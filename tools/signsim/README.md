@@ -31,10 +31,13 @@ because that is how a sign on an Ethernet to RS-232 adapter is reached, and
 nothing in the URL says the far end has to be an adapter. Nothing in the service
 changes, and no setting is added to it.
 
-`--host` and `--port` move it. The default binds the loopback address only,
-which is deliberate: this accepts and interprets whatever is sent to it, and
-there is no reason for that to be reachable from the rest of the network unless
-somebody asks for it.
+`--host` and `--port` move it. A name is resolved, so `--host localhost` works
+as well as `--host 127.0.0.1`, and an IPv4 result is preferred when a name gives
+both, because the address is printed straight back as the `serial_url` to paste
+into the service. The default binds the loopback address only, which is
+deliberate: this accepts and interprets whatever is sent to it, and there is no
+reason for that to be reachable from the rest of the network unless somebody
+asks for it.
 
 ## What is on screen
 
@@ -68,10 +71,19 @@ catches, among others:
 - a write to a file no memory configuration has allocated, which the sign
   discards, since only the priority file and the default file `A` may be written
   before one arrives;
-- a memory configuration erasing everything already stored, naming what was lost;
+- a memory configuration erasing every file in the memory pool, naming what was
+  lost. Not the priority file: that one always exists, sits outside the pool, and
+  is not among the four things the document says cancel a priority message, so
+  an alert survives a reconfiguration;
 - a message longer than its file, and how much of it survives;
-- a run sequence naming a file that does not exist, which the sign skips;
+- a run sequence naming a file that does not exist, or one allocated as a STRING
+  or DOTS picture rather than a TEXT file, both of which the sign skips;
+- a Write TEXT aimed at a label allocated as something other than a TEXT file;
 - a priority message over the fixed 125 bytes;
+- a transmission too truncated to act on, which is left to change nothing rather
+  than applied with the decoder's placeholder values. A write cut off inside its
+  start of mode would otherwise read as the empty priority write that releases
+  an alert, and a truncated clock write would set the clock to 00:00;
 - a run sequence written while an alert is up, which is open question 3 in
   `docs/protocol-notes.md`.
 
@@ -114,7 +126,15 @@ only the service:
 MYPYPATH=tools/signsim mypy tools/signsim/signsim
 ```
 
-`ruff check .` at the root covers this tree already.
+CI runs that too, in the lint job, after installing the lock file above. It is
+there for the reason the container smoke test is: an invocation only ever run by
+hand is one that rots without anybody hearing about it. `ruff check .` at the
+root covers this tree already.
+
+The split also decides where a test can live. Anything needing a `QTcpSocket` or
+a widget cannot go in `tools/signsim/tests`, because that suite runs where Qt is
+absent. `FrameScanner.reset` is tested there; that pausing the capture calls it
+is not.
 
 ## The limit worth knowing
 

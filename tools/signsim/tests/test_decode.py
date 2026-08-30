@@ -209,3 +209,53 @@ class TestNothingRaises:
     def test_a_truncated_payload_decodes_rather_than_explodes(self, built):
         result = payload(built)
         assert result.command.summary
+
+
+class TestTruncatedAfterTheStartOfMode:
+    def test_a_write_cut_off_inside_the_start_of_mode_is_malformed(self):
+        result = payload(c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY + c.SOM)
+        assert result.command.malformed
+        assert any("ends inside the start of mode" in one for one in result.complaints)
+
+    def test_a_priority_release_left_alone_is_not_malformed(self):
+        # The real release, an empty body after a complete start of mode, has to
+        # stay clean or the check above would be useless.
+        result = payload(frames.clear_priority_file())
+        assert not result.command.malformed
+        assert result.complaints == ()
+
+    def test_a_write_with_a_position_but_no_mode_is_malformed(self):
+        result = payload(c.COMMAND_WRITE_TEXT + b"A" + c.SOM + c.TEXT_POS_MIDDLE)
+        assert result.command.malformed
+
+
+class TestMalformedCommandsAreFlagged:
+    @pytest.mark.parametrize(
+        "built",
+        [
+            c.COMMAND_WRITE_SPECIAL + c.CMD_SET_TIME + b"XX",
+            c.COMMAND_WRITE_SPECIAL + c.CMD_SET_TIME + b"2599",
+            c.COMMAND_WRITE_SPECIAL + c.CMD_SET_DAY_OF_WEEK + b"9",
+            c.COMMAND_WRITE_SPECIAL + c.CMD_SET_TIME_FORMAT + b"Q",
+        ],
+        ids=["not digits", "not a time", "not a day", "not a format"],
+    )
+    def test_a_clock_command_that_makes_no_sense(self, built):
+        assert payload(built).command.malformed
+
+    @pytest.mark.parametrize(
+        "builder",
+        [lambda: frames.set_time(14, 30), lambda: frames.set_day_of_week(3),
+         lambda: frames.set_time_format(True)],
+        ids=["time", "day", "format"],
+    )
+    def test_a_valid_clock_command_is_not_flagged(self, builder):
+        assert not payload(builder()).command.malformed
+
+
+class TestReadsCoverTheirWholePayload:
+    def test_trailing_bytes_after_a_read_label_are_not_dropped(self):
+        # The spans have to account for every byte, or the detail pane announces
+        # a byte count larger than the hex it then renders.
+        result = payload(c.COMMAND_READ_TEXT + b"A" + c.COMMAND_WRITE_SPECIAL + b"$")
+        assert b"".join(one.data for one in result.spans) == result.transmission.raw

@@ -247,3 +247,81 @@ class TestState:
         assert sign.files == {}
         assert sign.run_sequence == []
         assert sign.transmissions == 0
+
+
+class TestMalformedCommandsChangeNothing:
+    def test_a_truncated_write_does_not_release_a_running_alert(self, sign):
+        configure(sign, frames.FileAllocation(b"A", 64))
+        send(sign, frames.write_text_file(c.FILE_PRIORITY, b"SMOKE ALARM"))
+        assert sign.priority_active
+        notes = send(sign, c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY + c.SOM)
+        assert sign.priority == b"SMOKE ALARM"
+        assert any(note.level is NoteLevel.VIOLATION for note in notes)
+        assert "too incomplete to act on" in texts(notes)
+
+    def test_a_malformed_clock_write_leaves_the_clock_alone(self, sign):
+        send(sign, frames.set_time(14, 30))
+        send(sign, c.COMMAND_WRITE_SPECIAL + c.CMD_SET_TIME + b"XX")
+        assert (sign.hour, sign.minute) == (14, 30)
+
+    def test_a_malformed_day_write_leaves_the_day_alone(self, sign):
+        send(sign, frames.set_day_of_week(3))
+        send(sign, c.COMMAND_WRITE_SPECIAL + c.CMD_SET_DAY_OF_WEEK + b"9")
+        assert sign.day == 3
+
+
+class TestModeIsKeptWhenNoneIsSent:
+    def test_a_write_with_no_start_of_mode_keeps_the_stored_mode(self, sign):
+        # The decoder tells the reader the sign "keeps the mode the file already
+        # had", so the model has to actually do that.
+        configure(sign, frames.FileAllocation(b"A", 64))
+        send(sign, frames.write_text_file(b"A", b"FIRST", mode=c.MODE_ROTATE))
+        send(sign, c.COMMAND_WRITE_TEXT + b"A" + b"SECOND")
+        stored = sign.files[b"A"]
+        assert stored.body == b"SECOND"
+        assert stored.mode == c.MODE_ROTATE
+        assert stored.position == c.TEXT_POS_MIDDLE
+
+    def test_a_write_with_a_mode_still_replaces_it(self, sign):
+        configure(sign, frames.FileAllocation(b"A", 64))
+        send(sign, frames.write_text_file(b"A", b"FIRST", mode=c.MODE_ROTATE))
+        send(sign, frames.write_text_file(b"A", b"SECOND", mode=c.MODE_FLASH))
+        assert sign.files[b"A"].mode == c.MODE_FLASH
+
+
+class TestFileTypes:
+    def test_a_text_write_cannot_address_a_string_file(self, sign):
+        send(sign, c.COMMAND_WRITE_SPECIAL + c.SF_SET_MEMORY_CONFIG + b"ABU0040FFFF")
+        notes = send(sign, frames.write_text_file(b"A", b"NOT A TEXT FILE"))
+        assert any(note.level is NoteLevel.VIOLATION for note in notes)
+        assert "allocated as a STRING file" in texts(notes)
+        assert b"A" not in sign.files
+
+    def test_a_run_sequence_skips_a_non_text_file(self, sign):
+        send(sign, c.COMMAND_WRITE_SPECIAL + c.SF_SET_MEMORY_CONFIG + b"ADU0040FFFF")
+        notes = send(sign, frames.set_run_sequence([b"A"]))
+        assert sign.playing == []
+        assert "does not allocate" in texts(notes)
+
+    def test_a_text_file_is_still_writable_and_playable(self, sign):
+        configure(sign, frames.FileAllocation(b"A", 64))
+        send(sign, frames.set_run_sequence([b"A"]))
+        send(sign, frames.write_text_file(b"A", b"FINE"))
+        assert sign.playing == [b"A"]
+
+
+class TestReconfiguringLeavesThePriorityFileAlone:
+    def test_an_alert_survives_a_memory_configuration(self, sign):
+        # The document lists exactly four things that cancel a priority message
+        # and a memory write is not one of them. The priority file always exists
+        # and sits outside the pool being reallocated.
+        configure(sign, frames.FileAllocation(b"A", 64))
+        send(sign, frames.write_text_file(c.FILE_PRIORITY, b"SMOKE ALARM"))
+        send(sign, frames.set_memory_config([frames.FileAllocation(b"A", 128)]))
+        assert sign.priority == b"SMOKE ALARM"
+        assert sign.playing == [c.FILE_PRIORITY]
+
+    def test_an_alert_survives_a_clear_memory(self, sign):
+        send(sign, frames.write_text_file(c.FILE_PRIORITY, b"SMOKE ALARM"))
+        send(sign, frames.clear_memory())
+        assert sign.priority == b"SMOKE ALARM"

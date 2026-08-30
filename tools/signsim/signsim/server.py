@@ -21,7 +21,7 @@ from __future__ import annotations
 from functools import partial
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtNetwork import QHostAddress, QTcpServer, QTcpSocket
+from PySide6.QtNetwork import QAbstractSocket, QHostAddress, QHostInfo, QTcpServer, QTcpSocket
 
 from signsim.decode import DecodedTransmission, decode
 from signsim.framing import FrameScanner
@@ -54,9 +54,7 @@ class SignEndpoint(QObject):
 
     def listen(self, host: str, port: int) -> None:
         """Bind and start accepting, or raise :class:`OSError` saying why not."""
-        address = QHostAddress(host)
-        if address.isNull():
-            raise OSError("%r is not an address this can bind to" % host)
+        address = _resolve(host)
         if not self._server.listen(address, port):
             raise OSError(
                 "could not listen on %s:%d: %s"
@@ -90,8 +88,18 @@ class SignEndpoint(QObject):
         Leaving them unread would fill the kernel buffer and eventually stall
         the service, which is a worse thing to do to somebody who only wanted
         the log to stop scrolling.
+
+        Discarding them breaks the stream, so every scanner is reset on the way
+        in. Without that, a pause part way through a frame leaves that prefix
+        buffered, and the first transmission after resuming is joined to it and
+        reported as truncated. A tool for finding problems must not invent one.
         """
         self._paused = paused
+        if not paused:
+            return
+        for scanner in self._scanners.values():
+            scanner.reset()
+        self.pending_changed.emit(0)
 
     def close(self) -> None:
         """Stop listening and drop every client."""
@@ -132,8 +140,40 @@ class SignEndpoint(QObject):
         self.pending_changed.emit(scanner.pending_bytes)
 
 
+def _resolve(host: str) -> QHostAddress:
+    """Turn what somebody typed after ``--host`` into an address to bind.
+
+    ``QHostAddress`` parses literals only, so the default written the way most
+    people would write it, ``localhost``, is rejected outright. Anything that is
+    not a literal is looked up, which costs one synchronous resolution at
+    startup and nothing after.
+
+    An IPv4 result is preferred when the name gives both. The address this binds
+    is printed back as the ``serial_url`` to paste into the service, and
+    ``socket://::1:4001`` is a good deal harder to read, and to be confident
+    about, than ``socket://127.0.0.1:4001``.
+    """
+    address = QHostAddress(host)
+    if not address.isNull():
+        return address
+
+    info = QHostInfo.fromName(host)
+    found = info.addresses()
+    if info.error() != QHostInfo.HostInfoError.NoError or not found:
+        raise OSError(
+            "%r is neither an address to bind nor a name that resolves to one: %s"
+            % (host, info.errorString())
+        )
+    for candidate in found:
+        if candidate.protocol() == QAbstractSocket.NetworkLayerProtocol.IPv4Protocol:
+            return candidate
+    return found[0]
+
+
 def _describe(socket: QTcpSocket) -> str:
     """Name a client the way a status bar should show it."""
+    if socket.state() == QAbstractSocket.SocketState.UnconnectedState:
+        return "a client"
     return "%s:%d" % (socket.peerAddress().toString(), socket.peerPort())
 
 
