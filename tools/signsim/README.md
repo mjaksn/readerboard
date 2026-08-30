@@ -17,6 +17,17 @@ to it.
 
 ```
 pip install --require-hashes -r tools/signsim/requirements.lock
+python scripts/run_with_simulator.py
+```
+
+That starts the simulator and the service together, with the service already
+pointed here, and stops both on Ctrl+C. It is the usual way in. PyCharm has the
+same thing as the "API and simulator" run configuration, and there are separate
+ones for each half.
+
+To run only the simulator, because the service is already up somewhere else:
+
+```
 python tools/signsim/run.py
 ```
 
@@ -30,6 +41,14 @@ That is the whole integration. `serial_url` already takes any pyserial URL,
 because that is how a sign on an Ethernet to RS-232 adapter is reached, and
 nothing in the URL says the far end has to be an adapter. Nothing in the service
 changes, and no setting is added to it.
+
+One thing the launcher does that is worth knowing if you start the two by hand:
+it deletes the service's state file first. The service records the memory
+configuration it applied and reconfigures only when the plan changes, which is
+right against a sign that keeps its memory across a restart. This does not; it
+starts empty every time. Pair a fresh simulator with a state file left from the
+last run and the service sends no memory configuration at all, and every write
+to anything but file `A` is then refused for a pool that was never allocated.
 
 `--host` and `--port` move it. A name is resolved, so `--host localhost` works
 as well as `--host 127.0.0.1`, and an IPv4 result is preferred when a name gives

@@ -65,18 +65,18 @@ docker run --rm -p 5001:5001 \
 Then open <http://127.0.0.1:5001/docs>.
 
 `loop://` swallows everything written to it, so the service runs but there is
-nothing to see. To watch what it would have sent, run the sign simulator in
-`tools/signsim/` and point the service at that instead:
+nothing to see. To watch what it would have sent, run it against the sign
+simulator in `tools/signsim/` instead:
 
 ```
 pip install --require-hashes -r tools/signsim/requirements.lock
-python tools/signsim/run.py
+python scripts/run_with_simulator.py
 ```
 
-Then start the service with `READERBOARD_SERIAL_URL=socket://127.0.0.1:4001`.
-The simulator decodes each transmission, says what every byte of it means, and
-shows what the sign would be holding as a result. `tools/signsim/README.md` has
-the details.
+That starts the simulator and the service together, already pointed at each
+other, and stops both on Ctrl+C. The simulator decodes each transmission, says
+what every byte of it means, and shows what the sign would be holding as a
+result. `tools/signsim/README.md` has the details.
 
 ## Installing it properly
 
@@ -268,6 +268,10 @@ this particular sign. It is destructive and refuses to run without `--confirm-er
 `tools/signsim/` is a PySide6 stand-in for the sign, described above. Its own tests
 are collected by the `pytest` run here and need no Qt installed; the application does,
 and it is pinned separately so that nothing the service installs ever pulls Qt in.
+
+`scripts/run_with_simulator.py` starts the service and the simulator together. Editor
+launch configurations for each half and for both at once are checked in, under
+`.vscode/launch.json` and `.idea/runConfigurations/`.
 
 ## Licence
 

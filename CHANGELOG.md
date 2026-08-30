@@ -45,6 +45,26 @@ is added is a development tool that lives beside the service rather than in it.
   build context, and `pyproject.toml` gains no extra. The image builds for
   `linux/arm/v7` under emulation, which settles it.
 
+- **One command to run the service and the simulator together**,
+  `scripts/run_with_simulator.py`. It starts the simulator, reads its listening
+  address back from its own output rather than probing the port, which would
+  show up in the window as a client that never speaks, and then starts the
+  service pointed at it. Ctrl+C stops both.
+
+  It discards the service's state file first, and that is the point of it rather
+  than a detail. The service reconfigures the sign's memory only when the plan
+  changes, which is right against a sign that keeps its memory across a restart;
+  the simulator starts empty every run. Pairing the two with a state file left
+  from last time means no memory configuration is sent at all, and every write
+  to anything but file `A` is then refused for a pool that was never allocated.
+  `--keep-state` opts out, for testing that path deliberately.
+
+- **Editor run configurations for PyCharm**, under `.idea/runConfigurations/`:
+  the two halves separately and both together. `.idea/` is no longer ignored
+  wholesale, because those configurations are as much a shared part of the
+  checkout as the `.vscode/launch.json` beside them. The per-user half of that
+  directory, the window layout and the local interpreter path, stays ignored.
+
 ### Changed
 
 - **CI type checks the simulator.** The lint job installs its lock file and runs

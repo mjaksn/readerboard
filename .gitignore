@@ -152,16 +152,38 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-#IDEA files
-.idea/
-
 # Mac files
 .DS_Store
 
-# PyCharm
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+# PyCharm and the other JetBrains editors.
+#
+# `.idea/` as a whole is deliberately not ignored, because the run
+# configurations under it are shared: they are how anybody opening this project
+# starts the service, the sign simulator, or the two together, and they are as
+# much a part of the checkout as the VS Code launch.json beside them.
+#
+# What is ignored is the per-user half of that directory. None of it describes
+# the project; it describes one person's window layout, one person's local
+# interpreter path, and one editor's caches, and committing any of it means
+# every checkout fights over it.
+#  JetBrains keep a fuller template at
+#  https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries
+.idea/shelf/
+.idea/httpRequests/
+.idea/dataSources/
+.idea/dataSources.local.xml
+.idea/sonarlint/
+.idea/**/contentModel.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/*.iml
+.idea/modules
+
+# The state file the local run configurations write. It is one machine's idea of
+# what is on the sign, and it is rewritten on every run.
+.local-state.json
 
