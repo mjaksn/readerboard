@@ -1,0 +1,40 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    The service on its own, against pyserial's loopback. It starts, serves /docs
+    on port 5001 and accepts writes that go nowhere, which is what you want when
+    the API itself is the thing being worked on.
+
+    The API key is not optional: with none configured every write answers 503 by
+    design, so a development one is set here. The state path is set because the
+    default is /var/lib/readerboard/state.json, which on Windows would resolve
+    to C:\var\lib and is nobody's idea of a good time. Clock sync is off so the
+    log shows what you did rather than what a timer did.
+  -->
+  <configuration default="false" name="API (fake sign)" type="PythonConfigurationType" factoryName="Python">
+    <module name="readerboard" />
+    <option name="ENV_FILES" value="" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="READERBOARD_SERIAL_URL" value="loop://" />
+      <env name="READERBOARD_API_KEY" value="local-development-key" />
+      <env name="READERBOARD_STATE_PATH" value="$PROJECT_DIR$/.local-state.json" />
+      <env name="READERBOARD_LOG_LEVEL" value="DEBUG" />
+      <env name="READERBOARD_CLOCK_SYNC_ENABLED" value="false" />
+    </envs>
+    <option name="SDK_HOME" value="" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="IS_MODULE_SDK" value="true" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <option name="SCRIPT_NAME" value="readerboard" />
+    <option name="PARAMETERS" value="" />
+    <option name="SHOW_COMMAND_LINE" value="false" />
+    <option name="EMULATE_TERMINAL" value="true" />
+    <option name="MODULE_MODE" value="true" />
+    <option name="REDIRECT_INPUT" value="false" />
+    <option name="INPUT_FILE" value="" />
+    <method v="2" />
+  </configuration>
+</component>
