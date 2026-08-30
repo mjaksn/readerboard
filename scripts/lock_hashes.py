@@ -16,7 +16,7 @@ than merely skipping the check.
 The hashes come from the PyPI JSON API, which reports the digest the index
 itself holds for each file. Nothing is downloaded and nothing is executed.
 
-    python scripts/lock_hashes.py                 rewrite both lock files
+    python scripts/lock_hashes.py                 rewrite every lock file
     python scripts/lock_hashes.py --check         exit 1 if it would change
 
 The version pins and the environment markers are left exactly as they are. To
@@ -35,10 +35,16 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 
-# Both lock files. requirements.lock is what the service runs on;
+# Every lock file in the tree. requirements.lock is what the service runs on;
 # requirements-build.lock is the one package needed to turn this source tree
-# into a wheel, pinned for the same reason and checked the same way.
-LOCK_FILES = (_ROOT / "requirements.lock", _ROOT / "requirements-build.lock")
+# into a wheel, pinned for the same reason and checked the same way; and the
+# simulator under tools/ has its own, which no installer of the service reads
+# but which is pinned here so that one command covers all three.
+LOCK_FILES = (
+    _ROOT / "requirements.lock",
+    _ROOT / "requirements-build.lock",
+    _ROOT / "tools" / "signsim" / "requirements.lock",
+)
 
 # name==version, then an optional ; marker. Anything already carrying hashes is
 # matched too, so this is safe to run over its own output.
@@ -115,7 +121,9 @@ def main() -> int:
     for lock_file in LOCK_FILES:
         current = lock_file.read_text(encoding="utf-8")
         updated = rewrite(current)
-        name = lock_file.name
+        # Two of these are called requirements.lock, so the bare name would
+        # not say which one is stale.
+        name = lock_file.relative_to(_ROOT).as_posix()
 
         if current == updated:
             print("%s is current" % name)

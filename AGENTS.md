@@ -80,10 +80,43 @@ it there too.
 `tests/test_frames.py` asserts whole transmissions literally. When one of those
 fails, the frame builder is wrong, not the test.
 
+`pytest` also collects `tools/signsim/tests`, the sign simulator's own suite.
+Those tests import only the simulator's pure half, never PySide6, so they run in
+CI where Qt is not installed. The one worth knowing about round trips the frame
+builders above through the simulator's decoder: whatever the service builds has
+to read back as the command that built it.
+
 CI also builds the container image for amd64 and starts it against `loop://`,
 for the reason it diffs the checked-in OpenAPI description: a thing exercised
 only at tag time rots silently, and the first anybody hears of it is a failed
 release.
+
+## Watching what goes to the sign
+
+`tools/signsim/` is a PySide6 application that stands in for the sign. It listens
+on a TCP port, and because `serial_url` already takes any pyserial URL, pointing
+the service at `socket://127.0.0.1:4001` is the whole integration. Nothing in the
+service knows it exists.
+
+It shows each transmission byte by byte, coloured by what each span is and
+annotated with the protocol's own meaning, and it keeps the sign's state: the
+file table, the contents of each file, the run sequence and the priority file.
+The state is what makes it worth having over a packet log. It says when a write
+lands in a file no memory configuration allocated, when a message overruns its
+file, when the run sequence names a file that does not exist, and when a run
+sequence write arrives during an alert, which `docs/protocol-notes.md` lists
+as one of the four questions only the sign can settle.
+
+Two things to know before relying on it. It decodes against
+`readerboard.protocol`'s own tables, so it can confirm which token was sent but
+never that the token's byte value is right; `tests/test_constant_values.py` is
+still the only thing that checks that. And it is one way: read commands are
+decoded and shown, and nothing is answered.
+
+Qt is not a dependency of the service and must not become one. It has its own
+`requirements.lock`, `tools/` is in `.dockerignore`, and nothing in
+`pyproject.toml` mentions it. The image builds for `linux/arm/v7` under
+emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 ## Prose is part of the product
 
@@ -147,6 +180,9 @@ to turn this tree into a wheel, so that both installers can build with
 `pyproject.toml` stays a floor: it is what a third party building from source
 sees, and only the two installers here are pinned.
 
+The simulator under `tools/signsim/` has a third lock file of its own. Nothing
+that installs the service reads it, and nothing should: it pins Qt.
+
 When moving a version, edit the pin and then run `scripts/lock_hashes.py`, which
-brings the hashes with it from the index's own digests and covers both files.
-`--check` fails if either has drifted.
+brings the hashes with it from the index's own digests and covers all three
+files. `--check` fails if any of them has drifted.

@@ -97,7 +97,10 @@ packages = [
 readerboard = ["py.typed"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+# The simulator under tools/ is collected too. Its tests import only the pure
+# half of it, never PySide6, so they run in CI where Qt is not installed, and
+# the round trip they check is against the frame builders in this package.
+testpaths = ["tests", "tools/signsim/tests"]
 addopts = "-q --strict-markers --strict-config"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -136,8 +139,16 @@ ignore = [
 # and rewriting it into docstring-bearing prose would only obscure its origin.
 "readerboard/protocol/constants.py" = ["E501", "RUF001", "RUF003"]
 # A test's name is its documentation, and a docstring repeating it would be
-# worse than none. Tests that need explaining have one anyway.
+# worse than none. Tests that need explaining have one anyway. The simulator's
+# tests are named separately because this glob is anchored at the project root
+# and does not reach into tools/.
 "tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
+"tools/signsim/tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
+
+[tool.ruff.lint.isort]
+# The simulator is not under the project root, so import sorting would put it
+# in the third party block and then complain that it is in the wrong one.
+known-first-party = ["readerboard", "signsim"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"
