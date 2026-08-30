@@ -1,5 +1,6 @@
 """Tests for the HTTP surface, including the exact payloads already in use."""
 
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -120,7 +121,7 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
     def test_the_scheme_is_declared(self, settings, sign):
         schema = create_app(settings, transport=sign).openapi()
         assert schema["components"]["securitySchemes"] == {
-            "API key": {
+            "ApiKeyAuth": {
                 "type": "apiKey",
                 "in": "header",
                 "name": "X-API-Key",
@@ -141,7 +142,7 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
             ("/Write/Message", "post"),
             ("/Write/ControlCommand", "post"),
         ]:
-            assert schema["paths"][path][method]["security"] == [{"API key": []}], (
+            assert schema["paths"][path][method]["security"] == [{"ApiKeyAuth": []}], (
                 "%s %s should be marked as needing the key" % (method.upper(), path)
             )
 
@@ -157,6 +158,20 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
             ("/v2/enumerations/display-modes", "get"),
         ]:
             assert "security" not in schema["paths"][path][method]
+
+    def test_every_component_key_is_one_the_specification_allows(self, settings, sign):
+        # OpenAPI 3.1 section 4.8.7.1: "All the fixed fields declared above are
+        # objects that MUST use keys that match the regular expression:
+        # ^[a-zA-Z0-9\.\-_]+$". The scheme name became one of those keys, and a
+        # readable "API key" with a space in it made the whole document invalid
+        # for anything stricter than the Swagger UI. Nothing here catches that by
+        # itself: the CI check only diffs the generated document against the
+        # committed one, so both sides would be equally wrong.
+        schema = create_app(settings, transport=sign).openapi()
+        allowed = re.compile(r"^[a-zA-Z0-9._-]+$")
+        for section, entries in schema.get("components", {}).items():
+            for key in entries:
+                assert allowed.match(key), "components.%s has the key %r" % (section, key)
 
     def test_the_header_is_no_longer_a_parameter_on_every_operation(self, settings, sign):
         # The old shape put an optional X-API-Key parameter on each protected

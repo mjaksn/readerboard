@@ -12,8 +12,10 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
-Nothing in the HTTP surface changes and nothing an install runs is touched. What
-is added is a development tool that lives beside the service rather than in it.
+No path, request body, response body, status code or setting name changes, so
+nothing an existing client sends has to change. What is here is a development
+tool that lives beside the service rather than in it, and a correction to how the
+service describes its own authentication to the documentation page.
 
 ### Added
 

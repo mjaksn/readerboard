@@ -33,10 +33,16 @@ API_KEY_HEADER = "X-API-Key"
 # different answers, 401 and 503, and the simple endpoints document the
 # difference, so the checking stays in `require_api_key` below and this declares
 # the scheme and nothing else.
+# The scheme name becomes a key under `components.securitySchemes`, and the
+# OpenAPI specification requires those to match `^[a-zA-Z0-9\.\-_]+$` (section
+# 4.8.7.1). So it cannot be the prettier "API key", however much better that
+# reads in the Authorize dialog: a space there makes the whole document invalid
+# and trips validators and client generators. The human wording lives in the
+# description below, which is what the dialog shows underneath the name.
 api_key_scheme = APIKeyHeader(
     name=API_KEY_HEADER,
     auto_error=False,
-    scheme_name="API key",
+    scheme_name="ApiKeyAuth",
     description=(
         "The shared key every write carries. Set it with `api_key` in the config "
         "file or `READERBOARD_API_KEY` in the environment; `scripts/install.sh` "

@@ -564,7 +564,7 @@
       }
     },
     "securitySchemes": {
-      "API key": {
+      "ApiKeyAuth": {
         "description": "The shared key every write carries. Set it with `api_key` in the config file or `READERBOARD_API_KEY` in the environment; `scripts/install.sh` generates one.",
         "in": "header",
         "name": "X-API-Key",
@@ -695,7 +695,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Send a control command to the sign",
@@ -742,7 +742,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Write a message to the sign",
@@ -784,7 +784,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Give the sign back",
@@ -857,7 +857,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Take the sign over with an alert",
@@ -981,7 +981,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Take every message off the sign",
@@ -1050,7 +1050,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Take a message off the sign",
@@ -1155,7 +1155,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Register or replace a message",
@@ -1195,7 +1195,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Send a control command to the sign",
@@ -1222,7 +1222,7 @@
         },
         "security": [
           {
-            "API key": []
+            "ApiKeyAuth": []
           }
         ],
         "summary": "Set the sign's clock now",
