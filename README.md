@@ -216,6 +216,13 @@ the log, but they are not settings to fiddle with.
 ## Security
 
 An API key is required on every write, compared in constant time, and never logged.
+Reads and `GET /health` need none, so a monitor can watch the sign without holding a key
+that could write to it.
+
+The key is declared to the API description as a security scheme, so the Swagger UI at
+`/docs` has an **Authorize** button: enter the key once and every write on the page
+carries it. It is the same `X-API-Key` header a client sends, so nothing about a script
+or a Home Assistant `rest_command` changes.
 
 **Message content reaches the sign as protocol bytes**, so it is worth knowing what a
 client holding the key can do. The markup renderer emits bytes only for tokens it

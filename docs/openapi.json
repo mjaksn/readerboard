@@ -562,10 +562,18 @@
         "title": "ValidationError",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "API key": {
+        "description": "The shared key every write carries. Set it with `api_key` in the config file or `READERBOARD_API_KEY` in the environment; `scripts/install.sh` generates one.",
+        "in": "header",
+        "name": "X-API-Key",
+        "type": "apiKey"
+      }
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. `GET /health` does not.\n\nThe `/Write` and `/Enumerations` paths are a smaller surface for clients that\nwould rather not read status codes: every response there is a 200 with the\noutcome in the body, unless the request never reaches the route at all. A missing\nor wrong `X-API-Key` is a 401, a service with no API key configured is a 503, and\na body that is not the shape the endpoint declares is a 422.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. Reads and `GET /health` do not. On this\npage, put the key in once with the **Authorize** button and every write below\ncarries it.\n\nThe `/Write` and `/Enumerations` paths are a smaller surface for clients that\nwould rather not read status codes: every response there is a 200 with the\noutcome in the body, unless the request never reaches the route at all. A missing\nor wrong `X-API-Key` is a 401, a service with no API key configured is a 503, and\na body that is not the shape the endpoint declares is a 422.\n",
     "title": "readerboard",
     "version": "0.1.4"
   },
@@ -653,24 +661,6 @@
       "post": {
         "description": "Send one of the sign's control commands.",
         "operationId": "write_control_command_Write_ControlCommand_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -703,6 +693,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Send a control command to the sign",
         "tags": [
           "Write (simple)"
@@ -713,24 +708,6 @@
       "post": {
         "description": "Display a message on the sign.\n\nThe message goes into a reserved slot rather than the sign's priority file,\nso other sources can share the sign with it.",
         "operationId": "write_message_Write_Message_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -763,6 +740,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Write a message to the sign",
         "tags": [
           "Write (simple)"
@@ -795,39 +777,16 @@
       "delete": {
         "description": "Release an alert so the rotation resumes.",
         "operationId": "delete_alert_v2_alerts_delete",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "responses": {
           "204": {
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Give the sign back",
         "tags": [
           "Alerts"
@@ -864,24 +823,6 @@
       "post": {
         "description": "Take the whole sign over until the alert is released.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.",
         "operationId": "post_alert_v2_alerts_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -914,6 +855,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Take the sign over with an alert",
         "tags": [
           "Alerts"
@@ -1028,39 +974,16 @@
       "delete": {
         "description": "Remove every slot, leaving the sign showing nothing.",
         "operationId": "clear_messages_v2_messages_delete",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "responses": {
           "204": {
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Take every message off the sign",
         "tags": [
           "Messages"
@@ -1108,22 +1031,6 @@
               "title": "Key",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
           }
         ],
         "responses": {
@@ -1141,6 +1048,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Take a message off the sign",
         "tags": [
           "Messages"
@@ -1207,22 +1119,6 @@
               "title": "Key",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
           }
         ],
         "requestBody": {
@@ -1257,6 +1153,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Register or replace a message",
         "tags": [
           "Messages"
@@ -1267,24 +1168,6 @@
       "post": {
         "description": "Send one of the sign's own control commands.",
         "operationId": "send_command_v2_sign_command_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1310,6 +1193,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Send a control command to the sign",
         "tags": [
           "Sign"
@@ -1320,24 +1208,6 @@
       "post": {
         "description": "Set the sign's clock and day of week immediately.\n\nThe service already does this at startup, hourly, and whenever the link to\nthe sign comes back. This is for when you would rather not wait.",
         "operationId": "sync_clock_v2_sign_sync_clock_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-API-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Api-Key"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -1348,18 +1218,13 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "API key": []
+          }
+        ],
         "summary": "Set the sign's clock now",
         "tags": [
           "Sign"
