@@ -10,12 +10,15 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.2.0] - 2026-08-30
 
 No path, request body, response body, status code or setting name changes, so
 nothing an existing client sends has to change. What is here is a development
-tool that lives beside the service rather than in it, and a correction to how the
-service describes its own authentication to the documentation page.
+tool that lives beside the service rather than in it, a correction to how the
+service describes its own authentication to the documentation page, another
+documentation audit, and a round of work on the workflows and the release
+plumbing. The one change that reaches an installed system is the container's
+base image, which moved from Python 3.13 to 3.14.
 
 ### Added
 
@@ -104,6 +107,43 @@ service describes its own authentication to the documentation page.
 - **`scripts/lock_hashes.py` covers three lock files rather than two**, and
   names them by path when reporting, since two of them are called
   `requirements.lock`.
+- **The image publishing lives in `mjaksn/workflows` now**, called from here and
+  pinned by commit like any other third-party step. It was the same hundred and
+  forty lines in three repositories, kept in step by hand, and they had begun to
+  drift. The two registries stay separate calls, so a Docker Hub outage still
+  cannot hold up the release page, and CI gains a `rehearsal` job that runs the
+  GHCR half with `push: false` on one platform, so the shared file is exercised
+  on every pull request rather than first at tag time.
+- **The container's base image is `python:3.14.6-slim`, pinned by digest rather
+  than by patch tag.** A patch tag is quieter than a rolling one but it is not
+  still: while it is the newest of its line it is rebuilt too, so its digest
+  keeps moving. The digest pins the exact bytes, and the one chosen is old
+  enough to satisfy the standing rule against anything published within seven
+  days. This is also the move from Python 3.13 to 3.14 inside the image.
+- **The release workflow refuses a tag that is not on `main`.** A tag put on a
+  release branch before the squash merge names a commit that never reaches
+  `main`, and `git describe` on `main` then answers with the release before it.
+  Refused now, in the same job and voice as the check that the tag and the
+  version agree.
+- **Dependabot watches the actions, the Python packages and the base image**,
+  with a seven day cooldown so nothing released within the last week is ever
+  offered.
+
+### Removed
+
+- **The CodeQL workflow.** It was the only workflow pinning its actions by tag
+  rather than by commit, nothing required its check to pass, and nothing else
+  referenced it. Stated plainly since this reduces coverage rather than adding
+  it: the repository no longer runs static analysis on pushes, pull requests or
+  a schedule. Dependabot, `ruff` and `mypy` are unaffected and keep running in
+  CI.
+
+### Documentation
+
+- Prose audited across every surface it lives in, again. The claim that the
+  simple routes answer 200 to everything gained its exceptions everywhere it is
+  stated, sixteen other stale claims were corrected, and the changelog link to a
+  0.1.0 release that was never tagged is gone.
 
 ## [0.1.4] - 2026-08-28
 
@@ -274,6 +314,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.2.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.2.0
 [0.1.4]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.3
 [0.1.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.2
