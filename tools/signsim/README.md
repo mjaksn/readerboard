@@ -21,9 +21,9 @@ python scripts/run_with_simulator.py
 ```
 
 That starts the simulator and the service together, with the service already
-pointed here, and stops both on Ctrl+C. It is the usual way in. PyCharm has the
-same thing as the "API and simulator" run configuration, and there are separate
-ones for each half.
+pointed here, and stops both on Ctrl+C. It is the usual way in. Both editors
+have it: "API and sign simulator" in `.vscode/launch.json` and "API and
+simulator" in `.idea/runConfigurations/`.
 
 To run only the simulator, because the service is already up somewhere else:
 

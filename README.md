@@ -269,9 +269,10 @@ this particular sign. It is destructive and refuses to run without `--confirm-er
 are collected by the `pytest` run here and need no Qt installed; the application does,
 and it is pinned separately so that nothing the service installs ever pulls Qt in.
 
-`scripts/run_with_simulator.py` starts the service and the simulator together. Editor
-launch configurations for each half and for both at once are checked in, under
-`.vscode/launch.json` and `.idea/runConfigurations/`.
+`scripts/run_with_simulator.py` starts the service and the simulator together. Both
+editors have it as a launch configuration, "API and sign simulator" in
+`.vscode/launch.json` and "API and simulator" in `.idea/runConfigurations/`, along with
+configurations for each half on its own.
 
 ## Licence
 

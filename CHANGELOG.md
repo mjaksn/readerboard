@@ -59,11 +59,12 @@ is added is a development tool that lives beside the service rather than in it.
   to anything but file `A` is then refused for a pool that was never allocated.
   `--keep-state` opts out, for testing that path deliberately.
 
-- **Editor run configurations for PyCharm**, under `.idea/runConfigurations/`:
-  the two halves separately and both together. `.idea/` is no longer ignored
-  wholesale, because those configurations are as much a shared part of the
-  checkout as the `.vscode/launch.json` beside them. The per-user half of that
-  directory, the window layout and the local interpreter path, stays ignored.
+- **Editor run configurations for both halves and for both at once.** PyCharm
+  gains `.idea/runConfigurations/`, and `.vscode/launch.json` gains the combined
+  one beside the two it already had. `.idea/` is no longer ignored wholesale,
+  because those configurations are as much a shared part of the checkout as the
+  `launch.json` beside them. The per-user half of that directory, the window
+  layout and the local interpreter path, stays ignored.
 
 ### Changed
 
