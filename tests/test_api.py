@@ -1,5 +1,6 @@
 """Tests for the HTTP surface, including the exact payloads already in use."""
 
+import re
 from collections.abc import Iterator
 
 import pytest
@@ -57,6 +58,19 @@ class TestHealth:
         assert KEY not in client.get("/health").text
 
 
+class _AnyDescription:
+    """Matches any description that tells a reader where the key comes from."""
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, str) and "READERBOARD_API_KEY" in other
+
+    def __repr__(self) -> str:
+        return "<a description mentioning READERBOARD_API_KEY>"
+
+
+ANY_DESCRIPTION = _AnyDescription()
+
+
 class TestAuth:
     def test_a_write_without_a_key_is_refused(self, client):
         response = client.put("/v2/messages/temperature", json={"message": "HI"})
@@ -86,6 +100,88 @@ class TestAuth:
             "/Write/Message", json={"display_mode": "HOLD", "message": "HI"}
         )
         assert response.status_code == 401
+
+    def test_the_refusal_says_which_header_is_wanted(self, client):
+        # The scheme is declared with auto_error=False precisely so this wording
+        # and the 503 below stay ours rather than becoming "Not authenticated".
+        response = client.put("/v2/messages/temperature", json={"message": "HI"})
+        assert response.json()["detail"] == "a valid X-API-Key header is required"
+        assert response.headers["WWW-Authenticate"] == "X-API-Key"
+
+
+class TestTheKeyIsDeclaredAsASecurityScheme:
+    """What puts the Authorize button in the Swagger UI.
+
+    The key was a plain header parameter once, which worked but told neither
+    the documentation page nor a generated client that it was a credential.
+    These pin the shape rather than the rendering, since the rendering is
+    Swagger's business.
+    """
+
+    def test_the_scheme_is_declared(self, settings, sign):
+        schema = create_app(settings, transport=sign).openapi()
+        assert schema["components"]["securitySchemes"] == {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+                "description": ANY_DESCRIPTION,
+            }
+        }
+
+    def test_every_write_requires_it(self, settings, sign):
+        schema = create_app(settings, transport=sign).openapi()
+        for path, method in [
+            ("/v2/messages/{key}", "put"),
+            ("/v2/messages/{key}", "delete"),
+            ("/v2/messages", "delete"),
+            ("/v2/alerts", "post"),
+            ("/v2/alerts", "delete"),
+            ("/v2/sign/sync-clock", "post"),
+            ("/v2/sign/command", "post"),
+            ("/Write/Message", "post"),
+            ("/Write/ControlCommand", "post"),
+        ]:
+            assert schema["paths"][path][method]["security"] == [{"ApiKeyAuth": []}], (
+                "%s %s should be marked as needing the key" % (method.upper(), path)
+            )
+
+    def test_the_open_endpoints_are_not_marked_as_needing_it(self, settings, sign):
+        # Health is deliberately unauthenticated so a monitor can watch the sign
+        # without holding a key that could write to it, and the reads are open
+        # too. The document should say so rather than leave it to be guessed.
+        schema = create_app(settings, transport=sign).openapi()
+        for path, method in [
+            ("/health", "get"),
+            ("/v2/messages", "get"),
+            ("/v2/alerts", "get"),
+            ("/v2/enumerations/display-modes", "get"),
+        ]:
+            assert "security" not in schema["paths"][path][method]
+
+    def test_every_component_key_is_one_the_specification_allows(self, settings, sign):
+        # OpenAPI 3.1 section 4.8.7.1: "All the fixed fields declared above are
+        # objects that MUST use keys that match the regular expression:
+        # ^[a-zA-Z0-9\.\-_]+$". The scheme name became one of those keys, and a
+        # readable "API key" with a space in it made the whole document invalid
+        # for anything stricter than the Swagger UI. Nothing here catches that by
+        # itself: the CI check only diffs the generated document against the
+        # committed one, so both sides would be equally wrong.
+        schema = create_app(settings, transport=sign).openapi()
+        allowed = re.compile(r"^[a-zA-Z0-9._-]+$")
+        for section, entries in schema.get("components", {}).items():
+            for key in entries:
+                assert allowed.match(key), "components.%s has the key %r" % (section, key)
+
+    def test_the_header_is_no_longer_a_parameter_on_every_operation(self, settings, sign):
+        # The old shape put an optional X-API-Key parameter on each protected
+        # operation, which is what a reader had to fill in one endpoint at a
+        # time. One scheme replaces all of them.
+        schema = create_app(settings, transport=sign).openapi()
+        for path, operations in schema["paths"].items():
+            for method, operation in operations.items():
+                names = [one["name"] for one in operation.get("parameters", [])]
+                assert "X-API-Key" not in names, "%s %s" % (method.upper(), path)
 
 
 class TestMessages:

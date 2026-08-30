@@ -133,7 +133,8 @@ docker run ... --device /dev/ttyUSB0 --group-add 20 \
 
 ## Using it
 
-Every write needs an `X-API-Key` header. `GET /health` does not.
+Every write needs an `X-API-Key` header. Reads and `GET /health` do not. In the
+Swagger UI at `/docs`, the **Authorize** button puts it in once for the whole page.
 
 Register a message:
 
@@ -216,6 +217,19 @@ the log, but they are not settings to fiddle with.
 ## Security
 
 An API key is required on every write, compared in constant time, and never logged.
+Reads and `GET /health` need none, so a monitor can watch the sign without holding a key
+that could write to it.
+
+The key is declared to the API description as a security scheme, so the Swagger UI at
+`/docs` has an **Authorize** button: enter the key once and every write on the page
+carries it. It is the same `X-API-Key` header a client sends, so nothing about a script
+or a Home Assistant `rest_command` changes.
+
+That page is configured to remember the key, so it survives a reload or a browser
+restart rather than needing to be pasted in again. Convenient on your own machine, and
+worth knowing before you use **Authorize** on a shared or kiosk browser, where the next
+person to open `/docs` inherits it. Use the browser's Logout in the Authorize dialog, or
+just do not authorize there.
 
 **Message content reaches the sign as protocol bytes**, so it is worth knowing what a
 client holding the key can do. The markup renderer emits bytes only for tokens it

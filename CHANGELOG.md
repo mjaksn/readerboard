@@ -12,8 +12,10 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
-Nothing in the HTTP surface changes and nothing an install runs is touched. What
-is added is a development tool that lives beside the service rather than in it.
+No path, request body, response body, status code or setting name changes, so
+nothing an existing client sends has to change. What is here is a development
+tool that lives beside the service rather than in it, and a correction to how the
+service describes its own authentication to the documentation page.
 
 ### Added
 
@@ -67,6 +69,28 @@ is added is a development tool that lives beside the service rather than in it.
   layout and the local interpreter path, stays ignored.
 
 ### Changed
+
+- **The API key is declared as a security scheme rather than as a header
+  parameter.** It was an ordinary `X-API-Key` header parameter on each protected
+  operation, which worked but told neither the documentation page nor a
+  generated client that it was a credential. The Swagger UI at `/docs`
+  consequently had no **Authorize** button, and the key had to be pasted into
+  every endpoint separately. Now it goes in once.
+
+  Nothing changes for a client. The same header carries the same value, a
+  missing or wrong key is still a 401 with the same wording, and a service with
+  no key configured is still a 503. The scheme is declared with
+  `auto_error=False` for exactly that reason: left at its default it would
+  answer for itself and collapse those two cases into one generic message.
+
+  `docs/openapi.json` is 135 lines shorter, because one scheme replaces the
+  per-operation parameter on nine operations, and the eleven open operations now
+  say plainly that they need nothing. Anyone generating a client from it gets a
+  better one.
+
+- **The Swagger UI remembers the key across a page reload**, through
+  `persistAuthorization`. Without it every reload meant another trip to the
+  config file.
 
 - **CI type checks the simulator.** The lint job installs its lock file and runs
   the `mypy` invocation its README documents, which nothing ran before. Same

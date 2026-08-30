@@ -52,7 +52,9 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the registered slots by itself. An **alert** takes the
 whole display over until it is released, then the rotation resumes.
 
-Every write needs an `X-API-Key` header. `GET /health` does not.
+Every write needs an `X-API-Key` header. Reads and `GET /health` do not. On this
+page, put the key in once with the **Authorize** button and every write below
+carries it.
 
 The `/Write` and `/Enumerations` paths are a smaller surface for clients that
 would rather not read status codes: every response there is a 200 with the
@@ -198,6 +200,10 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         description=DESCRIPTION,
         version=__version__,
         lifespan=lifespan,
+        # Keep the key entered in the Swagger UI's Authorize dialog across a page
+        # reload. Without it every reload is another trip to the config file for
+        # somebody trying things out, which is most of what /docs is for.
+        swagger_ui_parameters={"persistAuthorization": True},
     )
     app.state.settings = settings
 
