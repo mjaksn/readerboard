@@ -1,6 +1,7 @@
 """Tests for the persisted state and the file pool layout."""
 
 import os
+import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -129,6 +130,38 @@ class TestStateStore:
 
         assert "Access is denied" in str(raised.value)
         assert "could not remove the temporary file" in caplog.text
+
+    @pytest.mark.skipif(
+        os.name != "nt", reason="only Windows refuses to rename or delete a file held open"
+    )
+    def test_a_real_lock_behaves_as_the_test_above_pretends(self, tmp_path, monkeypatch, caplog):
+        # The test above mocks both the rename and the delete. This one mocks
+        # neither: it holds an ordinary read handle on the temporary file, which
+        # is enough to make Windows refuse both, so the path runs for real.
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+        as_written = store.path.read_text(encoding="utf-8")
+
+        holders = []
+        a_temporary_file = tempfile.NamedTemporaryFile
+
+        def held_open(*args, **kwargs):
+            handle = a_temporary_file(*args, **kwargs)
+            # The handle has to outlive this call, so no context manager.
+            holders.append(open(handle.name, encoding="utf-8"))  # noqa: SIM115
+            return handle
+
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", held_open)
+        try:
+            with pytest.raises(PermissionError):
+                store.save(ServiceState(slots={"humidity": a_slot(key="humidity", label="B")}))
+        finally:
+            for holder in holders:
+                holder.close()
+
+        assert store.path.read_text(encoding="utf-8") == as_written
+        assert "could not remove the temporary file" in caplog.text
+        assert sorted(p.suffix for p in tmp_path.iterdir()) == [".json", ".tmp"]
 
     def test_corrupt_json_does_not_stop_the_service_starting(self, tmp_path, caplog):
         path = tmp_path / "state.json"
