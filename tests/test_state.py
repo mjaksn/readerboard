@@ -163,6 +163,37 @@ class TestStateStore:
         assert "could not remove the temporary file" in caplog.text
         assert sorted(p.suffix for p in tmp_path.iterdir()) == [".json", ".tmp"]
 
+    def test_a_temporary_file_left_behind_is_removed_by_the_next_save(self, tmp_path, monkeypatch):
+        store = StateStore(tmp_path / "state.json")
+
+        def refuses_every_one(source, target):
+            raise PermissionError(5, "Access is denied")
+
+        def refuses_to_delete(self, missing_ok=False):
+            raise PermissionError(13, "The process cannot access the file")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        monkeypatch.setattr(Path, "unlink", refuses_to_delete)
+        with pytest.raises(PermissionError):
+            store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert [p.suffix for p in tmp_path.iterdir()] == [".tmp"]
+
+        monkeypatch.undo()
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_temporary_file_from_an_earlier_run_is_removed_at_startup(self, tmp_path):
+        path = tmp_path / "state.json"
+        StateStore(path).save(ServiceState(slots={"temperature": a_slot()}))
+        (tmp_path / "state.json.abandoned.tmp").write_text("{}", encoding="utf-8")
+
+        state = StateStore(path).load()
+
+        assert state.slots["temperature"].label == "A"
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
     def test_corrupt_json_does_not_stop_the_service_starting(self, tmp_path, caplog):
         path = tmp_path / "state.json"
         path.write_text("{ this is not json", encoding="utf-8")

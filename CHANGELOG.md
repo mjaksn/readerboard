@@ -36,7 +36,9 @@ state file is written on Windows.
   previous state file whole, and still does. Removing the temporary file
   afterwards can fail for the same reason the rename did, so that is logged
   rather than raised, and the failure a caller sees is the one that matters
-  rather than one about the tidying up.
+  rather than one about the tidying up. The file is then remembered and removed
+  by the next save, and anything an earlier run abandoned is cleared at startup,
+  so a directory that stays locked cannot collect one file per failed save.
 
   The Raspberry Pi this service is written for runs Linux, where a rename over an
   open file is legal, so the second attempt is never reached and nothing there

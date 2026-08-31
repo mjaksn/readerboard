@@ -113,22 +113,6 @@ def _replace_with_retries(temporary: Path, target: Path) -> None:
                 time.sleep(REPLACE_RETRY_DELAY)
 
 
-def _discard(temporary: Path) -> None:
-    """Remove a temporary file the save will not use, without masking why.
-
-    A rename that spent every attempt did so because a handle stayed open, and
-    Windows refuses to delete a file in that state as readily as it refuses to
-    rename it. Raising from here would replace the failure that matters with a
-    second one describing the tidying up, so this is logged and left instead.
-    The file stays beside the state file, named for it and suffixed ``.tmp``,
-    until someone removes it.
-    """
-    try:
-        temporary.unlink(missing_ok=True)
-    except OSError as err:
-        logger.warning("could not remove the temporary file %s (%s)", temporary, err)
-
-
 class StateStore:
     """Loads and saves :class:`ServiceState` as JSON, atomically."""
 
@@ -136,8 +120,64 @@ class StateStore:
         """Point the store at a file. The file need not exist yet."""
         self.path = path
         self._last_written: str | None = None
+        self._leftovers: list[Path] = []
         self.writes = 0
         self.skipped = 0
+
+    def _discard(self, temporary: Path) -> None:
+        """Remove a temporary file the save will not use, without masking why.
+
+        A rename that spent every attempt did so because a handle stayed open,
+        and Windows refuses to delete a file in that state as readily as it
+        refuses to rename it. Raising from here would replace the failure that
+        matters with a second one describing the tidying up, so the file is
+        logged and remembered instead, and the next save tries again.
+        """
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as err:
+            logger.warning("could not remove the temporary file %s (%s)", temporary, err)
+            self._leftovers.append(temporary)
+
+    def _sweep_leftovers(self) -> None:
+        """Try again to remove the temporary files earlier saves gave up on.
+
+        Without this, a state directory something else holds open would collect
+        one file per failed save, and since everything is re-pushed on a timer
+        that is one per cycle for as long as the lock lasts. Only files this
+        store has already finished with are touched, so a save in flight
+        elsewhere is never disturbed.
+        """
+        remaining = []
+        for leftover in self._leftovers:
+            try:
+                leftover.unlink(missing_ok=True)
+            except OSError:
+                remaining.append(leftover)
+        self._leftovers = remaining
+
+    def _sweep_orphans(self) -> None:
+        """Remove temporary files an earlier run of the service left behind.
+
+        A store only remembers its own leftovers, so a process that exits while
+        the directory is still locked leaves them for the next one. This runs
+        from :meth:`load`, which happens once at startup, so nothing it deletes
+        can belong to a save that is under way. It assumes one service owns the
+        state file, which is the same thing the sign itself assumes.
+        """
+        prefix = self.path.name + "."
+        try:
+            entries = list(self.path.parent.iterdir())
+        except OSError:
+            return
+
+        for entry in entries:
+            if not (entry.name.startswith(prefix) and entry.name.endswith(".tmp")):
+                continue
+            try:
+                entry.unlink()
+            except OSError as err:
+                logger.warning("could not remove the leftover file %s (%s)", entry, err)
 
     def load(self) -> ServiceState:
         """Read the state, returning a fresh one if there is nothing usable to read.
@@ -146,6 +186,8 @@ class StateStore:
         The sign can be repopulated by its sources; refusing to boot cannot be
         fixed without someone logging in. So it is logged loudly and set aside.
         """
+        self._sweep_orphans()
+
         if not self.path.exists():
             logger.info("no state file at %s; starting empty", self.path)
             return ServiceState()
@@ -202,6 +244,7 @@ class StateStore:
             return
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._sweep_leftovers()
 
         handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed, then renamed
             mode="w",
@@ -219,7 +262,7 @@ class StateStore:
                 os.fsync(handle.fileno())
             _replace_with_retries(temporary, self.path)
         except OSError:
-            _discard(temporary)
+            self._discard(temporary)
             raise
 
         self._last_written = payload
