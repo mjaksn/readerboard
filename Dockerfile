@@ -74,7 +74,7 @@ RUN pip install --no-deps --no-build-isolation . \
 FROM python:3.14.6-slim@sha256:7bec7ddcddeff7975d6ba9b4be7dd6f6b2f55e7491539145e2978f7f97ce9144
 
 LABEL org.opencontainers.image.title="readerboard" \
-      org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, scheduling and clock sync" \
+      org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, expiring messages and clock sync" \
       org.opencontainers.image.source="https://github.com/mjaksn/readerboard" \
       org.opencontainers.image.documentation="https://github.com/mjaksn/readerboard/blob/main/README.md" \
       org.opencontainers.image.licenses="MIT"
