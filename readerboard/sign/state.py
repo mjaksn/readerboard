@@ -147,6 +147,9 @@ class StateStore:
         that is one per cycle for as long as the lock lasts. Only files this
         store has already finished with are touched, so a save in flight
         elsewhere is never disturbed.
+
+        This runs ahead of the identical-payload check in :meth:`save`, so a
+        save that writes nothing still tidies up after one that failed.
         """
         remaining = []
         for leftover in self._leftovers:
@@ -238,13 +241,14 @@ class StateStore:
 
         The rename at the end is retried; see :func:`_replace_with_retries`.
         """
+        self._sweep_leftovers()
+
         payload = state.model_dump_json(indent=2)
         if payload == self._last_written and self.path.exists():
             self.skipped += 1
             return
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._sweep_leftovers()
 
         handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - closed, then renamed
             mode="w",

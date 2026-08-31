@@ -184,6 +184,29 @@ class TestStateStore:
 
         assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
 
+    def test_a_save_that_writes_nothing_still_removes_a_leftover(self, tmp_path, monkeypatch):
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        def refuses_every_one(source, target):
+            raise PermissionError(5, "Access is denied")
+
+        def refuses_to_delete(self, missing_ok=False):
+            raise PermissionError(13, "The process cannot access the file")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        monkeypatch.setattr(Path, "unlink", refuses_to_delete)
+        with pytest.raises(PermissionError):
+            store.save(ServiceState(slots={"humidity": a_slot(key="humidity", label="B")}))
+
+        # The save below is the one that failed above undone: its payload is
+        # what was last written, so it is skipped and writes nothing at all.
+        monkeypatch.undo()
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert store.skipped == 1
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
     def test_a_temporary_file_from_an_earlier_run_is_removed_at_startup(self, tmp_path):
         path = tmp_path / "state.json"
         StateStore(path).save(ServiceState(slots={"temperature": a_slot()}))
