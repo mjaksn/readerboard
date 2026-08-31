@@ -26,11 +26,11 @@ state file is written on Windows.
   `PermissionError`. Nothing catches it, so a `/v2` write would have answered 500,
   and a simple route would have reported the failure in its body.
 
-  The rename is now retried up to five times. The second attempt is immediate,
-  because in the same measurement a single immediate retry cleared every
-  occurrence: the scanner's handle is gone within microseconds. Only the attempts
-  after that wait, a hundredth of a second apart, and the wait is worth avoiding
-  in the common case because a save runs on the event loop.
+  The rename is now attempted up to five times, four of them retries. The second
+  attempt is immediate, because in the same measurement a single immediate retry
+  cleared every occurrence: the scanner's handle is gone within microseconds.
+  Only the attempts after that wait, a hundredth of a second apart, and the wait
+  is worth avoiding in the common case because a save runs on the event loop.
 
   Atomicity was never in question and is not changed: a failed rename left the
   previous state file whole, and still does. Removing the temporary file
