@@ -1,11 +1,16 @@
 """Tests for the persisted state and the file pool layout."""
 
+import os
+import tempfile
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
 from readerboard.sign.layout import Layout, LayoutFull
 from readerboard.sign.state import (
+    REPLACE_ATTEMPTS,
     STATE_VERSION,
     AppliedLayout,
     ServiceState,
@@ -50,6 +55,166 @@ class TestStateStore:
         store = StateStore(tmp_path / "state.json")
         store.save(ServiceState(slots={"temperature": a_slot()}))
         store.save(ServiceState(slots={"temperature": a_slot()}))
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_rename_windows_briefly_refuses_is_retried(self, tmp_path, monkeypatch):
+        renames = []
+        real_replace = os.replace
+
+        def refuses_the_first_one(source, target):
+            renames.append(source)
+            if len(renames) == 1:
+                raise PermissionError(5, "Access is denied")
+            real_replace(source, target)
+
+        monkeypatch.setattr(os, "replace", refuses_the_first_one)
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert len(renames) == 2
+        assert store.load().slots["temperature"].message == "<green>18.4<degree>"
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_the_first_retry_does_not_wait(self, tmp_path, monkeypatch):
+        renames = []
+        waits = []
+        real_replace = os.replace
+
+        def refuses_the_first_one(source, target):
+            renames.append(source)
+            if len(renames) == 1:
+                raise PermissionError(5, "Access is denied")
+            real_replace(source, target)
+
+        monkeypatch.setattr(os, "replace", refuses_the_first_one)
+        monkeypatch.setattr(time, "sleep", waits.append)
+        StateStore(tmp_path / "state.json").save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert len(renames) == 2
+        assert waits == []
+
+    def test_a_rename_that_never_succeeds_leaves_the_last_good_state(self, tmp_path, monkeypatch):
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+        as_written = store.path.read_text(encoding="utf-8")
+
+        renames = []
+
+        def refuses_every_one(source, target):
+            renames.append(source)
+            raise PermissionError(5, "Access is denied")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        with pytest.raises(PermissionError):
+            store.save(ServiceState(slots={"humidity": a_slot(key="humidity", label="B")}))
+
+        assert len(renames) == REPLACE_ATTEMPTS
+        assert store.path.read_text(encoding="utf-8") == as_written
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_temporary_file_that_cannot_be_removed_does_not_hide_the_real_error(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        store = StateStore(tmp_path / "state.json")
+
+        def refuses_every_one(source, target):
+            raise PermissionError(5, "Access is denied")
+
+        def refuses_to_delete(self, missing_ok=False):
+            raise PermissionError(13, "The process cannot access the file")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        monkeypatch.setattr(Path, "unlink", refuses_to_delete)
+        with pytest.raises(PermissionError) as raised:
+            store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert "Access is denied" in str(raised.value)
+        assert "could not remove the temporary file" in caplog.text
+
+    @pytest.mark.skipif(
+        os.name != "nt", reason="only Windows refuses to rename or delete a file held open"
+    )
+    def test_a_real_lock_behaves_as_the_test_above_pretends(self, tmp_path, monkeypatch, caplog):
+        # The test above mocks both the rename and the delete. This one mocks
+        # neither: it holds an ordinary read handle on the temporary file, which
+        # is enough to make Windows refuse both, so the path runs for real.
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+        as_written = store.path.read_text(encoding="utf-8")
+
+        holders = []
+        a_temporary_file = tempfile.NamedTemporaryFile
+
+        def held_open(*args, **kwargs):
+            handle = a_temporary_file(*args, **kwargs)
+            # The handle has to outlive this call, so no context manager.
+            holders.append(open(handle.name, encoding="utf-8"))  # noqa: SIM115
+            return handle
+
+        monkeypatch.setattr(tempfile, "NamedTemporaryFile", held_open)
+        try:
+            with pytest.raises(PermissionError):
+                store.save(ServiceState(slots={"humidity": a_slot(key="humidity", label="B")}))
+        finally:
+            for holder in holders:
+                holder.close()
+
+        assert store.path.read_text(encoding="utf-8") == as_written
+        assert "could not remove the temporary file" in caplog.text
+        assert sorted(p.suffix for p in tmp_path.iterdir()) == [".json", ".tmp"]
+
+    def test_a_temporary_file_left_behind_is_removed_by_the_next_save(self, tmp_path, monkeypatch):
+        store = StateStore(tmp_path / "state.json")
+
+        def refuses_every_one(source, target):
+            raise PermissionError(5, "Access is denied")
+
+        def refuses_to_delete(self, missing_ok=False):
+            raise PermissionError(13, "The process cannot access the file")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        monkeypatch.setattr(Path, "unlink", refuses_to_delete)
+        with pytest.raises(PermissionError):
+            store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert [p.suffix for p in tmp_path.iterdir()] == [".tmp"]
+
+        monkeypatch.undo()
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_save_that_writes_nothing_still_removes_a_leftover(self, tmp_path, monkeypatch):
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        def refuses_every_one(source, target):
+            raise PermissionError(5, "Access is denied")
+
+        def refuses_to_delete(self, missing_ok=False):
+            raise PermissionError(13, "The process cannot access the file")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        monkeypatch.setattr(Path, "unlink", refuses_to_delete)
+        with pytest.raises(PermissionError):
+            store.save(ServiceState(slots={"humidity": a_slot(key="humidity", label="B")}))
+
+        # The save below is the one that failed above undone: its payload is
+        # what was last written, so it is skipped and writes nothing at all.
+        monkeypatch.undo()
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert store.skipped == 1
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_temporary_file_from_an_earlier_run_is_removed_at_startup(self, tmp_path):
+        path = tmp_path / "state.json"
+        StateStore(path).save(ServiceState(slots={"temperature": a_slot()}))
+        (tmp_path / "state.json.abandoned.tmp").write_text("{}", encoding="utf-8")
+
+        state = StateStore(path).load()
+
+        assert state.slots["temperature"].label == "A"
         assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
 
     def test_corrupt_json_does_not_stop_the_service_starting(self, tmp_path, caplog):

@@ -13,6 +13,10 @@ the sign.
 Writes are atomic. A half-written state file after a power cut would strand the
 sign, and a Pi losing power is exactly the event this service is expected to
 recover from.
+
+The rename that makes a write atomic is retried a few times, for Windows, where
+another process holding a handle on a file for an instant is enough to make the
+rename fail rather than wait.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -76,6 +81,38 @@ class ServiceState(BaseModel):
     layout: AppliedLayout | None = None
 
 
+REPLACE_ATTEMPTS = 5
+REPLACE_RETRY_DELAY = 0.01
+
+
+def _replace_with_retries(temporary: Path, target: Path) -> None:
+    """Rename over the target, retrying the brief lock Windows can impose.
+
+    Windows refuses a rename while any handle is open on either file, and a
+    virus scanner opens a file the moment it is written, so a save that is
+    correct on POSIX fails there at random. Measured on one Windows machine
+    with Defender running, replacing a freshly written file failed about once
+    in thirty five attempts, and a single immediate retry cleared every one of
+    them, because the handle is gone within microseconds.
+
+    So the second attempt is immediate, and only the ones after it wait. That
+    matters because this is called from coroutines: a sleep here stops the
+    event loop, and the common case is over before one would have started.
+
+    POSIX renames over an open file without complaint, so nothing there ever
+    reaches the second attempt.
+    """
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(temporary, target)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            if attempt > 0:
+                time.sleep(REPLACE_RETRY_DELAY)
+
+
 class StateStore:
     """Loads and saves :class:`ServiceState` as JSON, atomically."""
 
@@ -83,8 +120,67 @@ class StateStore:
         """Point the store at a file. The file need not exist yet."""
         self.path = path
         self._last_written: str | None = None
+        self._leftovers: list[Path] = []
         self.writes = 0
         self.skipped = 0
+
+    def _discard(self, temporary: Path) -> None:
+        """Remove a temporary file the save will not use, without masking why.
+
+        A rename that spent every attempt did so because a handle stayed open,
+        and Windows refuses to delete a file in that state as readily as it
+        refuses to rename it. Raising from here would replace the failure that
+        matters with a second one describing the tidying up, so the file is
+        logged and remembered instead, and the next save tries again.
+        """
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as err:
+            logger.warning("could not remove the temporary file %s (%s)", temporary, err)
+            self._leftovers.append(temporary)
+
+    def _sweep_leftovers(self) -> None:
+        """Try again to remove the temporary files earlier saves gave up on.
+
+        Without this, a state directory something else holds open would collect
+        one file per failed save, and since everything is re-pushed on a timer
+        that is one per cycle for as long as the lock lasts. Only files this
+        store has already finished with are touched, so a save in flight
+        elsewhere is never disturbed.
+
+        This runs ahead of the identical-payload check in :meth:`save`, so a
+        save that writes nothing still tidies up after one that failed.
+        """
+        remaining = []
+        for leftover in self._leftovers:
+            try:
+                leftover.unlink(missing_ok=True)
+            except OSError:
+                remaining.append(leftover)
+        self._leftovers = remaining
+
+    def _sweep_orphans(self) -> None:
+        """Remove temporary files an earlier run of the service left behind.
+
+        A store only remembers its own leftovers, so a process that exits while
+        the directory is still locked leaves them for the next one. This runs
+        from :meth:`load`, which happens once at startup, so nothing it deletes
+        can belong to a save that is under way. It assumes one service owns the
+        state file, which is the same thing the sign itself assumes.
+        """
+        prefix = self.path.name + "."
+        try:
+            entries = list(self.path.parent.iterdir())
+        except OSError:
+            return
+
+        for entry in entries:
+            if not (entry.name.startswith(prefix) and entry.name.endswith(".tmp")):
+                continue
+            try:
+                entry.unlink()
+            except OSError as err:
+                logger.warning("could not remove the leftover file %s (%s)", entry, err)
 
     def load(self) -> ServiceState:
         """Read the state, returning a fresh one if there is nothing usable to read.
@@ -93,6 +189,8 @@ class StateStore:
         The sign can be repopulated by its sources; refusing to boot cannot be
         fixed without someone logging in. So it is logged loudly and set aside.
         """
+        self._sweep_orphans()
+
         if not self.path.exists():
             logger.info("no state file at %s; starting empty", self.path)
             return ServiceState()
@@ -140,7 +238,11 @@ class StateStore:
         those, because ``updated_at`` moves. That is deliberate. Knowing when a
         source last wrote is how a dead automation becomes visible, and it is
         worth one small write per message to keep.
+
+        The rename at the end is retried; see :func:`_replace_with_retries`.
         """
+        self._sweep_leftovers()
+
         payload = state.model_dump_json(indent=2)
         if payload == self._last_written and self.path.exists():
             self.skipped += 1
@@ -162,9 +264,9 @@ class StateStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, self.path)
+            _replace_with_retries(temporary, self.path)
         except OSError:
-            temporary.unlink(missing_ok=True)
+            self._discard(temporary)
             raise
 
         self._last_written = payload
