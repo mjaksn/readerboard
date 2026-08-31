@@ -179,7 +179,7 @@ MODE_CMPRSROT = b"t"
 # since "A" is 41H and "B" is 42H. The characters are taken as authoritative for
 # three reasons: the same table's CYCLE COLORS row prints "C" 43H, which is
 # consistent; the specifiers of Table 67 are plainly characters rather than a
-# continued hex run; and the colour list on page 81 makes the same jump from "9"
+# continued hex run; and the colour list on page 82 makes the same jump from "9"
 # (39H) to "A" (41H) with no such contradiction. The reading is that whoever set
 # Tables 66 continued the 30H to 39H run by hand for two rows.
 #
@@ -282,9 +282,10 @@ CURDATE_WEEKDAYY = b"\x0b\x39"
 # ==========================================================================
 # Counters
 # ==========================================================================
-# Appendix G, document page 81, control code 08H with offsets 7AH to 7EH. These
-# insert the value of one of the sign's five counters. They sit above the
-# extended character range, which ends at offset 61H.
+# Document page 87, in the "Counters" section that follows the extended
+# character table, control code 08H with offsets 7AH to 7EH. Each inserts the
+# value of one of the sign's five counters. They sit above the extended
+# character range, whose offsets end at 61H.
 
 COUNTER_1 = b"\x08\x7a"
 COUNTER_2 = b"\x08\x7b"
@@ -295,11 +296,16 @@ COUNTER_5 = b"\x08\x7e"
 # ==========================================================================
 # Character sets
 # ==========================================================================
-# Appendix G, document page 82, control code 1AH, "Select character set". The
-# document draws the selector list as a graphic rather than setting it as text,
-# so these values are pinned by
-# ``tests/test_constant_values.py`` against the same source rather than quoted
-# here.
+# Appendix G, document page 82, control code 1AH, "Select character set", which
+# the document gives as a two-byte form.
+#
+# The control code is quoted from the document. The selector byte of each entry
+# below is not: the document draws that list as a graphic rather than setting it
+# as text, so it survives neither extraction nor a search. These six therefore
+# carry the same caveat as the extended character identities, and nothing in the
+# suite pins them. They are used only by the simulator's decoder, which names
+# whichever entry it matches, so a wrong selector here would mislabel a
+# transmission rather than send a wrong byte to a sign.
 
 CHARSET_5_NORMAL = b"\x1a\x31"
 CHARSET_7_NORMAL = b"\x1a\x33"
@@ -311,7 +317,7 @@ CHARSET_FULL_NORMAL = b"\x1a\x39"
 # ==========================================================================
 # Colours
 # ==========================================================================
-# Appendix G, document page 81, control code 1CH, "Select character color". The
+# Appendix G, document page 82, control code 1CH, "Select character color". The
 # document adds that "some signs do not support all the following colors".
 #
 # The run is worth noting because it is where an off-by-one lands: red through
