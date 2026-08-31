@@ -14,7 +14,7 @@ library, and the names inside it may move without that being a breaking change.
 
 No path, request body, response body, status code or setting name changes, and
 no byte this service sends to a sign changes either. What changes is where the
-protocol constants come from.
+protocol constants come from, and how the state file is written on Windows.
 
 ### Changed
 
@@ -52,6 +52,34 @@ protocol constants come from.
   was a wall of assignments with trailing comments, which needed `E501` and two
   ambiguous-character rules turned off for it. The regenerated file passes with
   nothing disabled, so the per-file entry is deleted rather than updated.
+
+### Fixed
+
+- **A state save could fail on Windows, and take the request down with it.** The
+  write is made atomic by renaming a temporary file over the old one, and Windows
+  refuses that rename while any handle is open on either file. A virus scanner
+  opens a file the moment it is written, so the rename failed at random. Measured
+  on one machine with Defender running, about one save in thirty five raised
+  `PermissionError`. Nothing catches it, so a `/v2` write would have answered 500,
+  and a simple route would have reported the failure in its body.
+
+  The rename is now attempted up to five times, four of them retries. The second
+  attempt is immediate, because in the same measurement a single immediate retry
+  cleared every occurrence: the scanner's handle is gone within microseconds.
+  Only the attempts after that wait, a hundredth of a second apart, and the wait
+  is worth avoiding in the common case because a save runs on the event loop.
+
+  Atomicity was never in question and is not changed: a failed rename left the
+  previous state file whole, and still does. Removing the temporary file
+  afterwards can fail for the same reason the rename did, so that is logged
+  rather than raised, and the failure a caller sees is the one that matters
+  rather than one about the tidying up. The file is then remembered and removed
+  by the next save, and anything an earlier run abandoned is cleared at startup,
+  so a directory that stays locked cannot collect one file per failed save.
+
+  The Raspberry Pi this service is written for runs Linux, where a rename over an
+  open file is legal, so the second attempt is never reached and nothing there
+  changes.
 
 ## [0.2.0] - 2026-08-30
 
