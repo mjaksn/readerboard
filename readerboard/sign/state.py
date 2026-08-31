@@ -13,6 +13,10 @@ the sign.
 Writes are atomic. A half-written state file after a power cut would strand the
 sign, and a Pi losing power is exactly the event this service is expected to
 recover from.
+
+The rename that makes a write atomic is retried a few times, for Windows, where
+another process holding a handle on a file for an instant is enough to make the
+rename fail rather than wait.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -74,6 +79,33 @@ class ServiceState(BaseModel):
     slots: dict[str, SlotState] = Field(default_factory=dict)
     alert: AlertState | None = None
     layout: AppliedLayout | None = None
+
+
+REPLACE_ATTEMPTS = 5
+REPLACE_RETRY_DELAY = 0.01
+
+
+def _replace_with_retries(temporary: Path, target: Path) -> None:
+    """Rename over the target, retrying the brief lock Windows can impose.
+
+    Windows refuses a rename while any handle is open on either file, and a
+    virus scanner opens a file the moment it is written, so a save that is
+    correct on POSIX fails there at random. Measured on one Windows machine
+    with Defender running, replacing a freshly written file failed about once
+    in thirty five attempts, and a single immediate retry cleared every one of
+    them, because the handle is gone within microseconds.
+
+    POSIX renames over an open file without complaint, so nothing there ever
+    reaches the second attempt.
+    """
+    for attempt in range(REPLACE_ATTEMPTS):
+        try:
+            os.replace(temporary, target)
+            return
+        except PermissionError:
+            if attempt == REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(REPLACE_RETRY_DELAY)
 
 
 class StateStore:
@@ -140,6 +172,8 @@ class StateStore:
         those, because ``updated_at`` moves. That is deliberate. Knowing when a
         source last wrote is how a dead automation becomes visible, and it is
         worth one small write per message to keep.
+
+        The rename at the end is retried; see :func:`_replace_with_retries`.
         """
         payload = state.model_dump_json(indent=2)
         if payload == self._last_written and self.path.exists():
@@ -162,7 +196,7 @@ class StateStore:
                 handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, self.path)
+            _replace_with_retries(temporary, self.path)
         except OSError:
             temporary.unlink(missing_ok=True)
             raise

@@ -1,11 +1,13 @@
 """Tests for the persisted state and the file pool layout."""
 
+import os
 from datetime import UTC, datetime
 
 import pytest
 
 from readerboard.sign.layout import Layout, LayoutFull
 from readerboard.sign.state import (
+    REPLACE_ATTEMPTS,
     STATE_VERSION,
     AppliedLayout,
     ServiceState,
@@ -50,6 +52,43 @@ class TestStateStore:
         store = StateStore(tmp_path / "state.json")
         store.save(ServiceState(slots={"temperature": a_slot()}))
         store.save(ServiceState(slots={"temperature": a_slot()}))
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_rename_windows_briefly_refuses_is_retried(self, tmp_path, monkeypatch):
+        renames = []
+        real_replace = os.replace
+
+        def refuses_the_first_one(source, target):
+            renames.append(source)
+            if len(renames) == 1:
+                raise PermissionError(5, "Access is denied")
+            real_replace(source, target)
+
+        monkeypatch.setattr(os, "replace", refuses_the_first_one)
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert len(renames) == 2
+        assert store.load().slots["temperature"].message == "<green>18.4<degree>"
+        assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_rename_that_never_succeeds_leaves_the_last_good_state(self, tmp_path, monkeypatch):
+        store = StateStore(tmp_path / "state.json")
+        store.save(ServiceState(slots={"temperature": a_slot()}))
+        as_written = store.path.read_text(encoding="utf-8")
+
+        renames = []
+
+        def refuses_every_one(source, target):
+            renames.append(source)
+            raise PermissionError(5, "Access is denied")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        with pytest.raises(PermissionError):
+            store.save(ServiceState(slots={"humidity": a_slot(key="humidity", label="B")}))
+
+        assert len(renames) == REPLACE_ATTEMPTS
+        assert store.path.read_text(encoding="utf-8") == as_written
         assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
 
     def test_corrupt_json_does_not_stop_the_service_starting(self, tmp_path, caplog):
