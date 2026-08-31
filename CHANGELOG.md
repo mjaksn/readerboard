@@ -26,11 +26,17 @@ state file is written on Windows.
   `PermissionError`. Nothing catches it, so a `/v2` write would have answered 500,
   and a simple route would have reported the failure in its body.
 
-  The rename is now retried up to five times, a hundredth of a second apart. In
-  the same measurement a single immediate retry cleared every occurrence, because
-  the scanner's handle is gone within microseconds. Atomicity was never in
-  question and is not changed: a failed rename left the previous state file whole,
-  and still does, with the temporary file cleaned up once the attempts are spent.
+  The rename is now retried up to five times. The second attempt is immediate,
+  because in the same measurement a single immediate retry cleared every
+  occurrence: the scanner's handle is gone within microseconds. Only the attempts
+  after that wait, a hundredth of a second apart, and the wait is worth avoiding
+  in the common case because a save runs on the event loop.
+
+  Atomicity was never in question and is not changed: a failed rename left the
+  previous state file whole, and still does. Removing the temporary file
+  afterwards can fail for the same reason the rename did, so that is logged
+  rather than raised, and the failure a caller sees is the one that matters
+  rather than one about the tidying up.
 
   The Raspberry Pi this service is written for runs Linux, where a rename over an
   open file is legal, so the second attempt is never reached and nothing there

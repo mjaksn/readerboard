@@ -1,7 +1,9 @@
 """Tests for the persisted state and the file pool layout."""
 
 import os
+import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 
@@ -72,6 +74,24 @@ class TestStateStore:
         assert store.load().slots["temperature"].message == "<green>18.4<degree>"
         assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
 
+    def test_the_first_retry_does_not_wait(self, tmp_path, monkeypatch):
+        renames = []
+        waits = []
+        real_replace = os.replace
+
+        def refuses_the_first_one(source, target):
+            renames.append(source)
+            if len(renames) == 1:
+                raise PermissionError(5, "Access is denied")
+            real_replace(source, target)
+
+        monkeypatch.setattr(os, "replace", refuses_the_first_one)
+        monkeypatch.setattr(time, "sleep", waits.append)
+        StateStore(tmp_path / "state.json").save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert len(renames) == 2
+        assert waits == []
+
     def test_a_rename_that_never_succeeds_leaves_the_last_good_state(self, tmp_path, monkeypatch):
         store = StateStore(tmp_path / "state.json")
         store.save(ServiceState(slots={"temperature": a_slot()}))
@@ -90,6 +110,25 @@ class TestStateStore:
         assert len(renames) == REPLACE_ATTEMPTS
         assert store.path.read_text(encoding="utf-8") == as_written
         assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
+
+    def test_a_temporary_file_that_cannot_be_removed_does_not_hide_the_real_error(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        store = StateStore(tmp_path / "state.json")
+
+        def refuses_every_one(source, target):
+            raise PermissionError(5, "Access is denied")
+
+        def refuses_to_delete(self, missing_ok=False):
+            raise PermissionError(13, "The process cannot access the file")
+
+        monkeypatch.setattr(os, "replace", refuses_every_one)
+        monkeypatch.setattr(Path, "unlink", refuses_to_delete)
+        with pytest.raises(PermissionError) as raised:
+            store.save(ServiceState(slots={"temperature": a_slot()}))
+
+        assert "Access is denied" in str(raised.value)
+        assert "could not remove the temporary file" in caplog.text
 
     def test_corrupt_json_does_not_stop_the_service_starting(self, tmp_path, caplog):
         path = tmp_path / "state.json"

@@ -95,6 +95,10 @@ def _replace_with_retries(temporary: Path, target: Path) -> None:
     in thirty five attempts, and a single immediate retry cleared every one of
     them, because the handle is gone within microseconds.
 
+    So the second attempt is immediate, and only the ones after it wait. That
+    matters because this is called from coroutines: a sleep here stops the
+    event loop, and the common case is over before one would have started.
+
     POSIX renames over an open file without complaint, so nothing there ever
     reaches the second attempt.
     """
@@ -105,7 +109,24 @@ def _replace_with_retries(temporary: Path, target: Path) -> None:
         except PermissionError:
             if attempt == REPLACE_ATTEMPTS - 1:
                 raise
-            time.sleep(REPLACE_RETRY_DELAY)
+            if attempt > 0:
+                time.sleep(REPLACE_RETRY_DELAY)
+
+
+def _discard(temporary: Path) -> None:
+    """Remove a temporary file the save will not use, without masking why.
+
+    A rename that spent every attempt did so because a handle stayed open, and
+    Windows refuses to delete a file in that state as readily as it refuses to
+    rename it. Raising from here would replace the failure that matters with a
+    second one describing the tidying up, so this is logged and left instead.
+    The file stays beside the state file, named for it and suffixed ``.tmp``,
+    until someone removes it.
+    """
+    try:
+        temporary.unlink(missing_ok=True)
+    except OSError as err:
+        logger.warning("could not remove the temporary file %s (%s)", temporary, err)
 
 
 class StateStore:
@@ -198,7 +219,7 @@ class StateStore:
                 os.fsync(handle.fileno())
             _replace_with_retries(temporary, self.path)
         except OSError:
-            temporary.unlink(missing_ok=True)
+            _discard(temporary)
             raise
 
         self._last_written = payload
