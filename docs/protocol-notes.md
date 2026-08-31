@@ -12,13 +12,18 @@ to RS-232 adapter. Four questions remain open, and they are listed at the end.
 
 ## Sources
 
-- **Alpha Sign Communications Protocol**, Adaptive Micro Systems, form 9708-8061E, dated
-  August 1 2003. This is the primary source and everything quoted below comes from it.
-  The plan referred to form 9708-8067; the document is 9708-8061, and the copy read here
-  is revision E. Adaptive publishes revision F at
-  `https://www.alpha-american.com/alpha-manuals/M-Protocol.pdf`, which is too large to
-  fetch through the tooling available here but agrees with revision E on every point
-  used.
+- **Alpha Sign Communications Protocol**, Adaptive Micro Systems, form 9708-8061. This is
+  the primary source and everything quoted below comes from it. The plan referred to form
+  9708-8067; the document is 9708-8061.
+
+  Two revisions are cited across this project, and they agree on every value used. The
+  quotations in this file and the citations in `tests/test_constant_values.py` are from
+  revision E, dated August 1 2003. `readerboard/protocol/constants.py` was regenerated
+  from revision F, dated March 10 2006, which Adaptive publishes at
+  `https://www.alpha-american.com/alpha-manuals/M-Protocol.pdf`. Their pagination differs
+  by a page in places: the control code table is on page 80 of revision E and page 81 of
+  revision F, while Table 15 is on page 21 of both. A page number that disagrees between
+  those files is the revision rather than a mistake in either.
 - `msparks/alphasign` and BBXML, consulted before the document was to hand. Both agreed
   with it. They are recorded here only because their agreement is what made it safe to
   start building before the document arrived.
@@ -32,7 +37,7 @@ WAKEUP  SOH  type  address  STX  <command and payload>  EOT
 ```
 
 The document specifies **five** nulls for the wakeup, describing them as what "cause a
-sign to lock onto a baud rate". The vendored constant sends six. Six has driven this sign
+sign to lock onto a baud rate". The constant here sends six. Six has driven this sign
 for years, and more nulls than required is harmless, so it is left alone.
 
 `SOH` is 0x01, `STX` 0x02, `EOT` 0x04, the sign type `^` for a BetaBrite and the address

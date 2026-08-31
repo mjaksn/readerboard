@@ -292,22 +292,13 @@ configurations for each half on its own.
 
 MIT. See [LICENSE](https://github.com/mjaksn/readerboard/blob/main/LICENSE).
 
-One caveat, recorded because it is easy to miss.
-`readerboard/protocol/constants.py` is vendored from
-[jonathankoren/readerboard](https://github.com/jonathankoren/readerboard), and that
-repository carries no license file. No license is not the same as a permissive one: it
-means no copying permission has been granted at all. That module is therefore the one
-part of this project whose provenance is not cleanly MIT.
-
-In practice it is a table of byte values dictated by the protocol rather than authored
-expression, and `docs/protocol-notes.md` now cites the protocol document directly, so the
-table can be regenerated from the primary source if that ever needs settling properly.
-
 ## Credits
 
-`readerboard/protocol/constants.py` came, with thanks, from
-[jonathankoren/readerboard](https://github.com/jonathankoren/readerboard), with some
-corrections noted in the file.
+The protocol is documented in the Alpha Sign Communications Protocol, form 9708-8061,
+published by Adaptive Micro Systems. Every byte value in
+`readerboard/protocol/constants.py` is transcribed from that document, and
+`tests/test_constant_values.py` pins each one against it with a citation per assertion.
 
-The protocol itself is documented in the Alpha Sign Communications Protocol, form
-9708-8061, published by Adaptive Micro Systems.
+An earlier version of this project took that table from
+[jonathankoren/readerboard](https://github.com/jonathankoren/readerboard), which is
+recorded here with thanks even though no code from it remains.
