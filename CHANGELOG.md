@@ -81,6 +81,22 @@ protocol constants come from, and how the state file is written on Windows.
   open file is legal, so the second attempt is never reached and nothing there
   changes.
 
+### Documentation
+
+- **The package description no longer promises scheduling.** It read "several
+  sources share one sign, with alerts, scheduling and clock sync". A TTL is
+  expiry rather than scheduling, and the protocol's own per-file start and stop
+  times are a feature this service deliberately bypasses with `FFFF`, so the
+  word promised something that does not exist. It now reads "expiring
+  messages", which is what the TTL actually does.
+
+  The sentence lives in three places and was wrong in all three. Two of them
+  are in the tree and change here: `project.description` in `pyproject.toml`,
+  which is what PyPI renders, and the `org.opencontainers.image.description`
+  label in the `Dockerfile`, which is what a registry shows against the image.
+  The third is the repository description on GitHub, which is not in the tree
+  and has to be set there.
+
 ## [0.2.0] - 2026-08-30
 
 No path, request body, response body, status code or setting name changes, so
