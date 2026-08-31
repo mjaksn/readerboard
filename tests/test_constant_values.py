@@ -32,6 +32,13 @@ Source
 Alpha Sign Communications Protocol, Adaptive Micro Systems, form 9708-8061E,
 dated August 1 2003. Page numbers are that document's own.
 
+``readerboard/protocol/constants.py`` cites revision F, dated March 10 2006,
+which is the revision Adaptive publishes today. The two agree on every value
+used here. Their pagination does not always agree: the control code table is on
+page 80 of revision E and page 81 of revision F, while Table 15 is on page 21 of
+both. So where a page number here and one there disagree about the same table,
+that is the revision and not a mistake in either.
+
 What this file does NOT establish
 =================================
 
@@ -425,7 +432,7 @@ TWO_BYTE_TOGGLES = [
 
 @pytest.mark.parametrize("actual,expected,citation", TWO_BYTE_TOGGLES)
 def test_two_byte_toggles(actual, expected, citation):
-    """These are the pairs the vendored table had inverted.
+    """These are the pairs an earlier version of this table had inverted.
 
     Four names had their on and off senses swapped relative to the byte they
     were bound to: an "ON" constant holding the "0" suffix that the document
@@ -558,8 +565,8 @@ def test_the_two_halves_of_the_extended_table_agree_exactly():
     lacks.
 
     This is what pins the values. A mistranscribed byte in either half breaks
-    the correspondence and fails here, which is the check the vendored table
-    never had. It covers all sixty-six characters, including the twenty-six
+    the correspondence and fails here, which is the check this table went
+    without for a long time. It covers all sixty-six characters, including the twenty-six
     ``markup.py`` maps accented text onto.
     """
     two_byte, single = _extended_constants()
@@ -680,3 +687,97 @@ def test_the_documented_inter_byte_timeout():
     ceiling any measurement should be sanity checked against.
     """
     assert c.INTER_BYTE_TIMEOUT_SECONDS == 1.0
+
+
+# ===========================================================================
+# Character attributes
+#
+# Control code 1DH in Appendix G, "Select character attribute (3-byte format)".
+# The document's own description of the shape: "1st byte is control code; 2nd
+# byte is the attribute; and 3rd byte specifies either ON ["1" (31H)] or OFF
+# ["0" (30H)]", and OFF is the default for every one of them.
+#
+# This table was the largest group in constants.py that nothing here pinned.
+# ===========================================================================
+
+CHARACTER_ATTRIBUTES = [
+    (c.CHAR_ATTRIB_WIDE_ON, b"\x1d\x30\x31", '1DH + "0" + "1" wide on'),
+    (c.CHAR_ATTRIB_WIDE_OFF, b"\x1d\x30\x30", '1DH + "0" + "0" wide off'),
+    (c.CHAR_ATTRIB_DBLW_ON, b"\x1d\x31\x31", '1DH + "1" + "1" double wide on'),
+    (c.CHAR_ATTRIB_DBLW_OFF, b"\x1d\x31\x30", '1DH + "1" + "0" double wide off'),
+    (c.CHAR_ATTRIB_DBLH_ON, b"\x1d\x32\x31", '1DH + "2" + "1" double high on'),
+    (c.CHAR_ATTRIB_DBLH_OFF, b"\x1d\x32\x30", '1DH + "2" + "0" double high off'),
+    (c.CHAR_ATTRIB_DESC_ON, b"\x1d\x33\x31", '1DH + "3" + "1" true descenders on'),
+    (c.CHAR_ATTRIB_DESC_OFF, b"\x1d\x33\x30", '1DH + "3" + "0" true descenders off'),
+    (c.CHAR_ATTRIB_FIX_ON, b"\x1d\x34\x31", '1DH + "4" + "1" fixed width on'),
+    (c.CHAR_ATTRIB_FIX_OFF, b"\x1d\x34\x30", '1DH + "4" + "0" fixed width off'),
+    (c.CHAR_ATTRIB_FNCY_ON, b"\x1d\x35\x31", '1DH + "5" + "1" fancy on'),
+    (c.CHAR_ATTRIB_FNCY_OFF, b"\x1d\x35\x30", '1DH + "5" + "0" fancy off'),
+]
+
+
+@pytest.mark.parametrize("actual,expected,citation", CHARACTER_ATTRIBUTES)
+def test_character_attributes(actual, expected, citation):
+    assert actual == expected, "%s: expected %s" % (citation, hexes(expected))
+
+
+def test_every_character_attribute_is_an_on_off_pair():
+    """Every attribute has both halves, and they differ only in the last byte.
+
+    A missing half is the failure worth catching: it leaves an attribute that
+    can be switched on with nothing able to switch it off, and the sign then
+    keeps it until something else rewrites the file. Discovered from the module
+    rather than from the list above, so a constant added later is covered from
+    the moment it exists.
+    """
+    ons = [n for n in dir(c) if n.startswith("CHAR_ATTRIB_") and n.endswith("_ON")]
+    assert ons, "the character attribute table has gone missing"
+    for on in ons:
+        off = on[: -len("_ON")] + "_OFF"
+        assert hasattr(c, off), "%s has no %s" % (on, off)
+        assert getattr(c, on)[:2] == getattr(c, off)[:2]
+        assert getattr(c, on)[2:] == b"1"
+        assert getattr(c, off)[2:] == b"0"
+
+
+def test_the_attributes_this_sign_has_no_hardware_for_are_absent():
+    """36H auxiliary port and 37H shadow characters name other signs.
+
+    The document marks the first "Series 4000 & 7000 signs only" and the second
+    "Betabrite model 1036 and AlphaPremiere 9000 signs only". Both sit in the
+    same table as the six that are here, which is exactly why it is worth a
+    test rather than a comment.
+    """
+    for value in (b"\x1d\x36", b"\x1d\x37"):
+        for name in dir(c):
+            if name.startswith("CHAR_ATTRIB_"):
+                assert not getattr(c, name).startswith(value), name
+
+
+# ===========================================================================
+# What the Alpha 1.0 generation leaves out
+#
+# PROTOCOL_GENERATION records that a Betabrite speaks Alpha 1.0 and EZ KEY II
+# only. These pin the other half of that: the entries the document lists in
+# tables this service does use, which may not be picked up from them.
+# ===========================================================================
+
+
+def test_the_alpha_3_modes_are_absent():
+    """EXPLODE 75H and CLOCK 76H are marked Alpha 3.0 protocol.
+
+    Both sit in the Standard Modes table, immediately after COMPRESSED ROTATE,
+    which is here. A mode this sign cannot run is worse than a missing one: it
+    fails on the wall rather than in review.
+    """
+    for name in ("MODE_EXPLODE", "MODE_CLOCK"):
+        assert not hasattr(c, name), "%s is Alpha 3.0 only" % name
+
+
+def test_the_alpha_3_display_positions_are_absent():
+    """Left 31H and Right 32H are marked Alpha 3.0 protocol only.
+
+    Same table as the four positions pinned above, same reasoning.
+    """
+    for name in ("TEXT_POS_LEFT", "TEXT_POS_RIGHT"):
+        assert not hasattr(c, name), "%s is Alpha 3.0 only" % name

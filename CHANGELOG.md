@@ -10,6 +10,49 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+No path, request body, response body, status code or setting name changes, and
+no byte this service sends to a sign changes either. What changes is where the
+protocol constants come from.
+
+### Changed
+
+- **`readerboard/protocol/constants.py` is regenerated from the protocol
+  document.** It was vendored from a repository that carries no licence file,
+  which the README named as the one part of this project whose provenance was
+  not cleanly MIT. That paragraph is now gone, because the thing it described
+  is.
+
+  Every value is transcribed from the Alpha Sign Communications Protocol, form
+  9708-8061 revision F, and each section of the file cites the table or page it
+  came from. The names and the values are unchanged: the names are the internal
+  interface and most of them are the protocol's own vocabulary, and the values
+  are protocol facts rather than anybody's expression. What is new is the prose,
+  the ordering, which now follows the document's own, and the citations.
+
+  Nothing about what reaches a sign changes, and that is checked rather than
+  asserted: every one of the 337 constants was compared against the previous
+  file, and the 319 that remain hold the byte for byte identical value.
+
+- **Eighteen constants are gone**, none of them referenced by the service, the
+  simulator, the tests or the scripts. Among them were two duplicate spellings
+  of a mode the BetaBrite names differently, a second name for the carriage
+  return, and three `PRINT3_` constants whose values were plainly wrong: they
+  held the ASCII text `_01` where the pattern of the constants beside them calls
+  for a byte. Nothing referenced them, so nothing had ever noticed.
+
+- **The character attribute table is pinned**, which nothing did before. It was
+  the largest group of constants that `tests/test_constant_values.py` did not
+  cover. Two further tests pin the other half of the Alpha 1.0 constraint, that
+  the modes and display positions the document marks Alpha 3.0 are absent, since
+  those sit in the same tables as the ones this sign does use.
+
+- **`constants.py` no longer needs its `ruff` exemptions.** The vendored table
+  was a wall of assignments with trailing comments, which needed `E501` and two
+  ambiguous-character rules turned off for it. The regenerated file passes with
+  nothing disabled, so the per-file entry is deleted rather than updated.
+
 ## [0.2.0] - 2026-08-30
 
 No path, request body, response body, status code or setting name changes, so

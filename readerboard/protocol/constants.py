@@ -1,465 +1,648 @@
-"""Byte constants for the Alpha sign communications protocol.
+"""Byte constants for the Alpha Sign Communications Protocol.
 
-The bulk of this module is vendored, with thanks, from jonathankoren/readerboard:
-https://github.com/jonathankoren/readerboard/blob/141111ffc94d5f12a83b5072e4b4a7e3cd7e191f/readerboard.py
+Every value in this module is transcribed from the protocol document itself:
+the Alpha Sign Communications Protocol, Adaptive Micro Systems, form 9708-8061,
+revision F, dated March 10 2006. Each section below cites the table or page it
+came from, so any value can be checked against the source without leaving the
+file.
 
-Changes made when it was vendored: a handful of comments that contradicted the
-byte they annotated were corrected, four names whose on/off sense was inverted
-relative to their value were swapped to match, two octal escapes that should
-have been hex were fixed, and the constants this service needs for memory
-configuration and run sequencing were added at the end.
+``tests/test_constant_values.py`` pins these values against the same document
+with a citation per assertion. That file, not this one, is what proves a value
+is right; this module is only where the values live. If you add a constant
+here, pin it there.
 
-Note on provenance: that repository carries no license file, so no permission to
-copy it has actually been granted, whatever the attribution above implies. This
-project is MIT licensed and this module is the one part of it that is not
-cleanly so. Everything here is a byte value dictated by the Alpha Sign
-Communications Protocol rather than an authored expression, and
-docs/protocol-notes.md now cites the protocol document directly, so the table
-can be regenerated from the primary source if the provenance ever needs to be
-clean.
+Two conventions of the document are worth knowing when reading the citations.
+It writes a byte as two hex digits followed by ``H``, so ``41H`` is 0x41, and
+it gives multi-byte sequences as a control code plus an offset, written
+``08H + 49H``.
+
+Three places where this module deliberately does not follow the document, each
+noted again at the point it matters:
+
+- ``WAKEUP`` sends six nulls where the document specifies five. More nulls than
+  required is harmless, and six has driven this sign for years.
+- ``FILE_TYPE_DOTS`` is ``D`` (44H). The document's own memory configuration
+  section prints ``"D" 43H``, which is internally inconsistent, since 43H is
+  ``C``. The character is taken as authoritative.
+- ``MODE_NEWSFLASH`` and ``MODE_TRUMPET`` use 41H and 42H where Table 66 prints
+  3AH and 3BH against the characters ``A`` and ``B``. See the note above those
+  two constants.
 """
 
-# Frame Control Bytes
-WAKEUP = b"\x00\x00\x00\x00\x00\x00"  # Wakes up the sign and
-#   negotiates communication
-#   speed
 
-SIGN_ADDRESS_BROADCAST = b"00"  # can be anything between "00" and "FF"
-#   hexcode, 00 is broadcast
-#   Can be wildcarded with ? (e.g. "0?"
-#   addresses "01" - "0F")
-SIGN_TYPE_ALL_VERIFY = b"?"  # all signs
-#   Verify success by displaying
-#   "TRANSMISSION OK" or
-#   "TRANSMISSION ERROR"
-SIGN_TYPE_SERIAL_CLOCK = b"\""  # serial clock
-SIGN_TYPE_RESPONSE = b"0"  # sign response
-SIGN_TYPE_ONE_LINE = b"1"  # one line signs
-SIGN_TYPE_TWO_LINE = b"2"  # two line signs
-# SIGN_TYPE_ALL = b"?"  # all signs (except BetaBrite)
-SIGN_TYPE_430I = b"C"  # 430i
-SIGN_TYPE_440I = b"D"  # 440i
-SIGN_TYPE_460I = b"E"  # 460i
-SIGN_TYPE_790I = b"U"  # 790i
-SIGN_TYPE_ALL = b"Z"  # all signs
-SIGN_TYPE_BETABRITE = b"^"  # readerboard
-SIGN_TYPE_4120C = b"a"  # 4120c
-SIGN_TYPE_4160C = b"b"  # 4160c
-SIGN_TYPE_4200C = b"c"  # 4200c
-SIGN_TYPE_4240C = b"d"  # 4240c
-SIGN_TYPE_215 = b"e"  # 215
-SIGN_TYPE_215C = b"f"  # 215c
-SIGN_TYPE_4120R = b"g"  # 4120r
-SIGN_TYPE_4160R = b"h"  # 4160r
-SIGN_TYPE_4200R = b"i"  # 4200r
-SIGN_TYPE_4240R = b"j"  # 4240r
-SIGN_TYPE_300 = b"k"  # 300
-SIGN_TYPE_7000 = b"l"  # 7000
-SIGN_TYPE_SOLAR_96X16 = b"m"  # solar 96x16 matrix
-SIGN_TYPE_SOLAR_128X16 = b"n"  # solar 128x16 matrix
-SIGN_TYPE_SOLAR_160X16 = b"o"  # solar 160x16 matrix
-SIGN_TYPE_SOLAR_192X16 = b"p"  # solar 192x16 matrix
-SIGN_TYPE_SOLAR_PPD = b"q"  # ppd
-SIGN_TYPE_DIRECTOR = b"r"  # director
-SIGN_TYPE_4080C = b"t"  # 4080c
-SIGN_TYPE_2X0C = b"u"  # 210c and 220c
-SIGN_TYPE_ALL_CONFIG = b"z"  # all signs
-#   configure memory for 26 files (A-Z)
-#   of 150 characters each, then
-#   execute the command
-COMMAND_WRITE_TEXT = b"A"  # write TEXT file
-COMMAND_READ_TEXT = b"B"  # read TEXT file
-COMMAND_WRITE_SPECIAL = b"E"  # write SPECIAL function
-COMMAND_READ_SPECIAL = b"F"  # read SPECIAL function
-COMMAND_WRITE_STRING = b"G"  # write STRING file
-COMMAND_READ_STRING = b"H"  # read STRING file
-COMMAND_WRITE_DOTS = b"I"  # write DOTS picture
-COMMAND_READ_DOTS = b"J"  # read DOTS picture
-COMMAND_WRITE_ALPHA_DOTS = b"M"  # write ALPHAVISION DOTS picture
-COMMAND_READ_ALPHA_DOTS = b"N"  # read ALPHAVISION DOTS picture
-COMMAND_ALPHA_BULLETIN = b"O"  # write ALPHAVISION BULLETIN
+# ==========================================================================
+# Packet framing
+# ==========================================================================
+# The frame every transmission uses, from Appendix G's control code table on
+# document page 81 and the packet layouts in section 6.
+#
+#     WAKEUP  SOH  type  address  STX  <command and payload>  EOT
+#
+# The document describes the wakeup nulls as what "cause a sign to lock onto a
+# baud rate" and specifies five of them. Six are sent here. More than required is
+# harmless and six is what has driven this sign for years, so it is left alone
+# rather than trimmed to match the letter of the document.
 
-FILE_PRIORITY = b"0"  # Can be anything in 0x20 to 0x7E
-#   Note: 0x30 ("0") is reserved for priorty
-#   TEXT messages, and "0" and "?" (0x3F)
-#   can not be used to store STRINGS
+WAKEUP = b"\x00\x00\x00\x00\x00\x00"
+NUL = b"\x00"
+SOH = b"\x01"
+STX = b"\x02"
+ETX = b"\x03"
+EOT = b"\x04"
+SOM = b"\x1b"
+SIGN_ADDRESS_BROADCAST = b"00"
 
-PRINT2_SOH = b"]!"  # 2 byte printable SOH
-PRINT2_STX = b"]\""  # 2 byte printable STX
-PRINT2_EOT = b"]$"  # 2 byte printable EOT
+# ==========================================================================
+# Sign type codes
+# ==========================================================================
+# The type byte that follows SOH, naming which family of sign the packet is
+# addressed to. A BetaBrite answers to "^" (5EH). The rest are carried because
+# the simulator names any type byte it decodes, not because this service sends
+# them.
 
-PRINT3_SOH = b"_01"  # 3 byte printable SOH
-PRINT3_STX = b"_02"  # 3 byte printable STX
-PRINT3_EOT = b"_04"  # 3 byte printable EOT
+SIGN_TYPE_SERIAL_CLOCK = b"\""
+SIGN_TYPE_RESPONSE = b"0"
+SIGN_TYPE_ONE_LINE = b"1"
+SIGN_TYPE_TWO_LINE = b"2"
+SIGN_TYPE_ALL_VERIFY = b"?"
+SIGN_TYPE_430I = b"C"
+SIGN_TYPE_440I = b"D"
+SIGN_TYPE_460I = b"E"
+SIGN_TYPE_790I = b"U"
+SIGN_TYPE_ALL = b"Z"
+SIGN_TYPE_BETABRITE = b"^"
+SIGN_TYPE_4120C = b"a"
+SIGN_TYPE_4160C = b"b"
+SIGN_TYPE_4200C = b"c"
+SIGN_TYPE_4240C = b"d"
+SIGN_TYPE_215 = b"e"
+SIGN_TYPE_215C = b"f"
+SIGN_TYPE_4120R = b"g"
+SIGN_TYPE_4160R = b"h"
+SIGN_TYPE_4200R = b"i"
+SIGN_TYPE_4240R = b"j"
+SIGN_TYPE_300 = b"k"
+SIGN_TYPE_7000 = b"l"
+SIGN_TYPE_SOLAR_96X16 = b"m"
+SIGN_TYPE_SOLAR_128X16 = b"n"
+SIGN_TYPE_SOLAR_160X16 = b"o"
+SIGN_TYPE_SOLAR_192X16 = b"p"
+SIGN_TYPE_SOLAR_PPD = b"q"
+SIGN_TYPE_DIRECTOR = b"r"
+SIGN_TYPE_4080C = b"t"
+SIGN_TYPE_2X0C = b"u"
+SIGN_TYPE_ALL_CONFIG = b"z"
 
-CMD_WRITE_TEXT = b"A"  # write TEXT file
-CMD_READ_TEXT = b"B"  # read TEXT file
+# ==========================================================================
+# Command codes
+# ==========================================================================
+# The command code that opens the data field, from Table 12 (Write TEXT,
+# document page 18), Table 15 (Write SPECIAL FUNCTION, page 21) and Table 16
+# (Read SPECIAL FUNCTION, page 29).
 
-CMD_SET_TIME = b"\x20"
-CMD_SET_TIME_FORMAT = b"\x27"
+COMMAND_WRITE_TEXT = b"A"
+COMMAND_READ_TEXT = b"B"
+COMMAND_WRITE_SPECIAL = b"E"
+COMMAND_READ_SPECIAL = b"F"
+COMMAND_WRITE_STRING = b"G"
+COMMAND_READ_STRING = b"H"
+COMMAND_WRITE_DOTS = b"I"
+COMMAND_READ_DOTS = b"J"
+COMMAND_WRITE_ALPHA_DOTS = b"M"
+COMMAND_READ_ALPHA_DOTS = b"N"
+COMMAND_ALPHA_BULLETIN = b"O"
 
-CMD_SET_DAY_OF_WEEK = b"\x26"
+# ==========================================================================
+# Special function labels for the sign's clock
+# ==========================================================================
+# Written after COMMAND_WRITE_SPECIAL. Table 15 on document page 21 gives the
+# label for each: " " (20H) sets the time of day as four ASCII digits in HhMm
+# order, "&" (26H) sets the day of week, and "'" (27H) selects the 12 or 24 hour
+# display format.
 
-TEXT_POS_MIDDLE = b" "  # center text vertically
-TEXT_POS_TOP = b"\""  # text begins at top and at most n-1
-#   lines
-TEXT_POS_BOTTOM = b"&"  # text immediately follows the TOP
-TEXT_POS_FILL = b"0"  # center text verically and use all
-#   available lines
+CMD_SET_TIME = b" "
+CMD_SET_DAY_OF_WEEK = b"&"
+CMD_SET_TIME_FORMAT = b"'"
 
-MODE_ROTATE = b"a"  # rotate right to left
-MODE_HOLD = b"b"  # stationary
-MODE_FLASH = b"c"  # stationary and flash
-MODE_ROLLUP = b"e"  # push up old message by new message
-MODE_ROLLDOWN = b"f"  # push down old message by new message
-MODE_ROLLLEFT = b"g"  # push left old message by new message
-MODE_ROLLRIGHT = b"h"  # push right old message by new message
-MODE_WIPEUP = b"i"  # wipe up over old message with new
-MODE_WIPEDOWN = b"j"  # wipe down over old message with new
-MODE_WIPELEFT = b"k"  # wipe left over old message with new
-MODE_WIPERIGHT = b"l"  # wipe right over old message with new
-MODE_SCROLL = b"m"  # new message pushes the bottom line
-#   to the top of a 2 line sign
-MODE_AUTO = b"o"  # random mode selected automatically
-MODE_ROLLIN = b"p"  # new message pushed inward
-MODE_ROLLOUT = b"q"  # new message pushed outward
-MODE_WIPEIN = b"r"  # new message wiped over old inward
-MODE_WIPEOUT = b"s"  # new message wiped over old outward
-MODE_CMPRSROT = b"t"  # rotate right to left with text
-#   only half as wide
-MODE_TWINKLE = b"n0"  # twinkle message
-MODE_SPARKLE = b"n1"  # new message sparkles over the old
-MODE_SNOW = b"n2"  # snow the new message
-MODE_INTERLOCK = b"n3"  # new message interlocks over the old
-MODE_SWITCH = b"n4"  # switch "off" the old message char by
-#   char.  new message switches "on"
-#   char by char
-MODE_SLIDE = b"n5"  # slide chars right to left one at a
-#   time
-MODE_SPRAY = b"n6"  # spray message right to left
-MODE_STARBURST = b"n7"  # explode new message
-MODE_WELCOME = b"n8"  # display a script "Welcome"
-MODE_SLOTMACHINE = b"n9"  # display slot machine reels
-MODE_NEWSFLASH = b"nA"  # display "Newsflash" animation
-MODE_TRUMPET = b"nB"  # display a trumpet animation
-MODE_THANKYOU = b"nS"  # display a script "Thank You"
-MODE_NOSMOKING = b"nU"  # display "No Smoking" animation
-MODE_DRINKDRIVE = b"nV"  # display "Don't Drink and Drive"
-#   animation
-MODE_ANIMAL = b"nW"  # display a running animal
-MODE_FISH = b"nW"  # display fish
-#   (BetaBrite alternate for ANIMAL)
-MODE_FIREWORKS = b"nX"  # display fireworks animation
-MODE_TURBOCAR = b"nY"  # display a car animation
-MODE_BALLOONS = b"nY"  # display a balloon animation
-#   (BetaBrite alternate for TURBOCAR)
-MODE_CHERRYBOMB = b"nZ"  # display a cherry bomb animation
+# ==========================================================================
+# Display position
+# ==========================================================================
+# The first byte of a TEXT file's mode field, from Table 12 on document page 18.
+# It sets where on a multi-line sign the text begins.
+#
+# The document also lists "1" (31H) Left and "2" (32H) Right, both marked Alpha
+# 3.0 protocol only. A BetaBrite speaks Alpha 1.0, so neither is defined here.
 
-BULLETIN_POS_TOP = b"T"  # display bulletin at the top
-BULLETIN_POS_BOTTOM = b"B"  # display bulletin at the bottom
+TEXT_POS_MIDDLE = b" "
+TEXT_POS_TOP = b"\""
+TEXT_POS_BOTTOM = b"&"
+TEXT_POS_FILL = b"0"
 
-BULLETIN_JUST_LEFT = b"L"  # left justify bulletin
-BULLETIN_JUST_RIGHT = b"R"  # right justify bulletin
-BULLETIN_JUST_CENTER = b"C"  # center bulletin
+# ==========================================================================
+# Standard modes
+# ==========================================================================
+# Table 65, document page 89. The mode code is the second byte of the mode
+# field and decides how a message arrives on the display.
+#
+# Two entries of that table are absent here. EXPLODE (75H) and CLOCK (76H) are
+# both marked Alpha 3.0 protocol, which this sign does not speak. The reserved
+# code 64H is absent for the same reason it is reserved.
 
-# character table
+MODE_ROTATE = b"a"
+MODE_HOLD = b"b"
+MODE_FLASH = b"c"
+MODE_ROLLUP = b"e"
+MODE_ROLLDOWN = b"f"
+MODE_ROLLLEFT = b"g"
+MODE_ROLLRIGHT = b"h"
+MODE_WIPEUP = b"i"
+MODE_WIPEDOWN = b"j"
+MODE_WIPELEFT = b"k"
+MODE_WIPERIGHT = b"l"
+MODE_SCROLL = b"m"
+MODE_AUTO = b"o"
+MODE_ROLLIN = b"p"
+MODE_ROLLOUT = b"q"
+MODE_WIPEIN = b"r"
+MODE_WIPEOUT = b"s"
+MODE_CMPRSROT = b"t"
 
-NUL = b"\x00"  # NULl
-SOH = b"\x01"  # Start Of Header
-STX = b"\x02"  # Start Of Text
-ETX = b"\x03"  # End of TeXt
-EOT = b"\x04"  # End Of Transmission
-DBL_HEIGHT_CHARS_OFF = b"\x05\x30"  # double height chars off (default)
-DBL_HEIGHT_CHARS_ON = b"\x05\x31"  # double height chars on
-TRUE_DESCENDERS_OFF = b"\x06\x30"  # true descenders off (default)
-TRUE_DESCENDERS_ON = b"\x06\x31"  # true descenders on
-CHAR_FLASH_ON = b"\x07\x31"  # character flash on
-CHAR_FLASH_OFF = b"\x07\x30"  # character flash off (default)
-TEMP_CELSIUS = b"\x08\x1c"  # current temperature in celsius
-TEMP_FAHRENHEIT = b"\x08\x1d"  # current temperature in fahrenheit
-XC_C_TAIL = b"\x08\x20"  # capital 'c' with tail
-XC_u_UMLAUT = b"\x08\x21"  # lowercase 'u' with umlaut
-XC_e_ACCENT = b"\x08\x22"  # lowercase 'e' with grave accent
-XC_a_CIRCUMFLEX = b"\x08\x23"  # lowercase 'a' with circumflex
-XC_a_UMLAUT = b"\x08\x24"  # lowercase 'a' with umlaut
-XC_a_GRAVE = b"\x08\x25"  # lowercase 'a' with accent
-XC_a_CIRCLE = b"\x08\x26"  # lowercase 'a' with circle
-XC_c_TAIL = b"\x08\x27"  # lowercase 'c' with tail
-XC_e_CIRCUMFLEX = b"\x08\x28"  # lowercase 'e' with circumflex
-XC_e_UMLAUT = b"\x08\x29"  # lowercase 'e' with umlaut
-XC_e_GRAVE = b"\x08\x2a"  # lowercase 'e' with grave accent
-XC_i_UMLAUT = b"\x08\x2b"  # lowercase 'i' with umlaut
-XC_i_CIRCUMFLEX = b"\x08\x2c"  # lowercase 'i' with circumflex
-XC_i_GRAVE = b"\x08\x2d"  # lowercase 'i' with grave accent
-XC_A_UMLAUT = b"\x08\x2e"  # capital 'a' with umlaut
-XC_A_CIRCLE = b"\x08\x2f"  # capital 'a' with circle
-XC_E_ACCENT = b"\x08\x30"  # capital 'e' with accent
-XC_ae_LIGATURE = b"\x08\x31"  # lowercase 'ae' ligature
-XC_AE_LIGATURE = b"\x08\x32"  # capital 'ae' ligature
-XC_o_CIRCUMFLEX = b"\x08\x33"  # lowercase 'o' with circumflex
-XC_o_UMLAUT = b"\x08\x34"  # lowercase 'o' with umlaut
-XC_o_GRAVE = b"\x08\x35"  # lowercase 'o' with grave accent
-XC_u_CIRCUMFLEX = b"\x08\x36"  # lowercase 'u' with circumflex
-XC_u_GRAVE = b"\x08\x37"  # lowercase 'u' with grave accent
-XC_y_UMLAUT = b"\x08\x38"  # lowercase 'y' with umlaut
-XC_O_UMLAUT = b"\x08\x39"  # capital 'o' with umlaut
-XC_U_UMLAUT = b"\x08\x3a"  # capital 'u' with umlaut
-XC_CENTS = b"\x08\x3b"  # cents sign
-XC_POUNDS = b"\x08\x3c"  # british pounds sign
-XC_YEN = b"\x08\x3d"  # yen sign
-XC_PERCENT = b"\x08\x3e"  # percent sign
-XC_SLANT_F = b"\x08\x3f"  # slant lowercase f
-XC_a_ACCENT = b"\x08\x40"  # lowercase 'a' with accent
-XC_i_ACCENT = b"\x08\x41"  # lowercase 'i' with accent
-XC_o_ACCENT = b"\x08\x42"  # lowercase 'o' with accent
-XC_u_ACCENT = b"\x08\x43"  # lowercase 'u' with accent
-XC_n_TILDE = b"\x08\x44"  # lowercase 'n' with tilde
-XC_N_TILDE = b"\x08\x45"  # capital 'n' with tilde
-XC_SUPER_a = b"\x08\x46"  # superscript 'a'
-XC_SUPER_o = b"\x08\x47"  # superscript 'o'
-XC_INVERT_QUESTION = b"\x08\x48"  # inverted question mark
-XC_DEGREES = b"\x08\x49"  # degree sign (superscript circle)
-XC_INVERT_EXCLAIM = b"\x08\x4a"  # inverted exclaimation mark
-XC_SINGLE_COL_SPACE = b"\x08\x4b"  # single column space
-XC_theta = b"\x08\x4c"  # lowercase theta
-XC_THETA = b"\x08\x4d"  # capital theta
-XC_c_ACCENT = b"\x08\x4e"  # lowercase 'c' with accent
-XC_C_ACCENT = b"\x08\x4f"  # capital 'c' with accent
-XC_c = b"\x08\x50"  # lowercase 'c'
-XC_C = b"\x08\x51"  # capital 'c'
-XC_d = b"\x08\x52"  # lowercase 'd'
-XC_D = b"\x08\x53"  # capital 'd'
-XC_s = b"\x08\x54"  # lowercase 's'
-XC_z = b"\x08\x55"  # lowercase 'z'
-XC_Z = b"\x08\x56"  # capital 'z'
-XC_BETA = b"\x08\x57"  # beta
-XC_S = b"\x08\x58"  # capital 's'
-XC_BETA2 = b"\x08\x59"  # beta
-XC_A_ACCENT = b"\x08\x5a"  # capital 'a' with accent
-XC_A_GRAVE = b"\x08\x5b"  # capital 'a' with grave accent
-XC_A_2ACCENT = b"\x08\x5c"  # capital 'a' with two accents
-XC_a_2ACCENT = b"\x08\x5d"  # lowercase ''a' with two accents
-XC_E_CAP = b"\x08\x5e"  # capital 'e' with 'cap' accent
-XC_I_ACCENT = b"\x08\x5f"  # capital 'i' with accent
-XC_O_TILDE = b"\x08\x60"  # capital 'o' with tilde
-XC_o_TILDE = b"\x08\x61"  # lowecase 'o' with tilde
-COUNTER_1 = b"\x08\x7a"  # current value in counter 1
-COUNTER_2 = b"\x08\x7b"  # current value in counter 2
-COUNTER_3 = b"\x08\x7c"  # current value in counter 3
-COUNTER_4 = b"\x08\x7d"  # current value in counter 4
-COUNTER_5 = b"\x08\x7e"  # current value in counter 5
-NO_HOLD_SPEED = b"\x09"  # no hold speed  (no pause following
-#   the mode presentation.  not
-#   applicable to ROTATE or
-#   COMPRESSED_ROTATE modes)
-LF = b"\x0a"  # Line Feed
-CURDATE_MMDDYY_SLASH = b"\x0b\x30"  # current date MM/DD/YY
-CURDATE_DDMMYY_SLASH = b"\x0b\x31"  # current date DD/MM/YY
-CURDATE_MMDDYY_DASH = b"\x0b\x32"  # current date MM-DD-YY
-CURDATE_DDMMYY_DASH = b"\x0b\x33"  # current date DD-MM-YY
-CURDATE_MMDDYY_DOT = b"\x0b\x34"  # current date MM.DD.YY
-CURDATE_DDMMYY_DOT = b"\x0b\x35"  # current date DD.MM.YY
-CURDATE_MMDDYY_SPACE = b"\x0b\x36"  # current date MM DD YY
-CURDATE_DDMMYY_SPACE = b"\x0b\x37"  # current date DD MM YY
-CURDATE_MMMDDYYYY: bytes = b"\x0b\x38"  # current date MMM.DD, YYYY
-CURDATE_WEEKDAYY = b"\x0b\x39"  # current day of week
-NEW_PAGE = b"\x0c"  # start next display page
-CR = b"\x0d"  # Carriage Return (new line)
-NEWLINE = CR
-STRING_FILE_INSERT = b"\x10"  # insert STRING file (next char is
-#   the filename)
-WIDE_CHARS_OFF = b"\x11"  # disable wide characters
-WIDE_CHARS_ON = b"\x12"  # enables wide characters
-CURTIME_INSERT = b"\x13"  # current time
-DOTS_INSERT = b"\x14"  # insert DOTS picture (next char is
-#   the filename)
-SPEED_1 = b"\x15"  # set scroll speed to 1 (slowest)
-SPEED_2 = b"\x16"  # set scroll speed to 2
-SPEED_3 = b"\x17"  # set scroll speed to 3
-SPEED_4 = b"\x18"  # set scroll speed to 4
-SPEED_5 = b"\x19"  # set scroll speed to 5 (fastest)
-CHARSET_5_NORMAL = b"\x1a\x31"  # set character set 5 high normal
-CHARSET_7_NORMAL = b"\x1a\x33"  # set character set 7 high normal
-CHARSET_7_FANCY = b"\x1a\x35"  # set character set 7 high fancy
-CHARSET_10_NORMAL = b"\x1a\x36"  # set character set 10 high normal
-CHARSET_FULL_FANCY = b"\x1a\x38"  # set character set full height fancy
-CHARSET_FULL_NORMAL = b"\x1a\x39"  # set character set full height normal
-SOM = b"\x1b"  # Start Of Mode
-TEXT_COLOR_RED = b"\x1c\x31"  # set text color to red
-TEXT_COLOR_GREEN = b"\x1c\x32"  # set text color to green
-TEXT_COLOR_AMBER = b"\x1c\x33"  # set text color to amber
-TEXT_COLOR_DIMRED = b"\x1c\x34"  # set text color to dim red
-TEXT_COLOR_DIMGREEN = b"\x1c\x35"  # set text color to dim green
-TEXT_COLOR_BROWN = b"\x1c\x36"  # set text color to brown
-TEXT_COLOR_ORANGE = b"\x1c\x37"  # set text color to orange
-TEXT_COLOR_YELLOW = b"\x1c\x38"  # set text color to yellow
-TEXT_COLOR_RAINBOW1 = b"\x1c\x39"  # set text color to rainbow all chars
-TEXT_COLOR_RAINBOW2 = b"\x1c\x41"  # set text color to rainbow indiv chars
-TEXT_COLOR_MIX = b"\x1c\x42"  # each char gets a differnt color
-TEXT_COLOR_AUTO = b"\x1c\x43"  # cycle through color modes
-CHAR_ATTRIB_WIDE_ON = b"\x1d\x30\x31"  # char attrib wide on
-CHAR_ATTRIB_WIDE_OFF = b"\x1d\x30\x30"  # char attrib wide off
-CHAR_ATTRIB_DBLW_ON = b"\x1d\x31\x31"  # char attrib dbl width on
-CHAR_ATTRIB_DBLW_OFF = b"\x1d\x31\x30"  # char attrib dbl width off
-CHAR_ATTRIB_DBLH_ON = b"\x1d\x32\x31"  # char attrib dbl height on
-CHAR_ATTRIB_DBLH_OFF = b"\x1d\x32\x30"  # char attrib dbl height off
-CHAR_ATTRIB_DESC_ON = b"\x1d\x33\x31"  # char attrib true desc on
-CHAR_ATTRIB_DESC_OFF = b"\x1d\x33\x30"  # char attrib true desc off
-CHAR_ATTRIB_FIX_ON = b"\x1d\x34\x31"  # char attrib fixed width on
-CHAR_ATTRIB_FIX_OFF = b"\x1d\x34\x30"  # char attrib fixed width off
-CHAR_ATTRIB_FNCY_ON = b"\x1d\x35\x31"  # char attrib fancy on
-CHAR_ATTRIB_FNCY_OFF = b"\x1d\x35\x30"  # char attrib fancy off
-FIXED_WIDTH_OFF = b"\x1e\x30"  # fixed width chars off (default)
-FIXED_WIDTH_ON = b"\x1e\x31"  # fixed width chars on
-ALPHA_DOTS_INSERT = b"\x1f"  # insert ALPHAVISION DOTS picture
-#   must be followed by:
-#   SFFFFFFFFFtttt
-#     S = b"C" file is part of a
-#               QuickFlick animation.
-#               Clear display and uses
-#               hold time
-#     S = b"L" file is a DOTS picture.
-#               if inserted in a
-#               TEXT file, then hold
-#               time is ignored
-#     Fx9 = filename (pad with SPACEEs)
-#     tttt = 4 digit ascii hexdump
-#              indicating tenths of
-#              seconds
-FILE_NAME_CENTS = b"^"  # cents sign
-TILDE = b"~"  # half a space
-BLOCK_CHAR = b"\x7f"  # a square block character
-C_TAIL = b"\x80"  # capital 'c' with tail
-u_UMLAUT = b"\x81"  # lowercase 'u' with umlaut
-e_ACCENT = b"\x82"  # lowercase 'e' with grave accent
-a_CIRCUMFLEX = b"\x83"  # lowercase 'a' with circumflex
-a_UMLAUT = b"\x84"  # lowercase 'a' with umlaut
-a_GRAVE = b"\x85"  # lowercase 'a' with accent
-a_CIRCLE = b"\x86"  # lowercase 'a' with circle
-c_TAIL = b"\x87"  # lowercase 'c' with tail
-e_CIRCUMFLEX = b"\x88"  # lowercase 'e' with circumflex
-e_UMLAUT = b"\x89"  # lowercase 'e' with umlaut
-e_GRAVE = b"\x8a"  # lowercase 'e' with grave accent
-i_UMLAUT = b"\x8b"  # lowercase 'i' with umlaut
-i_CIRCUMFLEX = b"\x8c"  # lowercase 'i' with circumflex
-i_GRAVE = b"\x8d"  # lowercase 'i' with grave accent
-A_UMLAUT = b"\x8e"  # capital 'a' with umlaut
-A_CIRCLE = b"\x8f"  # capital 'a' with circle
-E_ACCENT = b"\x90"  # capital 'e' with accent
-ae_LIGATURE = b"\x91"  # lowercase 'ae' ligature
-AE_LIGATURE = b"\x92"  # capital 'ae' ligature
-o_CIRCUMFLEX = b"\x93"  # lowercase 'o' with circumflex
-o_UMLAUT = b"\x94"  # lowercase 'o' with umlaut
-o_GRAVE = b"\x95"  # lowercase 'o' with grave accent
-u_CIRCUMFLEX = b"\x96"  # lowercase 'u' with circumflex
-u_GRAVE = b"\x97"  # lowercase 'u' with grave accent
-y_UMLAUT = b"\x98"  # lowercase 'y' with umlaut
-O_UMLAUT = b"\x99"  # capital 'o' with umlaut
-U_UMLAUT = b"\x9a"  # capital 'u' with umlaut
-CENTS = b"\x9b"  # cents sign
-POUNDS = b"\x9c"  # british pounds sign
-YEN = b"\x9d"  # yen sign
-PERCENT = b"\x9e"  # percent sign
-SLANT_F = b"\x9f"  # slant lowercase f
-a_ACCENT = b"\xa0"  # lowercase 'a' with accent
-i_ACCENT = b"\xa1"  # lowercase 'i' with accent
-o_ACCENT = b"\xa2"  # lowercase 'o' with accent
-u_ACCENT = b"\xa3"  # lowercase 'u' with accent
-n_TILDE = b"\xa4"  # lowercase 'n' with tilde
-N_TILDE = b"\xa5"  # capital 'n' with tilde
-SUPER_a = b"\xa6"  # superscript 'a'
-SUPER_o = b"\xa7"  # superscript 'o'
-INVERT_QUESTION = b"\xa8"  # inverted question mark
-DEGREES = b"\xa9"  # degree sign (superscript circle)
-INVERT_EXCLAIM = b"\xaa"  # inverted exclaimation mark
-SINGLE_COL_SPACE = b"\xab"  # single column space
-theta = b"\xac"  # lowercase theta
-THETA = b"\xad"  # capital theta
-c_ACCENT = b"\xae"  # lowercase 'c' with accent
-C_ACCENT = b"\xaf"  # capital 'c' with accent
-CHAR_c = b"\xb0"  # lowercase 'c'
-CHAR_C = b"\xb1"  # capital 'c'
-CHAR_d = b"\xb2"  # lowercase 'd'
-CHAR_D = b"\xb3"  # capital 'd'
-CHAR_s = b"\xb4"  # lowercase 's'
-CHAR_z = b"\xb5"  # lowercase 'z'
-CHAR_Z = b"\xb6"  # capital 'z'
-BETA = b"\xb7"  # beta
-CHAR_S = b"\xb8"  # capital 's'
-BETA2 = b"\xb9"  # beta
-A_ACCENT = b"\xba"  # capital 'a' with accent
-A_GRAVE = b"\xbb"  # capital 'a' with grave accent
-A_2ACCENT = b"\xbc"  # capital 'a' with two accents
-a_2ACCENT = b"\xbd"  # lowercase ''a' with two accents
-E_ACCENT_HAT = b"\xbe"  # capital 'e' with accent hat
-I_ACCENT = b"\xbf"  # capital 'i' with accent
-O_TILDE = b"\xc0"  # capital 'o' with tilde
-o_TILDE = b"\xc1"  # lowecase 'o' with tilde
+# ==========================================================================
+# Special modes and special graphics
+# ==========================================================================
+# Tables 66 and 67, document pages 89 and 90. Each is the SPECIAL mode code
+# "n" (6EH) followed by a specifier byte, so every constant here is two bytes.
+#
+# Table 66 prints its specifiers as a run: TWINKLE "0" 30H through SLOT MACHINE
+# "9" 39H, then NEWS FLASH "A" and TRUMPET "B". Against those last two it prints
+# the hex codes 3AH and 3BH, which do not agree with the characters beside them,
+# since "A" is 41H and "B" is 42H. The characters are taken as authoritative for
+# three reasons: the same table's CYCLE COLORS row prints "C" 43H, which is
+# consistent; the specifiers of Table 67 are plainly characters rather than a
+# continued hex run; and the colour list on page 81 makes the same jump from "9"
+# (39H) to "A" (41H) with no such contradiction. The reading is that whoever set
+# Tables 66 continued the 30H to 39H run by hand for two rows.
+#
+# The sign's own names for two of these differ from the generic ones. Table 67
+# lists 57H as "RUNNING ANIMAL or FISH ANIMATION" and 59H as "TURBO CAR or
+# BALLOON ANIMATION", the second name in each pair being the BetaBrite's. The
+# BetaBrite name is the one kept.
 
-# ===========================================================================
-# Constants added for this service, sourced from the Alpha Sign Communications
-# Protocol (Adaptive Micro Systems, form 9708-8061E). See docs/protocol-notes.md
-# for where each of these came from and what is still unconfirmed on hardware.
-# ===========================================================================
+MODE_TWINKLE = b"n0"
+MODE_SPARKLE = b"n1"
+MODE_SNOW = b"n2"
+MODE_INTERLOCK = b"n3"
+MODE_SWITCH = b"n4"
+MODE_SLIDE = b"n5"
+MODE_SPRAY = b"n6"
+MODE_STARBURST = b"n7"
+MODE_WELCOME = b"n8"
+MODE_SLOTMACHINE = b"n9"
+MODE_NEWSFLASH = b"nA"
+MODE_TRUMPET = b"nB"
+MODE_THANKYOU = b"nS"
+MODE_NOSMOKING = b"nU"
+MODE_DRINKDRIVE = b"nV"
+MODE_FISH = b"nW"
+MODE_FIREWORKS = b"nX"
+MODE_BALLOONS = b"nY"
+MODE_CHERRYBOMB = b"nZ"
 
-# Special function labels. Each follows COMMAND_WRITE_SPECIAL in the payload.
-SF_SET_MEMORY_CONFIG = b"$"  # allocate files; erases everything already stored
-SF_SET_RUN_SEQUENCE = b"."  # choose which TEXT files play, and in what order
+# ==========================================================================
+# Control codes written inline in a message
+# ==========================================================================
+# Appendix G, "Control codes (00 - 1FH)", document pages 81 and 82. These are
+# written into the ASCII message itself rather than into the mode field.
+#
+# The two-byte forms are a control code plus a selector, which the document gives
+# as, for example, "05H + \"1\" (31H) = Double height on".
 
-# File types used in a memory configuration entry.
+DBL_HEIGHT_CHARS_ON = b"\x05\x31"
+DBL_HEIGHT_CHARS_OFF = b"\x05\x30"
+TRUE_DESCENDERS_ON = b"\x06\x31"
+TRUE_DESCENDERS_OFF = b"\x06\x30"
+CHAR_FLASH_ON = b"\x07\x31"
+CHAR_FLASH_OFF = b"\x07\x30"
+NO_HOLD_SPEED = b"\x09"
+LF = b"\x0a"
+NEW_PAGE = b"\x0c"
+CR = b"\x0d"
+STRING_FILE_INSERT = b"\x10"
+WIDE_CHARS_OFF = b"\x11"
+WIDE_CHARS_ON = b"\x12"
+CURTIME_INSERT = b"\x13"
+DOTS_INSERT = b"\x14"
+ALPHA_DOTS_INSERT = b"\x1f"
+FIXED_WIDTH_OFF = b"\x1e\x30"
+FIXED_WIDTH_ON = b"\x1e\x31"
+
+# ==========================================================================
+# Display speed
+# ==========================================================================
+# Appendix G, document page 81, control codes 15H to 19H. Speed 1 is the
+# slowest and speed 5 the fastest.
+
+SPEED_1 = b"\x15"
+SPEED_2 = b"\x16"
+SPEED_3 = b"\x17"
+SPEED_4 = b"\x18"
+SPEED_5 = b"\x19"
+
+# ==========================================================================
+# Temperature inserts
+# ==========================================================================
+# Appendix G, document page 81, under control code 08H. The document notes
+# these work "only on Solar, 790i, 460i, 440i, and 430i" signs, so a BetaBrite is
+# not expected to render them.
+
+TEMP_CELSIUS = b"\x08\x1c"
+TEMP_FAHRENHEIT = b"\x08\x1d"
+
+# ==========================================================================
+# Date inserts
+# ==========================================================================
+# Appendix G, document page 81, under control code 0BH, which the document
+# introduces as "Call date (2-byte format)". The suffix names the separator the
+# sign draws.
+#
+# The last two are not separators: 0BH + "8" (38H) is the MMM.DD, YYYY form, and
+# 0BH + "9" (39H) gives the day of the week.
+
+CURDATE_MMDDYY_SLASH = b"\x0b\x30"
+CURDATE_DDMMYY_SLASH = b"\x0b\x31"
+CURDATE_MMDDYY_DASH = b"\x0b\x32"
+CURDATE_DDMMYY_DASH = b"\x0b\x33"
+CURDATE_MMDDYY_DOT = b"\x0b\x34"
+CURDATE_DDMMYY_DOT = b"\x0b\x35"
+CURDATE_MMDDYY_SPACE = b"\x0b\x36"
+CURDATE_DDMMYY_SPACE = b"\x0b\x37"
+CURDATE_MMMDDYYYY = b"\x0b\x38"
+CURDATE_WEEKDAYY = b"\x0b\x39"
+
+# ==========================================================================
+# Counters
+# ==========================================================================
+# Appendix G, document page 81, control code 08H with offsets 7AH to 7EH. These
+# insert the value of one of the sign's five counters. They sit above the
+# extended character range, which ends at offset 61H.
+
+COUNTER_1 = b"\x08\x7a"
+COUNTER_2 = b"\x08\x7b"
+COUNTER_3 = b"\x08\x7c"
+COUNTER_4 = b"\x08\x7d"
+COUNTER_5 = b"\x08\x7e"
+
+# ==========================================================================
+# Character sets
+# ==========================================================================
+# Appendix G, document page 82, control code 1AH, "Select character set". The
+# document draws the selector list as a graphic rather than setting it as text,
+# so these values are pinned by
+# ``tests/test_constant_values.py`` against the same source rather than quoted
+# here.
+
+CHARSET_5_NORMAL = b"\x1a\x31"
+CHARSET_7_NORMAL = b"\x1a\x33"
+CHARSET_7_FANCY = b"\x1a\x35"
+CHARSET_10_NORMAL = b"\x1a\x36"
+CHARSET_FULL_FANCY = b"\x1a\x38"
+CHARSET_FULL_NORMAL = b"\x1a\x39"
+
+# ==========================================================================
+# Colours
+# ==========================================================================
+# Appendix G, document page 81, control code 1CH, "Select character color". The
+# document adds that "some signs do not support all the following colors".
+#
+# The run is worth noting because it is where an off-by-one lands: red through
+# rainbow 1 are the characters "1" to "9" (31H to 39H), and then it jumps to the
+# letters, rainbow 2 through automatic being "A" to "C" (41H to 43H). There is no
+# 3AH entry.
+
+TEXT_COLOR_RED = b"\x1c\x31"
+TEXT_COLOR_GREEN = b"\x1c\x32"
+TEXT_COLOR_AMBER = b"\x1c\x33"
+TEXT_COLOR_DIMRED = b"\x1c\x34"
+TEXT_COLOR_DIMGREEN = b"\x1c\x35"
+TEXT_COLOR_BROWN = b"\x1c\x36"
+TEXT_COLOR_ORANGE = b"\x1c\x37"
+TEXT_COLOR_YELLOW = b"\x1c\x38"
+TEXT_COLOR_RAINBOW1 = b"\x1c\x39"
+TEXT_COLOR_RAINBOW2 = b"\x1c\x41"
+TEXT_COLOR_MIX = b"\x1c\x42"
+TEXT_COLOR_AUTO = b"\x1c\x43"
+
+# ==========================================================================
+# Character attributes
+# ==========================================================================
+# Appendix G, document page 82, control code 1DH, "Select character attribute
+# (3-byte format)". The document's own description of the shape: "1st byte is
+# control code; 2nd byte is the attribute; and 3rd byte specifies either ON [\"1\"
+# (31H)] or OFF [\"0\" (30H)]". OFF is the default for every one of them.
+#
+# Two attributes the document lists are absent here, both because they name
+# hardware this is not: 36H auxiliary port, "Series 4000 & 7000 signs only", and
+# 37H shadow characters, "Betabrite model 1036 and AlphaPremiere 9000 signs
+# only".
+
+CHAR_ATTRIB_WIDE_ON = b"\x1d\x30\x31"
+CHAR_ATTRIB_WIDE_OFF = b"\x1d\x30\x30"
+CHAR_ATTRIB_DBLW_ON = b"\x1d\x31\x31"
+CHAR_ATTRIB_DBLW_OFF = b"\x1d\x31\x30"
+CHAR_ATTRIB_DBLH_ON = b"\x1d\x32\x31"
+CHAR_ATTRIB_DBLH_OFF = b"\x1d\x32\x30"
+CHAR_ATTRIB_DESC_ON = b"\x1d\x33\x31"
+CHAR_ATTRIB_DESC_OFF = b"\x1d\x33\x30"
+CHAR_ATTRIB_FIX_ON = b"\x1d\x34\x31"
+CHAR_ATTRIB_FIX_OFF = b"\x1d\x34\x30"
+CHAR_ATTRIB_FNCY_ON = b"\x1d\x35\x31"
+CHAR_ATTRIB_FNCY_OFF = b"\x1d\x35\x30"
+
+# ==========================================================================
+# Extended characters, as a control code and an offset
+# ==========================================================================
+# Document pages 84 to 86, "Extended character set (80 - C1H)". The document
+# gives the whole set as a table of three columns: a code from 80H to C1H, the
+# character itself, and the control code combination that produces it, which is
+# always "08H + Offset" with the offset running from 20H to 61H.
+#
+# So the two forms are one subtraction apart: the character at code 80H + n is
+# written 08H + (20H + n). The pairing is checked in
+# ``tests/test_constant_values.py``, which asserts the two halves of this table
+# address exactly the same characters.
+#
+# The document also notes that this set "is not available with the 5-high
+# character set".
+#
+# What cannot be established from the document is which mark each code actually
+# draws. The character column is drawn as vector outlines rather than set as
+# text, so it survives neither text extraction nor a search. The names below are
+# therefore the one part of this module not backed by a citation; see
+# ``test_extended_character_identities_are_not_verified_here``, which says so in
+# the suite rather than leaving it to be discovered.
+
+XC_C_TAIL = b"\x08\x20"
+XC_u_UMLAUT = b"\x08\x21"
+XC_e_ACCENT = b"\x08\x22"
+XC_a_CIRCUMFLEX = b"\x08\x23"
+XC_a_UMLAUT = b"\x08\x24"
+XC_a_GRAVE = b"\x08\x25"
+XC_a_CIRCLE = b"\x08\x26"
+XC_c_TAIL = b"\x08\x27"
+XC_e_CIRCUMFLEX = b"\x08\x28"
+XC_e_UMLAUT = b"\x08\x29"
+XC_e_GRAVE = b"\x08\x2a"
+XC_i_UMLAUT = b"\x08\x2b"
+XC_i_CIRCUMFLEX = b"\x08\x2c"
+XC_i_GRAVE = b"\x08\x2d"
+XC_A_UMLAUT = b"\x08\x2e"
+XC_A_CIRCLE = b"\x08\x2f"
+XC_E_ACCENT = b"\x08\x30"
+XC_ae_LIGATURE = b"\x08\x31"
+XC_AE_LIGATURE = b"\x08\x32"
+XC_o_CIRCUMFLEX = b"\x08\x33"
+XC_o_UMLAUT = b"\x08\x34"
+XC_o_GRAVE = b"\x08\x35"
+XC_u_CIRCUMFLEX = b"\x08\x36"
+XC_u_GRAVE = b"\x08\x37"
+XC_y_UMLAUT = b"\x08\x38"
+XC_O_UMLAUT = b"\x08\x39"
+XC_U_UMLAUT = b"\x08\x3a"
+XC_CENTS = b"\x08\x3b"
+XC_POUNDS = b"\x08\x3c"
+XC_YEN = b"\x08\x3d"
+XC_PERCENT = b"\x08\x3e"
+XC_SLANT_F = b"\x08\x3f"
+XC_a_ACCENT = b"\x08\x40"
+XC_i_ACCENT = b"\x08\x41"
+XC_o_ACCENT = b"\x08\x42"
+XC_u_ACCENT = b"\x08\x43"
+XC_n_TILDE = b"\x08\x44"
+XC_N_TILDE = b"\x08\x45"
+XC_SUPER_a = b"\x08\x46"
+XC_SUPER_o = b"\x08\x47"
+XC_INVERT_QUESTION = b"\x08\x48"
+XC_DEGREES = b"\x08\x49"
+XC_INVERT_EXCLAIM = b"\x08\x4a"
+XC_SINGLE_COL_SPACE = b"\x08\x4b"
+XC_theta = b"\x08\x4c"
+XC_THETA = b"\x08\x4d"
+XC_c_ACCENT = b"\x08\x4e"
+XC_C_ACCENT = b"\x08\x4f"
+XC_c = b"\x08\x50"
+XC_C = b"\x08\x51"
+XC_d = b"\x08\x52"
+XC_D = b"\x08\x53"
+XC_s = b"\x08\x54"
+XC_z = b"\x08\x55"
+XC_Z = b"\x08\x56"
+XC_BETA = b"\x08\x57"
+XC_S = b"\x08\x58"
+XC_BETA2 = b"\x08\x59"
+XC_A_ACCENT = b"\x08\x5a"
+XC_A_GRAVE = b"\x08\x5b"
+XC_A_2ACCENT = b"\x08\x5c"
+XC_a_2ACCENT = b"\x08\x5d"
+XC_E_CAP = b"\x08\x5e"
+XC_I_ACCENT = b"\x08\x5f"
+XC_O_TILDE = b"\x08\x60"
+XC_o_TILDE = b"\x08\x61"
+
+# ==========================================================================
+# Extended characters, as a single byte
+# ==========================================================================
+# The same characters as the section above, addressed by their own code from
+# 80H to C1H rather than by the control code combination. Same document pages,
+# same caveat about the identities.
+#
+# Where a mark has both cases, the two are named for the case they draw, so
+# ``A_UMLAUT`` and ``a_UMLAUT`` are different codes rather than two spellings of
+# one.
+#
+# ``TILDE`` (7EH) and ``BLOCK_CHAR`` (7FH) sit just below the extended range and
+# are ordinary members of the standard set on document page 83.
+
+TILDE = b"~"
+BLOCK_CHAR = b"\x7f"
+C_TAIL = b"\x80"
+u_UMLAUT = b"\x81"
+e_ACCENT = b"\x82"
+a_CIRCUMFLEX = b"\x83"
+a_UMLAUT = b"\x84"
+a_GRAVE = b"\x85"
+a_CIRCLE = b"\x86"
+c_TAIL = b"\x87"
+e_CIRCUMFLEX = b"\x88"
+e_UMLAUT = b"\x89"
+e_GRAVE = b"\x8a"
+i_UMLAUT = b"\x8b"
+i_CIRCUMFLEX = b"\x8c"
+i_GRAVE = b"\x8d"
+A_UMLAUT = b"\x8e"
+A_CIRCLE = b"\x8f"
+E_ACCENT = b"\x90"
+ae_LIGATURE = b"\x91"
+AE_LIGATURE = b"\x92"
+o_CIRCUMFLEX = b"\x93"
+o_UMLAUT = b"\x94"
+o_GRAVE = b"\x95"
+u_CIRCUMFLEX = b"\x96"
+u_GRAVE = b"\x97"
+y_UMLAUT = b"\x98"
+O_UMLAUT = b"\x99"
+U_UMLAUT = b"\x9a"
+CENTS = b"\x9b"
+POUNDS = b"\x9c"
+YEN = b"\x9d"
+PERCENT = b"\x9e"
+SLANT_F = b"\x9f"
+a_ACCENT = b"\xa0"
+i_ACCENT = b"\xa1"
+o_ACCENT = b"\xa2"
+u_ACCENT = b"\xa3"
+n_TILDE = b"\xa4"
+N_TILDE = b"\xa5"
+SUPER_a = b"\xa6"
+SUPER_o = b"\xa7"
+INVERT_QUESTION = b"\xa8"
+DEGREES = b"\xa9"
+INVERT_EXCLAIM = b"\xaa"
+SINGLE_COL_SPACE = b"\xab"
+theta = b"\xac"
+THETA = b"\xad"
+c_ACCENT = b"\xae"
+C_ACCENT = b"\xaf"
+CHAR_c = b"\xb0"
+CHAR_C = b"\xb1"
+CHAR_d = b"\xb2"
+CHAR_D = b"\xb3"
+CHAR_s = b"\xb4"
+CHAR_z = b"\xb5"
+CHAR_Z = b"\xb6"
+BETA = b"\xb7"
+CHAR_S = b"\xb8"
+BETA2 = b"\xb9"
+A_ACCENT = b"\xba"
+A_GRAVE = b"\xbb"
+A_2ACCENT = b"\xbc"
+a_2ACCENT = b"\xbd"
+E_ACCENT_HAT = b"\xbe"
+I_ACCENT = b"\xbf"
+O_TILDE = b"\xc0"
+o_TILDE = b"\xc1"
+
+# ==========================================================================
+# Memory configuration
+# ==========================================================================
+# Special function label "$" (24H), written after COMMAND_WRITE_SPECIAL, so the
+# payload begins "E$". Table 15 on document page 21 gives the entry format as
+# FTPSIZEQQQQ, eleven characters per file.
+#
+# The one dangerous command in this module. The document: "whenever a Memory
+# Configuration is written, the previous table is overwritten". Everything on the
+# sign is lost. The service therefore allocates its whole pool once and
+# reconfigures only when the plan itself changes.
+#
+# ``FILE_TYPE_DOTS`` is ``D``. Table 15 prints "D" 43H for it, which contradicts
+# itself, since 43H is the character ``C`` and the two file types above it follow
+# the characters rather than the hex ("A" 41H for TEXT, "B" 42H for STRING). The
+# character is taken as authoritative.
+
+SF_SET_MEMORY_CONFIG = b"$"
+SF_MEMORY_POOL_SIZE = b"#"
 FILE_TYPE_TEXT = b"A"
 FILE_TYPE_STRING = b"B"
 FILE_TYPE_DOTS = b"D"
-
-# Whether the sign's own infrared keyboard may change a file.
 FILE_LOCKED = b"L"
 FILE_UNLOCKED = b"U"
-
-# Run sequence modes.
-RUN_SEQ_BY_TIME = b"T"  # honour each file's own start and stop time (default)
-RUN_SEQ_IGNORE_TIME = b"S"  # play in the given order whatever the file's times
-RUN_SEQ_DELETE_AT_STOP = b"D"  # delete a file when its stop time arrives
-
-# The start and stop time pair in a TEXT file's memory configuration entry.
-# A start time of "FF" means always, and the protocol says the stop time is
-# ignored entirely when the start is Always, so a file allocated with this pair
-# is eligible to play whenever the run sequence names it.
 TEXT_SCHEDULE_ALWAYS = b"FFFF"
-
-# Bytes of directory overhead the sign charges for each configured file, on top
-# of the file's own size, when working out whether a pool fits in the memory
-# pool.
 FILE_OVERHEAD_BYTES = 11
 
-# The priority TEXT file always exists, is a fixed 125 bytes, and sits outside
-# the memory pool, so it is never part of a memory configuration.
+# ==========================================================================
+# Run sequence
+# ==========================================================================
+# Special function label "." (2EH), so the payload begins "E." and continues
+# KPF: one mode byte, one lock byte, then the file labels to play in order.
+# Table 15, document page 21.
+#
+# The document's own note on a stale label is what makes rewriting the sequence
+# safe while slots come and go: "If a File Label is invalid or does not exist,
+# the next File Label will be processed".
+
+SF_SET_RUN_SEQUENCE = b"."
+SF_RUN_TIME_TABLE = b")"
+RUN_SEQ_BY_TIME = b"T"
+RUN_SEQ_IGNORE_TIME = b"S"
+RUN_SEQ_DELETE_AT_STOP = b"D"
+
+# ==========================================================================
+# File labels
+# ==========================================================================
+# Appendix A, "Valid File Labels", document page 50, which allows any printable
+# character from 20H to 7EH.
+#
+# The priority TEXT file is "0" (30H). The document: "A Priority TEXT file is a
+# special 125-byte message that does not need to be configured because it always
+# exists on a sign", and writing to it stops every other TEXT file from being
+# displayed.
+#
+# This service hands out "A" to "Z" only. A label a person can read in a log line
+# is worth more than the extra capacity, and the real ceiling is the memory pool
+# in bytes rather than a count of files. Two ranges are kept back: "0", the
+# priority file, and "1" to "5", which become reserved target files if the sign's
+# counter feature is ever switched on.
+
+FILE_PRIORITY = b"0"
 PRIORITY_FILE_CAPACITY = 125
+TEXT_FILE_LABELS = (
+    b"A",
+    b"B",
+    b"C",
+    b"D",
+    b"E",
+    b"F",
+    b"G",
+    b"H",
+    b"I",
+    b"J",
+    b"K",
+    b"L",
+    b"M",
+    b"N",
+    b"O",
+    b"P",
+    b"Q",
+    b"R",
+    b"S",
+    b"T",
+    b"U",
+    b"V",
+    b"W",
+    b"X",
+    b"Y",
+    b"Z",
+)
+RESERVED_FILE_LABELS = (
+    b"0",
+    b"1",
+    b"2",
+    b"3",
+    b"4",
+    b"5",
+)
 
-# The labels available for the service's own rotating messages. The priority
-# file "0" is deliberately absent.
-TEXT_FILE_LABELS = tuple(bytes([code]) for code in range(ord("A"), ord("Z") + 1))
+# ==========================================================================
+# What this sign will accept
+# ==========================================================================
+# The compatibility matrix lists the BetaBrite as EZ KEY II and Alpha 1.0 only,
+# so nothing marked Alpha 2.0 or 3.0 may be used. That rules out the "E$$$$"
+# clear-memory-and-compact-flash command, programmable sounds, and the ACK/NAK
+# response feature, along with the display positions and modes noted absent
+# above.
+#
+# The timing is the document's own: the inter-byte timeout for a standard packet
+# is one second. The service's ``inter_packet_delay`` setting is a separate thing
+# and deliberately conservative until it is measured against the sign.
 
-# Special function labels used with COMMAND_READ_SPECIAL to ask the sign what it
-# currently holds. These exist so that divergence can be detected rather than
-# assumed; see docs/protocol-notes.md for what is still unproven about reads
-# over the Ethernet adapter.
-SF_MEMORY_POOL_SIZE = b"#"  # returns total and unused pool bytes
-SF_RUN_TIME_TABLE = b")"  # returns priority status and per-file start/stop times
-
-# Protocol generation. A BetaBrite Classic speaks Alpha 1.0 and EZ KEY II only,
-# so nothing in this package may use a command the protocol document marks as
-# Alpha 2.0 or 3.0. That rules out the "E$$$$" clear-memory-and-flash command,
-# programmable sounds, and the ACK/NAK response feature.
-PROTOCOL_GENERATION = "1.0"
-
-# File labels the layout planner must not hand out. "0" is the priority file,
-# and "1" through "5" become reserved target files if the sign's counter feature
-# is ever switched on.
-RESERVED_FILE_LABELS = (b"0", b"1", b"2", b"3", b"4", b"5")
-
-# Timing the protocol document states, for reference when tuning
-# inter_packet_delay. The inter-byte timeout for a standard packet is one
-# second, and a nested packet needs at least 100 ms after its STX. This service
-# sends no nested packets.
+PROTOCOL_GENERATION = '1.0'
 INTER_BYTE_TIMEOUT_SECONDS = 1.0
-NESTED_PACKET_DELAY_SECONDS = 0.1

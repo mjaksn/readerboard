@@ -32,7 +32,7 @@ WAKEUP  SOH  type  address  STX  <command and payload>  EOT
 ```
 
 The document specifies **five** nulls for the wakeup, describing them as what "cause a
-sign to lock onto a baud rate". The vendored constant sends six. Six has driven this sign
+sign to lock onto a baud rate". The constant here sends six. Six has driven this sign
 for years, and more nulls than required is harmless, so it is left alone.
 
 `SOH` is 0x01, `STX` 0x02, `EOT` 0x04, the sign type `^` for a BetaBrite and the address

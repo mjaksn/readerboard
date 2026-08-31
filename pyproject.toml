@@ -135,9 +135,6 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# The vendored constants table is a wall of assignments with trailing comments,
-# and rewriting it into docstring-bearing prose would only obscure its origin.
-"readerboard/protocol/constants.py" = ["E501", "RUF001", "RUF003"]
 # A test's name is its documentation, and a docstring repeating it would be
 # worse than none. Tests that need explaining have one anyway. The simulator's
 # tests are named separately because this glob is anchored at the project root
@@ -166,7 +163,7 @@ module = ["serial", "serial.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# The vendored constants module is a flat table of byte literals; annotating
-# every one of them would add nothing a reader does not already see.
+# The constants module is a flat table of byte literals; annotating every one of
+# them would add nothing a reader does not already see.
 module = "readerboard.protocol.constants"
 disallow_untyped_defs = false
