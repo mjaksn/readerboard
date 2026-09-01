@@ -1,8 +1,9 @@
 """Request and response shapes.
 
 The ``Simple*`` models are the shapes the ``/Write`` and ``/Enumerations``
-endpoints use, where every response is a 200 carrying the outcome in the body.
-The rest belong to ``/v2``, which reports through status codes instead.
+endpoints use, where the outcome is carried in the body as well as in the status
+code. The rest belong to ``/v2``, which reports through the status code and
+FastAPI's ``detail`` body.
 
 Every ``description`` here ends up in the OpenAPI page, so it is documentation
 in the same sense the README is, and it rots the same way.
@@ -208,7 +209,8 @@ class TokenInfo(BaseModel):
 
 
 # ===========================================================================
-# The simple API's shapes. Every response is a 200 with the outcome in the body.
+# The simple API's shapes. Every response carries the outcome in the body, and
+# a status code that says the same thing.
 # ===========================================================================
 
 
@@ -229,7 +231,12 @@ class SimpleCommandRequest(BaseModel):
 
 
 class SimpleResult(BaseModel):
-    """The body the old endpoints have always returned, whatever happened."""
+    """The body the simple endpoints return, whatever happened.
+
+    The status code beside it says the same thing. This shape has not changed
+    with it, so anything reading ``result`` and ``result_message`` reads exactly
+    what it always did.
+    """
 
     result: str = Field(description="OK or ERROR")
     result_message: str = Field(description="text description of the command result")
@@ -241,7 +248,12 @@ class SimpleResult(BaseModel):
 
     @classmethod
     def error(cls, message: str) -> SimpleResult:
-        """Build a failure, in the old shape and still with a 200 status."""
+        """Build a failure, in the old shape.
+
+        The status code is the caller's to set, because only the caller knows
+        which failure this is. :func:`readerboard.api.errors.status_for` is
+        what turns one of the service's own exceptions into that answer.
+        """
         return cls(result="ERROR", result_message=message)
 
 

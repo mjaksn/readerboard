@@ -1,14 +1,22 @@
-"""A smaller surface for clients that would rather not read status codes.
+"""A smaller surface for callers that post a fixed body to a fixed path.
 
-Fixed paths, one message, and **every response is HTTP 200** with the outcome in
-the body. That suits a Home Assistant ``rest_command`` or a shell one-liner in a
-cron job, neither of which branches gracefully on a status code.
+Fixed paths, one message, no slot to name, and a ``result`` of ``OK`` or
+``ERROR`` in the body. That suits a Home Assistant ``rest_command`` or a shell
+one-liner in a cron job, neither of which wants to name a slot or read a slot
+table back.
 
-The exceptions to always-200 are all requests that never reach the code below,
-and they are deliberate. A missing or wrong API key is a 401, and a service with
-no API key configured at all is a 503, because a caller the service will not talk
-to is not the same as a request that failed. A body that is not the shape the
-endpoint declares gets FastAPI's own 422 before any of this runs.
+The status code says the same thing the body does. It did not always: every
+response here used to be a 200 whatever happened, on the theory that those two
+callers do not branch on status codes. They do not, but neither do they read a
+JSON body, so the outcome only ever lived in the one place they were least
+likely to look. A ``rest_command`` fired without ``response_variable`` never saw
+``result_message`` at all, and plain ``curl`` in a cron job exits 0 and prints it
+to a log nobody reads. A status code is the one thing both of them surface on
+their own, so a failed write is now visible to a caller that does nothing to
+look for it, which it was not before.
+
+The body shape is untouched, so anything that does read ``result`` and
+``result_message`` sees exactly what it saw before.
 
 ``POST /Write/Message`` writes to a reserved slot rather than to the sign's
 priority file. That distinction matters more than it looks. By protocol a
@@ -22,9 +30,11 @@ moment anything else registers.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Response, status
 
+from readerboard.api import errors
 from readerboard.api.deps import ControllerDep, RegistryDep, RequireApiKey, SettingsDep
 from readerboard.api.models import (
     SimpleCommandRequest,
@@ -45,10 +55,57 @@ router = APIRouter()
 write = APIRouter(prefix="/Write", tags=["Write (simple)"])
 enumerations = APIRouter(prefix="/Enumerations", tags=["Enumerations (simple)"])
 
+# What both writes can answer with when they fail, declared so the page shows
+# what is true of all of them: the body is the same shape whatever the status,
+# and a caller that only reads ``result`` need not care which code it got. Which
+# code any given failure earns is decided in readerboard.api.errors, not here.
+#
+# The rule for what belongs here is whether a caller can actually be answered
+# with it from these routes. A 401 and a 422 are absent by that rule, because
+# both are answered before the route body runs. Nothing renders strictly here,
+# so the 400 is never a character the sign has no glyph for; that is a ``?`` and
+# a 200, as it has always been.
+SIMPLE_FAILURES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_400_BAD_REQUEST: {
+        "model": SimpleResult,
+        "description": (
+            "The mode or command is not one the sign has, the parameter is "
+            "not one it will accept, or the message is too long for its slot"
+        ),
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: {
+        "model": SimpleResult,
+        "description": "The sign is unreachable",
+    },
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": SimpleResult,
+        "description": "The service raised something it does not have a code for",
+    },
+}
 
-@write.post("/Message", summary="Write a message to the sign", dependencies=[RequireApiKey])
+# By that same rule one code belongs to one route rather than to both. Only
+# ``/Write/Message`` takes a slot, so only it can find the file pool full and
+# answer the 409 that readerboard.api.errors gives a LayoutFull.
+SIMPLE_MESSAGE_FAILURES: dict[int | str, dict[str, Any]] = {
+    **SIMPLE_FAILURES,
+    status.HTTP_409_CONFLICT: {
+        "model": SimpleResult,
+        "description": "Every message slot is already in use",
+    },
+}
+
+
+@write.post(
+    "/Message",
+    summary="Write a message to the sign",
+    dependencies=[RequireApiKey],
+    responses=SIMPLE_MESSAGE_FAILURES,
+)
 async def write_message(
-    body: SimpleMessageRequest, registry: RegistryDep, settings: SettingsDep
+    body: SimpleMessageRequest,
+    registry: RegistryDep,
+    settings: SettingsDep,
+    response: Response,
 ) -> SimpleResult:
     """Display a message on the sign.
 
@@ -73,11 +130,16 @@ async def write_message(
             strict=False,
         )
     except KeyError:
+        # Not one of the service's own exceptions, so the shared table has
+        # nothing to say about it. A mode this sign does not have is the
+        # caller's mistake either way.
+        response.status_code = status.HTTP_400_BAD_REQUEST
         return SimpleResult.error(
             "The display mode '%s' is not valid" % body.display_mode
         )
     except Exception as err:
         logger.warning("simple write failed: %s", err)
+        response.status_code = errors.status_for(err)
         return SimpleResult.error(str(err))
 
     return SimpleResult.ok("Message displayed on sign")
@@ -87,23 +149,27 @@ async def write_message(
     "/ControlCommand",
     summary="Send a control command to the sign",
     dependencies=[RequireApiKey],
+    responses=SIMPLE_FAILURES,
 )
 async def write_control_command(
-    body: SimpleCommandRequest, controller: ControllerDep
+    body: SimpleCommandRequest, controller: ControllerDep, response: Response
 ) -> SimpleResult:
     """Send one of the sign's control commands."""
     try:
         payload = commands.build(body.command, body.parameter)
-    except commands.UnknownCommand:
+    except commands.UnknownCommand as err:
         # The old wording, kept because something may be matching on it.
+        response.status_code = errors.status_for(err)
         return SimpleResult.error("Unrecognized control command '%s'" % body.command)
     except commands.BadParameter as err:
+        response.status_code = errors.status_for(err)
         return SimpleResult.error(str(err))
 
     try:
         await controller.send_special(payload)
     except Exception as err:
         logger.warning("simple control command failed: %s", err)
+        response.status_code = errors.status_for(err)
         return SimpleResult.error(str(err))
 
     return SimpleResult.ok("Control command sent to sign")

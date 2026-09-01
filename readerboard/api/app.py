@@ -18,26 +18,19 @@ import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from readerboard import __version__, logging_setup
-from readerboard.api import routes_simple, routes_v2
+from readerboard.api import errors, routes_simple, routes_v2
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
 from readerboard.config import Settings
-from readerboard.protocol.frames import ProtocolError
-from readerboard.protocol.markup import MarkupError
-from readerboard.services import commands
-from readerboard.services.alerts import AlertService, AlertTooLong
+from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
-from readerboard.services.registry import (
-    MessageRegistry,
-    MessageTooLong,
-    UnknownSlot,
-)
+from readerboard.services.registry import MessageRegistry
 from readerboard.sign.controller import SignController
-from readerboard.sign.layout import Layout, LayoutFull
+from readerboard.sign.layout import Layout
 from readerboard.sign.state import StateStore
 from readerboard.transport.base import Transport, TransportError
 from readerboard.transport.serial_link import SerialTransport
@@ -56,11 +49,15 @@ Every write needs an `X-API-Key` header. Reads and `GET /health` do not. On this
 page, put the key in once with the **Authorize** button and every write below
 carries it.
 
-The `/Write` and `/Enumerations` paths are a smaller surface for clients that
-would rather not read status codes: every response there is a 200 with the
-outcome in the body, unless the request never reaches the route at all. A missing
-or wrong `X-API-Key` is a 401, a service with no API key configured is a 503, and
-a body that is not the shape the endpoint declares is a 422.
+The `/Write` and `/Enumerations` paths are a smaller surface for callers that
+post a fixed body to a fixed path: one message, no slot to name, and a `result`
+of `OK` or `ERROR` in the body. The status code says the same thing the body
+does, and means what it means everywhere else here: 400 for a mode or a command
+the sign does not have, a parameter it will not accept or a message too long for
+its slot, 401 for a missing or wrong `X-API-Key`, 409 when every message slot is
+already in use, 503 when the sign is unreachable or no API key is configured at
+all, 500 for something the service has no code for, and 422 for a body that is
+not the shape the endpoint declares.
 """
 
 
@@ -246,7 +243,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
 
 
 def _install_error_handlers(app: FastAPI) -> None:
-    """Turn the service's own exceptions into the status codes they mean."""
+    """Turn the service's own exceptions into the status codes they mean.
+
+    Registered by walking the same table the simple surface reads, so the two
+    cannot come to disagree about what any one of these means.
+    """
 
     def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
         async def handle(_: Request, exc: Exception) -> JSONResponse:
@@ -256,15 +257,8 @@ def _install_error_handlers(app: FastAPI) -> None:
 
         return handle
 
-    app.add_exception_handler(MarkupError, handler(status.HTTP_400_BAD_REQUEST))
-    app.add_exception_handler(ProtocolError, handler(status.HTTP_400_BAD_REQUEST))
-    app.add_exception_handler(MessageTooLong, handler(status.HTTP_400_BAD_REQUEST))
-    app.add_exception_handler(AlertTooLong, handler(status.HTTP_400_BAD_REQUEST))
-    app.add_exception_handler(commands.UnknownCommand, handler(status.HTTP_400_BAD_REQUEST))
-    app.add_exception_handler(commands.BadParameter, handler(status.HTTP_400_BAD_REQUEST))
-    app.add_exception_handler(UnknownSlot, handler(status.HTTP_404_NOT_FOUND))
-    app.add_exception_handler(LayoutFull, handler(status.HTTP_409_CONFLICT))
-    app.add_exception_handler(TransportError, handler(status.HTTP_503_SERVICE_UNAVAILABLE))
+    for kind, code in errors.STATUS_FOR_ERROR:
+        app.add_exception_handler(kind, handler(code))
 
 
 app = create_app()

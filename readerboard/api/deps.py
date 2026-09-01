@@ -91,9 +91,10 @@ def require_api_key(
     narrowed down by timing. The key itself is never logged or echoed, here or
     anywhere else.
 
-    This is the one place the simple endpoints are allowed to break their
-    "always 200" rule. A caller without the key is not a caller whose request
-    failed; it is a caller the service will not talk to.
+    A 401 rather than a simple-surface ``ERROR`` body, on both surfaces. A
+    caller without the key is not a caller whose request failed; it is a caller
+    the service will not talk to, and it never reaches a route to be answered by
+    one.
     """
     expected: str = request.app.state.settings.api_key.get_secret_value()
 

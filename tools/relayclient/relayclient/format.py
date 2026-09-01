@@ -6,9 +6,10 @@ than to a dump, so a new field added to the service shows up as a labelled row
 instead of breaking the view.
 
 The one thing worth knowing before changing anything here: **an error is not the
-same as a 4xx**. The simple surface answers 200 to everything and puts the
-outcome in the body, on purpose, for clients that do not branch on status codes.
-A tool that colours by status code alone would show a failed write in green.
+same as a 4xx**. The simple surface used to answer 200 to everything and put the
+outcome in the body, and this client is pointed at services that still do, so a
+``result`` of ``ERROR`` is a failure whatever the status above it says. A tool
+that colours by status code alone would show one of those writes in green.
 :func:`is_error` is the whole of that rule.
 """
 
@@ -127,9 +128,9 @@ def is_error(status: int, payload: object | None) -> bool:
     """Whether this response should be read as a failure.
 
     Three ways to fail. The usual one is a status code of 400 or above. The
-    second is the simple surface answering 200 with ``result`` set to ``ERROR``,
-    which it does for every failure it has, because it was built for clients
-    that do not read status codes. The third is a body that is not JSON at all:
+    second is a ``result`` of ``ERROR`` in the body whatever the status says,
+    which is how a service running 0.2.0 or earlier reports every failure its
+    simple surface has. The third is a body that is not JSON at all:
     something answered, but every formatter below reads a missing value as a
     value and would state the absence as a fact.
 
@@ -184,11 +185,12 @@ def yes_no(value: object) -> str:
 def headline_for(status: int, reason: str, *, ok: bool = True, readable: bool = True) -> str:
     """Return the status line as it appears above the response.
 
-    ``ok`` is not decoration. A simple-surface failure arrives as 200, and
-    ``STATUS_MEANING`` reads that as "the call succeeded", so a headline built
-    from the status alone would announce success at the top of a response this
-    module has just decided is a failure. That is precisely the mistake the
-    module exists to prevent, and it would be made in its own first line.
+    ``ok`` is not decoration. A simple-surface failure from an older service
+    arrives as 200, and ``STATUS_MEANING`` reads that as "the call succeeded", so
+    a headline built from the status alone would announce success at the top of a
+    response this module has just decided is a failure. That is precisely the
+    mistake the module exists to prevent, and it would be made in its own first
+    line.
 
     ``readable`` separates the two ways a 200 can be a failure. A body that
     would not parse reports nothing at all, so saying that it reports a failure
@@ -269,11 +271,14 @@ def render_error(status: int, reason: str, payload: object | None, raw: str) -> 
         if status < 400:
             # Only then is the status the thing that is misleading. A 503
             # carrying a result field would mean what it says, and this note
-            # would tell the reader the opposite.
+            # would tell the reader the opposite. The service now sets a status
+            # code that agrees with the body, so reaching this at all says the
+            # service that answered is an older one.
             rendered.blocks.append(
                 Note(
-                    "This endpoint answers 200 whatever happens and reports the outcome "
-                    "in the body, so the status code above is not the failure."
+                    "This service answered 200 and reported the failure in the body, "
+                    "which is what 0.2.0 and earlier did, so the status code above "
+                    "is not the failure."
                 )
             )
         rendered.detail = raw

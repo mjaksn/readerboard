@@ -4,8 +4,11 @@ import re
 from collections.abc import Iterator
 
 import pytest
+from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.testclient import TestClient
+from starlette.exceptions import HTTPException
 
+from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
 from readerboard.transport.fake import FakeTransport
@@ -94,8 +97,8 @@ class TestAuth:
         assert client.get("/v2/messages").status_code == 200
 
     def test_the_simple_endpoints_also_need_it(self, client):
-        # One of the three exceptions to their always-200 rule; the others are
-        # a service with no API key configured (503) and a malformed body (422).
+        # A caller the service will not talk to is not the same as a request
+        # that failed, so this is a 401 rather than an ERROR in the body.
         response = client.post(
             "/Write/Message", json={"display_mode": "HOLD", "message": "HI"}
         )
@@ -421,29 +424,43 @@ class TestTheSimpleEndpoints:
         keys = sorted(slot["key"] for slot in client.get("/v2/messages").json())
         assert keys == ["default", "doorbell"]
 
-    def test_a_bad_display_mode_is_still_a_200_with_an_error_body(self, client):
+    def test_a_bad_display_mode_is_a_400_and_keeps_the_body_shape(self, client):
         response = client.post(
             "/Write/Message",
             json={"display_mode": "NOSUCHMODE", "message": "HI"},
             headers=HEADERS,
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
+        # The status is new; the body is not. Anything reading these two fields
+        # sees exactly what it saw when this answered 200, which is the half of
+        # the change that must not break somebody's configuration file.
         assert response.json()["result"] == "ERROR"
         assert "not valid" in response.json()["result_message"]
 
-    def test_an_unknown_command_is_still_a_200_with_an_error_body(self, client):
+    def test_an_unknown_command_is_a_400_and_keeps_the_body_shape(self, client):
         response = client.post(
             "/Write/ControlCommand",
             json={"command": "NOPE", "parameter": ""},
             headers=HEADERS,
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
         assert response.json()["result"] == "ERROR"
         assert "Unrecognized control command" in response.json()["result_message"]
 
-    def test_an_unreachable_sign_is_still_a_200_with_an_error_body(self, client, sign):
+    def test_a_bad_parameter_is_a_400_and_keeps_the_body_shape(self, client):
+        response = client.post(
+            "/Write/ControlCommand",
+            json={"command": "SET_TIME", "parameter": "not a time"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 400
+        assert response.json()["result"] == "ERROR"
+        assert response.json()["result_message"]
+
+    def test_an_unreachable_sign_is_a_503_and_keeps_the_body_shape(self, client, sign):
         sign.fail_with = "cable unplugged"
 
         response = client.post(
@@ -452,8 +469,81 @@ class TestTheSimpleEndpoints:
             headers=HEADERS,
         )
 
-        assert response.status_code == 200
+        # The sign, not the caller. The same failure is a 503 on /v2, which is
+        # the whole point of both surfaces reading one table.
+        assert response.status_code == 503
         assert response.json()["result"] == "ERROR"
+
+    def test_a_full_pool_is_a_409_and_keeps_the_body_shape(self, client):
+        # The one failure this write can produce that the other cannot: only a
+        # message takes a slot. It reaches the caller through the same table as
+        # the rest, so it has to be declared alongside them.
+        for key in ("one", "two", "three"):
+            client.put("/v2/messages/%s" % key, json={"message": key}, headers=HEADERS)
+
+        response = client.post(
+            "/Write/Message",
+            json={"display_mode": "HOLD", "message": "HI"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 409
+        assert response.json()["result"] == "ERROR"
+        assert "slots are in use" in response.json()["result_message"]
+
+    def test_a_success_is_still_a_200(self, client):
+        # Worth pinning on its own. A change that gave every simple response a
+        # status code could as easily have got the successful one wrong.
+        response = client.post(
+            "/Write/Message",
+            json={"display_mode": "HOLD", "message": "HI"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["result"] == "OK"
+
+    def test_the_two_surfaces_agree_about_an_unreachable_sign(self, client, sign):
+        # The one failure both surfaces can be made to produce on demand through
+        # HTTP. It pins that one, not the whole table; the test beside
+        # TestTheErrorTable covers the rest, which no request can trigger.
+        sign.fail_with = "cable unplugged"
+
+        simple = client.post(
+            "/Write/ControlCommand",
+            json={"command": "SET_TIME", "parameter": "0930"},
+            headers=HEADERS,
+        )
+        v2 = client.post(
+            "/v2/sign/command",
+            json={"command": "SET_TIME", "parameter": "0930"},
+            headers=HEADERS,
+        )
+
+        assert simple.status_code == v2.status_code == 503
+
+    def test_each_write_declares_every_status_it_can_answer(self, settings, sign):
+        # Spelled out rather than read back off the routes, because read off the
+        # routes it would agree with them however wrong both were. The 409 is on
+        # the message write alone: a control command takes no slot, so it can
+        # never find the pool full.
+        paths = create_app(settings, transport=sign).openapi()["paths"]
+
+        assert set(paths["/Write/Message"]["post"]["responses"]) == {
+            "200",
+            "400",
+            "409",
+            "422",
+            "500",
+            "503",
+        }
+        assert set(paths["/Write/ControlCommand"]["post"]["responses"]) == {
+            "200",
+            "400",
+            "422",
+            "500",
+            "503",
+        }
 
     def test_an_unknown_markup_token_is_passed_through_rather_than_rejected(self, client):
         # Lenient rendering, so a message written against a newer token set
@@ -505,6 +595,47 @@ class TestTheSimpleEndpoints:
             "<time>",
             "<week_day>",
         } <= names
+
+
+class TestTheErrorTable:
+    """The one table both surfaces read to decide what a failure was.
+
+    ``/v2`` lets its exceptions through to a handler; the simple routes catch
+    the same ones to answer in their own body shape. Only a table read by both
+    keeps them agreeing, and only these tests keep the table read by both.
+    """
+
+    def test_every_exception_in_the_table_is_registered_as_a_handler(self, settings, sign):
+        # The registration is a loop over the table today. Written out by hand
+        # again, this is what would notice the entry somebody forgot to add.
+        app = create_app(settings)
+
+        for kind, _code in errors.STATUS_FOR_ERROR:
+            assert kind in app.exception_handlers, (
+                "%s is in the table but no handler answers it" % kind.__name__
+            )
+
+    def test_no_handler_is_registered_that_the_table_does_not_name(self, settings, sign):
+        # The other direction. A handler added beside the loop rather than in
+        # the table would answer on /v2 and be invisible to the simple surface,
+        # which is exactly the drift the one table exists to prevent.
+        app = create_app(settings)
+        named = {kind for kind, _code in errors.STATUS_FOR_ERROR}
+
+        for registered in app.exception_handlers:
+            if registered in (HTTPException, RequestValidationError):
+                continue  # Starlette's and FastAPI's own, not this service's.
+            if registered is WebSocketRequestValidationError:
+                continue
+            assert registered in named, (
+                "%s has a handler but the simple surface cannot see it"
+                % getattr(registered, "__name__", registered)
+            )
+
+    def test_an_exception_the_table_does_not_name_is_a_500(self):
+        # The honest answer for something this service never planned for. It
+        # must not fall through to 400, which would blame the caller for it.
+        assert errors.status_for(RuntimeError("something nobody named")) == 500
 
 
 class TestNoApiKeyConfigured:
