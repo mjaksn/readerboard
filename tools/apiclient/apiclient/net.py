@@ -19,8 +19,8 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import QByteArray, QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
-from relayclient.request import Prepared
-from relayclient.skew import DESCRIPTION_PATH
+from apiclient.request import Prepared
+from apiclient.skew import DESCRIPTION_PATH
 
 # Qt 6 disables transfer timeouts by default, and this client has exactly one
 # in-flight slot: a reply that never finishes would leave Send disabled for the

@@ -44,7 +44,7 @@ LOCK_FILES = (
     _ROOT / "requirements.lock",
     _ROOT / "requirements-build.lock",
     _ROOT / "tools" / "signsim" / "requirements.lock",
-    _ROOT / "tools" / "relayclient" / "requirements.lock",
+    _ROOT / "tools" / "apiclient" / "requirements.lock",
 )
 
 # name==version, then an optional ; marker. Anything already carrying hashes is

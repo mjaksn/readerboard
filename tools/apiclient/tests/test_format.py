@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from relayclient import catalogue
-from relayclient.format import (
+from apiclient import catalogue
+from apiclient.format import (
     UNREADABLE,
     Note,
     Section,
@@ -306,7 +306,7 @@ def test_a_four_hundred_keeps_the_meaning_it_had():
 
 
 def test_the_rendered_html_takes_its_ink_from_the_theme():
-    from relayclient.format import DARK, LIGHT
+    from apiclient.format import DARK, LIGHT
 
     result = render(catalogue.BY_ID["get_alert"], 200, "OK", "null")
     light = as_html(result, LIGHT)
@@ -325,7 +325,7 @@ def test_no_colour_the_themes_carry_is_written_down_instead_of_themed():
     # colours back into _table_html, or build the headline from a module
     # constant, and it would still pass. This one renders a table and a failure
     # too, so all six fields of the pair are exercised in both directions.
-    from relayclient.format import DARK, LIGHT
+    from apiclient.format import DARK, LIGHT
 
     body = json.dumps(
         [

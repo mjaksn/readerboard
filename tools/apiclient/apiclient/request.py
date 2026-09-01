@@ -19,7 +19,7 @@ import math
 from dataclasses import dataclass
 from urllib.parse import quote, urlsplit
 
-from relayclient.catalogue import Operation
+from apiclient.catalogue import Operation
 
 API_KEY_HEADER = "X-API-Key"
 

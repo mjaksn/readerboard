@@ -10,7 +10,7 @@
     to C:\var\lib and is nobody's idea of a good time. Clock sync is off so the
     log shows what you did rather than what a timer did.
   -->
-  <configuration default="false" name="API (fake sign)" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="readerboard against a fake sign" type="PythonConfigurationType" factoryName="Python">
     <module name="readerboard" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />

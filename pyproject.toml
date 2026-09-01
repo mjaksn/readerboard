@@ -102,7 +102,7 @@ readerboard = ["py.typed"]
 # The simulator's round trip is checked against the frame builders in this
 # package; the client's catalogue is checked against docs/openapi.json, so a
 # route added here fails that tool's tests in the same commit.
-testpaths = ["tests", "tools/signsim/tests", "tools/relayclient/tests"]
+testpaths = ["tests", "tools/signsim/tests", "tools/apiclient/tests"]
 addopts = "-q --strict-markers --strict-config"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -143,12 +143,12 @@ ignore = [
 # and does not reach into tools/.
 "tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
 "tools/signsim/tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
-"tools/relayclient/tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
+"tools/apiclient/tests/*" = ["D100", "D101", "D102", "D103", "D105", "D107"]
 
 [tool.ruff.lint.isort]
 # The two tools are not under the project root, so import sorting would put
 # them in the third party block and then complain they are in the wrong one.
-known-first-party = ["readerboard", "signsim", "relayclient"]
+known-first-party = ["readerboard", "signsim", "apiclient"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "pep257"

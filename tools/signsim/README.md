@@ -1,4 +1,4 @@
-# signsim
+# readerboard sign simulator
 
 A stand-in for a BetaBrite Classic. It listens on a TCP port, decodes everything
 the service writes to it, and shows both what the bytes mean and what the sign
@@ -22,8 +22,8 @@ python scripts/run_with_simulator.py
 
 That starts the simulator and the service together, with the service already
 pointed here, and stops both on Ctrl+C. It is the usual way in. Both editors
-have it: "API and sign simulator" in `.vscode/launch.json` and "API and
-simulator" in `.idea/runConfigurations/`.
+have it under the same name, "readerboard and the sign simulator", in
+`.vscode/launch.json` and in `.idea/runConfigurations/`.
 
 To run only the simulator, because the service is already up somewhere else:
 

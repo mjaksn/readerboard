@@ -21,7 +21,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from readerboard import __version__, logging_setup
+from readerboard import __version__, logging_setup, names
 from readerboard.api import errors, routes_simple, routes_v2
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
@@ -193,7 +193,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             logger.info("readerboard stopped")
 
     app = FastAPI(
-        title="readerboard",
+        title=names.DISPLAY_NAME,
         description=DESCRIPTION,
         version=__version__,
         lifespan=lifespan,

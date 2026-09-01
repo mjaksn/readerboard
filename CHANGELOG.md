@@ -21,7 +21,7 @@ alongside the simulator for exercising the API by hand.
 
 ### Added
 
-- **A desktop client for the HTTP surface, `tools/relayclient/`.** The simulator
+- **A desktop client for the HTTP surface, `tools/apiclient/`.** The simulator
   stands in for the sign; this stands in for a caller. It can call all twenty
   endpoints, and the twenty are checked rather than claimed: its endpoint table
   is diffed against `docs/openapi.json` for every endpoint in both directions,
@@ -49,7 +49,7 @@ alongside the simulator for exercising the API by hand.
   It is a tool, not part of the service. Qt stays out of `pyproject.toml`,
   `tools/` stays in `.dockerignore`, and the client has its own hash-pinned lock
   file, the fourth in the tree. It needs no dependency the simulator did not
-  already have, because its HTTP client is `QtNetwork`. `tools/relayclient/README.md`
+  already have, because its HTTP client is `QtNetwork`. `tools/apiclient/README.md`
   has the rest.
 
 ### Changed
@@ -119,6 +119,27 @@ alongside the simulator for exercising the API by hand.
   ambiguous-character rules turned off for it. The regenerated file passes with
   nothing disabled, so the per-file entry is deleted rather than updated.
 
+- **The sign simulator's window title changed, and its names now come from one
+  place.** It answered to three at once: the directory and `prog=` said
+  `signsim`, the Qt application name said "readerboard sign simulator", and the
+  window title said "BetaBrite sign simulator". The title bar and the taskbar
+  entry contradicted each other, and both contradicted the directory. The window
+  now says "readerboard sign simulator", the application name is `signsim` so
+  that it matches the directory it lives in, and both are read from
+  `signsim/names.py` rather than written out separately.
+
+  Nothing the simulator decodes or displays changes. It saves no settings of its
+  own, so there is nothing stored under the old application name to lose.
+
+- **The editor launch configurations agree on one name.** The configuration that
+  starts the service and the simulator together was "API and sign simulator" in
+  `.vscode/launch.json` and "API and simulator" in `.idea/runConfigurations/`,
+  so the two editors disagreed about a thing the README describes once. "API"
+  was also a fourth word for the service, used nowhere else in the tree. Both
+  are now "readerboard and the sign simulator", the other PyCharm configurations
+  lead with `readerboard` in the same way, and the files under
+  `.idea/runConfigurations/` are renamed to match the configurations they hold.
+
 ### Fixed
 
 - **A state save could fail on Windows, and take the request down with it.** The
@@ -162,6 +183,36 @@ alongside the simulator for exercising the API by hand.
   label in the `Dockerfile`, which is what a registry shows against the image.
   The third is the repository description on GitHub, which is not in the tree
   and has to be set there.
+
+- **What each runnable thing is called is written down, and pinned.** There are
+  three of them: the service, the sign simulator and the client. Each answered
+  to three or more names, and the surfaces disagreed. That is how a window title
+  came to contradict a taskbar entry, how the two editors came to give one
+  launch configuration two names, and how a CI step came to say "relay client"
+  for a tool that spelled itself one word everywhere else.
+
+  `AGENTS.md` now carries the table and the rule behind it. Each component has
+  an identifier for code, paths and settings keys, a display name for what a
+  person reads on a window or in a unit file, and a prose name for sentences.
+  The tiers are separate because they are not equally expensive: the client's
+  identifier is also where QSettings keeps its remembered base URL, so a
+  cosmetic rename of it would silently orphan that value. Each component reads
+  its own three names off a `names.py` beside its code, so one component's
+  surfaces can no longer drift apart from each other.
+
+  `tests/test_component_names.py` pins the table. It also fails if a retired
+  name reappears anywhere in the tree, and that second half is the one that
+  earns its place: pinning a constant catches an edit to the constant, and does
+  nothing at all about an old name creeping back into a README, a CI step name
+  or a launch configuration. This file is exempt from that scan, because a
+  released entry is a record of what was true when it shipped and rewriting the
+  names in it would make the history a worse guide, not a better one.
+
+  The client was renamed as part of this, from `relayclient` to `apiclient`.
+  "Relay" appeared nowhere else in the project, in code or in prose, so the
+  name's first half referred to a concept this project does not have. It has not
+  appeared in a release, so nothing that shipped changes and there is no stored
+  setting to migrate.
 
 ## [0.2.0] - 2026-08-30
 

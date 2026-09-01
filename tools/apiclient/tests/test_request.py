@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from relayclient import catalogue
-from relayclient.request import (
+from apiclient import catalogue
+from apiclient.request import (
     API_KEY_HEADER,
     InvalidRequest,
     as_curl,

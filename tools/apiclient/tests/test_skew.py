@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from relayclient import catalogue
-from relayclient.skew import UnreadableDescription, compare, paths_in, version_in
+from apiclient import catalogue
+from apiclient.skew import UnreadableDescription, compare, paths_in, version_in
 
 # Not imported from conftest; see the note in test_catalogue.py.
 OPENAPI = Path(__file__).resolve().parents[3] / "docs" / "openapi.json"

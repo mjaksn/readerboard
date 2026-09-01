@@ -1,4 +1,4 @@
-# The relay client's dependency, pinned and hashed the way the service's are.
+# The client's dependency, pinned and hashed the way the service's are.
 #
 # This file is not part of the service. Nothing here is installed by the
 # container image, by scripts/install.sh or by the wheel, and it must stay that

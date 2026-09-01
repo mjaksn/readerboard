@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from relayclient.catalogue import Operation
+from apiclient.catalogue import Operation
 
 DESCRIPTION_PATH = "/openapi.json"
 

@@ -1,7 +1,7 @@
 """Starting the client.
 
-    python tools/relayclient/run.py
-    python tools/relayclient/run.py --base-url http://192.168.2.40:8000
+    python tools/apiclient/run.py
+    python tools/apiclient/run.py --base-url http://192.168.2.40:8000
 
 The base URL is remembered between runs. The API key is not, and there is no
 option to pass one on the command line: a key on a command line is a key in the
@@ -15,13 +15,14 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
-from relayclient.window import DEFAULT_BASE_URL, MainWindow
+from apiclient import names
+from apiclient.window import DEFAULT_BASE_URL, MainWindow
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Read the command line."""
     parser = argparse.ArgumentParser(
-        prog="relayclient",
+        prog=names.IDENTIFIER,
         description=(
             "A desktop client for exercising the readerboard service's HTTP surface. "
             "Every endpoint is callable, responses are shown as text rather than as "
@@ -47,8 +48,8 @@ def main(argv: list[str] | None = None) -> int:
     application = QApplication(sys.argv[:1])
     # QSettings needs both of these before it will write anywhere sensible, and
     # the base URL is the only thing this tool ever saves.
-    application.setOrganizationName("readerboard")
-    application.setApplicationName("relayclient")
+    application.setOrganizationName(names.ORGANISATION)
+    application.setApplicationName(names.IDENTIFIER)
 
     window = MainWindow()
     if args.base_url:

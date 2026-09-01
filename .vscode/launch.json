@@ -1,24 +1,26 @@
 {
     // Three ways to start the service from the editor, and the tests.
     //
-    // "API and sign simulator" is the one to reach for. It runs both, with the
-    // service already pointed at the simulator, so every transmission it makes
-    // is decoded in a window beside it. Everything it needs is set by
-    // scripts/run_with_simulator.py rather than here, so this file and the
-    // command line cannot drift apart, and the same is true of the matching
-    // PyCharm configuration in .idea/runConfigurations/.
+    // "readerboard and the sign simulator" is the one to reach for. It runs
+    // both, with the service already pointed at the simulator, so every
+    // transmission it makes is decoded in a window beside it. Everything it
+    // needs is set by scripts/run_with_simulator.py rather than here, so this
+    // file and the command line cannot drift apart, and the same is true of the
+    // matching PyCharm configuration in .idea/runConfigurations/, which carries
+    // the same name.
     //
-    // "API against a fake sign" needs no hardware either: loop:// is pyserial's
-    // loopback, so the service starts, serves /docs, and accepts writes that go
-    // nowhere. Use it when the API itself is the thing being worked on and
-    // there is no reason to look at the bytes.
+    // "readerboard against a fake sign" needs no hardware either: loop:// is
+    // pyserial's loopback, so the service starts, serves /docs, and accepts
+    // writes that go nowhere. Use it when the API itself is the thing being
+    // worked on and there is no reason to look at the bytes.
     //
-    // "API against the real sign" reads the config file like the installed
-    // service does. Point READERBOARD_CONFIG_FILE at a copy you keep locally.
+    // "readerboard against the real sign" reads the config file like the
+    // installed service does. Point READERBOARD_CONFIG_FILE at a copy you keep
+    // locally.
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "API and sign simulator",
+            "name": "readerboard and the sign simulator",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/run_with_simulator.py",
@@ -26,7 +28,7 @@
             "justMyCode": false
         },
         {
-            "name": "API against a fake sign",
+            "name": "readerboard against a fake sign",
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",
@@ -46,7 +48,7 @@
             "justMyCode": false
         },
         {
-            "name": "API against the real sign",
+            "name": "readerboard against the real sign",
             "type": "debugpy",
             "request": "launch",
             "module": "readerboard",

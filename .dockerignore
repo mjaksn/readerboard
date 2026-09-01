@@ -31,7 +31,7 @@ CLAUDE.md
 Dockerfile
 .dockerignore
 
-# The two desktop Qt tools, the sign simulator and the API client. The image
+# The two desktop Qt tools, the sign simulator and the client. The image
 # builds for 32-bit arm among others, and Qt has no business anywhere near that.
 tools/
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from relayclient import catalogue
-from relayclient.history import History
-from relayclient.request import API_KEY_HEADER, build
+from apiclient import catalogue
+from apiclient.history import History
+from apiclient.request import API_KEY_HEADER, build
 
 BASE = "http://127.0.0.1:8000"
 KEY = "a-real-looking-key"
