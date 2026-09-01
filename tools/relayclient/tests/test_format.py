@@ -158,6 +158,14 @@ def test_a_plain_detail_error_shows_the_detail():
     assert "no slot by that name" in result.headline
 
 
+def test_a_404_also_offers_the_reading_that_the_route_is_missing():
+    # A client pointed at an older service gets a 404 for an endpoint that
+    # service never had. Naming only the slot reading would send the reader
+    # looking for the wrong thing.
+    result, _text = rendered_text("v2_text_positions", 404, json.dumps({"detail": "Not Found"}))
+    assert "no such route on this service" in result.headline
+
+
 def test_a_validation_error_is_broken_out_field_by_field():
     body = json.dumps(
         {

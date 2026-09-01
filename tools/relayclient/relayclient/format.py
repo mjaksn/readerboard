@@ -78,7 +78,7 @@ STATUS_MEANING = {
     400: "the sign cannot render what was sent",
     401: "the API key was missing or wrong",
     403: "refused",
-    404: "no slot by that name",
+    404: "no slot by that name, or no such route on this service",
     409: "the slot pool is full",
     422: "the body was not the shape the endpoint declares",
     500: "the service raised something it did not expect",

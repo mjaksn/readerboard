@@ -321,7 +321,7 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/health",
         summary="Is the service talking to the sign",
         formatter="health",
-        note="The one endpoint that needs no API key.",
+        note="Needs no API key. Neither does any read; only the writes carry one.",
     ),
     # == The simple surface ===============================================
     Operation(

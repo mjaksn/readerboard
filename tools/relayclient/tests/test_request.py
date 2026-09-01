@@ -61,6 +61,26 @@ def test_a_number_that_does_not_parse_is_sent_as_text_so_the_service_answers_for
     assert coerce("int", "many") == "many"
 
 
+@pytest.mark.parametrize("text", ["nan", "NaN", "inf", "-inf", "Infinity"])
+def test_a_float_with_no_json_spelling_is_sent_as_text_rather_than_as_itself(text):
+    # float() takes all of these and json.dumps then writes a bare NaN or
+    # Infinity, which JSON has no syntax for. Sent as text, the service answers
+    # for the one field; sent as a float, it cannot read the document at all.
+    assert coerce("float", text) == text
+
+
+def test_no_body_this_client_builds_is_anything_but_json():
+    prepared = build(
+        catalogue.BY_ID["put_message"],
+        BASE,
+        path_values={"key": "kitchen"},
+        body_values={"message": "hello", "ttl_seconds": "nan"},
+    )
+    assert prepared.body is not None
+    assert "NaN" not in prepared.body
+    assert json.loads(prepared.body)["ttl_seconds"] == "nan"
+
+
 def test_an_empty_optional_field_is_left_out_rather_than_sent_as_null():
     operation = catalogue.BY_ID["put_message"]
     body = build_body(operation, {"message": "hello", "ttl_seconds": "", "source": ""})

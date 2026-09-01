@@ -12,6 +12,7 @@ a claim about the window.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 
 from PySide6.QtCore import QSettings, Qt
@@ -438,7 +439,7 @@ class MainWindow(QMainWindow):
         )
 
         health = QPushButton("Health")
-        health.setToolTip("GET /health, the one call that needs no key")
+        health.setToolTip("GET /health, which like every read needs no key")
         health.clicked.connect(lambda: self.run(catalogue.BY_ID["health"]))
 
         history = QPushButton("History")
@@ -567,10 +568,14 @@ class MainWindow(QMainWindow):
             return
         self.run(self._form.operation)
 
-    def run(self, operation: Operation) -> None:
-        """Send one operation, confirming first if it clears the whole sign."""
+    def run(self, operation: Operation) -> bool:
+        """Send one operation, confirming first if it clears the whole sign.
+
+        Returns whether the request actually went out, which is what stops a
+        caller acting as though it had.
+        """
         if self._caller.busy:
-            return
+            return False
 
         if operation.destructive:
             answer = QMessageBox.question(
@@ -581,22 +586,29 @@ class MainWindow(QMainWindow):
                 QMessageBox.StandardButton.No,
             )
             if answer != QMessageBox.StandardButton.Yes:
-                return
+                return False
 
         prepared = self._prepare(operation)
         if prepared is None:
-            return
+            return False
 
         self._settings.setValue("base_url", self.base_url.text().strip())
         self._started_at = datetime.now()
         self.send_button.setEnabled(False)
         self._set_strip("Sending %s ..." % operation.signature, None)
         self._caller.send(prepared)
+        return True
 
     def load_slot_keys(self) -> None:
-        """Fetch the message list so the key boxes can offer what is registered."""
-        self._pending_slot_keys = True
-        self.run(catalogue.BY_ID["list_messages"])
+        """Fetch the message list so the key boxes can offer what is registered.
+
+        The flag is set only once the request is on its way. Set before, a send
+        that never happened would leave it standing, and the next message list
+        the user asked for on their own account would quietly rewrite the key
+        box under them.
+        """
+        if self.run(catalogue.BY_ID["list_messages"]):
+            self._pending_slot_keys = True
 
     def _copy_curl(self) -> None:
         """Put the current form's call on the clipboard as a curl command."""
@@ -646,7 +658,11 @@ class MainWindow(QMainWindow):
             # Required: every failure opens with its full content, not just a colour.
             ErrorDialog(rendered, parent=self).exec()
 
-        self._check_surface()
+        if result.status:
+            # Only once something has actually answered. A call that never
+            # completed says nothing about the surface, and complaining twice
+            # about one unreachable service helps nobody.
+            self._check_surface()
 
         if self._pending_slot_keys and operation.id == "list_messages":
             self._pending_slot_keys = False
@@ -711,8 +727,17 @@ class MainWindow(QMainWindow):
             difference.detail(),
         )
 
-    def _not_described(self, reason: str) -> None:
-        """Say that the surface could not be checked, without making a fuss of it."""
+    def _not_described(self, reason: str, retryable: bool = False) -> None:
+        """Say that the surface could not be checked, without making a fuss of it.
+
+        A service that could not be reached is not a service that has been
+        checked, so its address goes back in the pile and the next call that
+        succeeds asks again. One that answered and had no description to give is
+        left alone, because asking it again on every call would be noise.
+        """
+        if retryable:
+            with contextlib.suppress(request_module.InvalidRequest):
+                self._checked.discard(request_module.normalise_base_url(self.base_url.text()))
         self.surface.setText("surface not checked: %s" % reason)
         self.surface.setToolTip(
             "The service did not hand over %s, so this client cannot tell whether the "

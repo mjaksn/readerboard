@@ -116,10 +116,6 @@ def test_only_clearing_every_message_is_marked_destructive():
     assert destructive == {"clear_messages"}
 
 
-def test_health_is_the_only_operation_that_needs_no_key_and_writes_nothing():
-    assert not catalogue.BY_ID["health"].needs_key
-
-
 def test_every_write_carries_the_key():
     for operation_id in (
         "put_message",
@@ -135,16 +131,30 @@ def test_every_write_carries_the_key():
         assert catalogue.BY_ID[operation_id].needs_key, operation_id
 
 
-def test_no_read_asks_for_a_key_it_does_not_need():
-    for operation_id in (
+def test_the_keyless_operations_are_exactly_the_reads():
+    # Spelled out rather than sampled, because a note in the catalogue once
+    # claimed health was the only endpoint needing no key and there are eleven.
+    # Only the writes carry one; every read is open, which is what the service
+    # documents.
+    keyless = {operation.id for operation in catalogue.OPERATIONS if not operation.needs_key}
+    assert keyless == {
+        "health",
         "list_messages",
         "get_message",
         "get_alert",
-        "health",
         "v2_markup_tokens",
+        "v2_display_modes",
+        "v2_text_positions",
+        "v2_control_commands",
         "simple_markup_tokens",
-    ):
-        assert not catalogue.BY_ID[operation_id].needs_key, operation_id
+        "simple_display_modes",
+        "simple_control_commands",
+    }
+
+
+def test_no_note_claims_health_is_the_only_keyless_endpoint():
+    for operation in catalogue.OPERATIONS:
+        assert "one endpoint that needs no" not in operation.note, operation.id
 
 
 # ===========================================================================

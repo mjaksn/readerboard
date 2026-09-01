@@ -15,6 +15,7 @@ sent as the text, so the service answers for it.
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from urllib.parse import quote, urlsplit
 
@@ -78,7 +79,15 @@ def fill_path(operation: Operation, values: dict[str, str]) -> str:
 
 
 def coerce(kind: str, text: str) -> object:
-    """Return the text as the kind of value the field wants, or as text if it will not."""
+    """Return the text as the kind of value the field wants, or as text if it will not.
+
+    ``nan``, ``inf`` and ``-inf`` parse as floats and are deliberately refused,
+    because there is no way to write them in JSON: :func:`json.dumps` emits a
+    bare ``NaN``, which the specification does not allow. Sending them as text
+    keeps the promise this module makes, that a number field holding something
+    that is not a number is answered for by the service, field by field, rather
+    than turned into a document it cannot read.
+    """
     if kind == "int":
         try:
             return int(text)
@@ -86,9 +95,10 @@ def coerce(kind: str, text: str) -> object:
             return text
     if kind == "float":
         try:
-            return float(text)
+            value = float(text)
         except ValueError:
             return text
+        return value if math.isfinite(value) else text
     return text
 
 

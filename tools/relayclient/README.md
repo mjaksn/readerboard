@@ -75,6 +75,16 @@ the history, and never occupies the one in-flight slot. A service that will not
 hand over its description is reported as unchecked rather than as broken, and
 calls are unaffected either way.
 
+Two details keep it from being noise or from going quiet. It runs only after a
+call has actually been answered, so starting the client before the service is up
+produces one report of the failure rather than two. And an address that could not
+be reached is put back in the pile, so the next call that succeeds asks again,
+while one that answered and simply had no description to give is left alone.
+
+Every request also carries a transfer timeout. Qt disables them by default, and
+with one call in flight at a time a connection that is accepted and then never
+answered would otherwise leave Send disabled for the rest of the run.
+
 **History, in the shape a network tab has it.** Every call this run has made,
 with the request line, headers, body, status, timing and the response both read
 back and exactly as it arrived. Any of them can be copied as a curl command.

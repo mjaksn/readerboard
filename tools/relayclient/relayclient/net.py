@@ -22,6 +22,13 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from relayclient.request import Prepared
 from relayclient.skew import DESCRIPTION_PATH
 
+# Qt 6 disables transfer timeouts by default, and this client has exactly one
+# in-flight slot: a reply that never finishes would leave Send disabled for the
+# rest of the run. Thirty seconds is far longer than any call here should take,
+# since the service answers the HTTP request rather than waiting on the sign,
+# and long enough not to cut off a slow one.
+TRANSFER_TIMEOUT_MS = 30_000
+
 
 @dataclass(frozen=True, slots=True)
 class Completed:
@@ -59,6 +66,7 @@ class Caller(QObject):
             return
 
         request = QNetworkRequest(QUrl(prepared.url))
+        request.setTransferTimeout(TRANSFER_TIMEOUT_MS)
         for name, value in prepared.headers.items():
             request.setRawHeader(name.encode("ascii"), value.encode("utf-8"))
 
@@ -134,7 +142,7 @@ class DescriptionFetcher(QObject):
     """
 
     fetched = Signal(object)
-    failed = Signal(str)
+    failed = Signal(str, bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Build the fetcher with its own network manager."""
@@ -149,6 +157,7 @@ class DescriptionFetcher(QObject):
             self._reply = None
 
         request = QNetworkRequest(QUrl(base_url.rstrip("/") + DESCRIPTION_PATH))
+        request.setTransferTimeout(TRANSFER_TIMEOUT_MS)
         request.setRawHeader(b"Accept", b"application/json")
         reply = self._manager.get(request)
         self._reply = reply
@@ -167,12 +176,18 @@ class DescriptionFetcher(QObject):
         reply.deleteLater()
 
         if status is None:
-            self.failed.emit(error)
+            # Nothing arrived. Worth trying again once something does, so this
+            # says so: the address may simply not have been up yet.
+            self.failed.emit(error, True)
             return
         if int(status) != 200:
-            self.failed.emit("the service answered %d for %s" % (int(status), DESCRIPTION_PATH))
+            # It answered, and has no description to give. Asking again on every
+            # later call would be noise, so this one is final.
+            self.failed.emit(
+                "the service answered %d for %s" % (int(status), DESCRIPTION_PATH), False
+            )
             return
         try:
             self.fetched.emit(json.loads(body))
         except ValueError as err:
-            self.failed.emit("the description did not parse: %s" % err)
+            self.failed.emit("the description did not parse: %s" % err, False)
