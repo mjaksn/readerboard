@@ -2,8 +2,14 @@
 
 Status codes mean what they say here: 400 for a message the sign cannot render,
 401 for a missing key, 404 for a slot that does not exist, 409 when the pool is
-full, and 503 when the sign is unreachable. The routes in ``routes_simple``
-deliberately do none of that, and answer 200 to everything instead.
+full, and 503 when the sign is unreachable. Which exception means which lives in
+``readerboard.api.errors``, and the routes in ``routes_simple`` read the same
+table, so the two surfaces cannot come to disagree about what a failure was.
+
+What differs between them is the shape of the answer, not the code: these routes
+let the exception through and it becomes FastAPI's ``detail`` body, while the
+simple ones catch it and report the same failure as ``result`` and
+``result_message``.
 """
 
 from __future__ import annotations

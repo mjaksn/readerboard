@@ -177,19 +177,27 @@ and replaced with `?` on the simpler endpoints described below.
 Alongside `/v2` there is a smaller surface: `POST /Write/Message`,
 `POST /Write/ControlCommand`, and the `/Enumerations` reads.
 
-These follow one convention that `/v2` does not. **Every response is HTTP 200**, with the
-outcome in the body:
+These follow one convention that `/v2` does not. The outcome is in the body, in the same
+two fields whether it worked or not:
 
 ```json
 {"result": "OK", "result_message": "Message displayed on sign"}
 ```
 
-That suits a client which finds branching on status codes awkward, such as a Home
-Assistant `rest_command` or a shell one-liner in a cron job. The exceptions are the
-requests that never reach the endpoint at all: a missing or wrong API key is a 401, a
-service with no API key configured is a 503, and a body that is not the shape the endpoint
-declares gets FastAPI's own 422. A caller the service will not talk to, and a body it
-cannot read, are not the same as a request that failed.
+That suits a caller posting a fixed body to a fixed path, such as a Home Assistant
+`rest_command` or a shell one-liner in a cron job, neither of which wants to name a slot or
+read a slot table back.
+
+The status code says the same thing the body does, and means what it means on `/v2`: 400
+for a mode or a command the sign does not have, 401 for a missing or wrong API key, 503
+when the sign is unreachable or no API key is configured at all, and FastAPI's own 422 for
+a body that is not the shape the endpoint declares.
+
+Up to and including 0.2.0 every response here was a 200 whatever happened, on the reasoning
+that those two callers do not branch on status codes. They do not, but neither do they read
+a JSON body, so a failed write was silent to exactly the callers the surface was for. The
+body has not changed, so anything reading `result` still reads what it always did; what is
+new is that a caller doing nothing at all now finds out.
 
 `POST /Write/Message` writes to one reserved slot, named `default`. It deliberately does
 not touch the sign's **priority** file, which by protocol suppresses every other message on

@@ -49,11 +49,13 @@ declines to write them again.
   separately powered, so the sign can be power cycled with the TCP link still
   up. Nothing fires, the write cache stays warm, and suppression would then skip
   exactly the writes that would repair a blank sign.
-- **The simple routes return HTTP 200 with an error in the body.** That is the
-  whole point of them: they exist for clients that do not branch on status
-  codes. The only things that make them answer otherwise are requests that never
-  reach the route: a missing or wrong API key is a 401, no configured API key at
-  all is a 503, and a malformed body is FastAPI's own 422.
+- **The simple routes answer in their own body shape, not FastAPI's.** A
+  failure there is `result` and `result_message` with a status code beside it,
+  rather than the `detail` body `/v2` produces. Only the shape differs: which
+  status code a given failure earns is decided once, in
+  `readerboard/api/errors.py`, and both surfaces read that table. They answered
+  200 to everything up to and including 0.2.0; `CHANGELOG.md` has why that
+  changed.
 - **`%` formatting throughout, not f-strings.** It matches the lazy `%` that
   logging takes, so one idiom covers a log line and the exception text beside
   it. `UP031` is disabled for this reason.
@@ -135,11 +137,13 @@ rather than JSON, and knows no vocabulary it was not told.
 Two things about it are load bearing rather than stylistic. The enumerations are
 empty until a button is pressed, so the markup tokens a message field offers are
 the ones this service answered rather than a copy that went stale. And an error
-is not a 4xx: the simple surface answers 200 with the outcome in the body, so the
-client treats a `result` of `ERROR` as a failure exactly as it treats a 503, and
-treats a body that is not JSON as one too, because every formatter it has reads
-a missing value as a value and would state the absence as a fact. A tool that
-coloured by status code alone would show a failed write in green.
+is not a 4xx. The simple surface answered 200 with the outcome in the body up to
+and including 0.2.0, and this client is pointed at Pis that have not been
+updated, so it still treats a `result` of `ERROR` as a failure exactly as it
+treats a 503. It treats a
+body that is not JSON as one too, because every formatter it has reads a missing
+value as a value and would state the absence as a fact. A tool that coloured by
+status code alone would show a failed write in green.
 
 It also asks each address for its own `/openapi.json` the first time that address
 answers anything, and says when the surface it finds is not the one the client was

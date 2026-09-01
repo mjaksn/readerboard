@@ -62,7 +62,7 @@ def test_the_failed_simple_write_renders_as_a_failure_and_says_why_the_status_is
     )
     assert result.ok is False
     assert "The display mode 'X' is not valid" in text
-    assert "answers 200 whatever happens" in text
+    assert "reported the failure in the body" in text
 
 
 def test_the_successful_simple_write_renders_as_a_success():
@@ -365,9 +365,12 @@ def test_an_enumeration_is_read_with_the_field_the_catalogue_names():
     assert "HOLD" in text
 
 
-def test_the_always_200_note_is_not_attached_to_a_status_that_means_it():
+def test_the_note_about_an_old_service_is_not_attached_to_a_status_that_means_it():
+    # The note explains away a status code that disagrees with the body, which
+    # only an older service produces. A 503 carrying the same body means exactly
+    # what it says, and the note would tell the reader the opposite.
     body = json.dumps({"result": "ERROR", "result_message": "the sign is unreachable"})
     _result, text = rendered_text("simple_write_message", 503, body)
-    assert "answers 200 whatever happens" not in text
+    assert "reported the failure in the body" not in text
     _result, text = rendered_text("simple_write_message", 200, body)
-    assert "answers 200 whatever happens" in text
+    assert "reported the failure in the body" in text

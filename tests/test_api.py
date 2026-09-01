@@ -94,8 +94,8 @@ class TestAuth:
         assert client.get("/v2/messages").status_code == 200
 
     def test_the_simple_endpoints_also_need_it(self, client):
-        # One of the three exceptions to their always-200 rule; the others are
-        # a service with no API key configured (503) and a malformed body (422).
+        # A caller the service will not talk to is not the same as a request
+        # that failed, so this is a 401 rather than an ERROR in the body.
         response = client.post(
             "/Write/Message", json={"display_mode": "HOLD", "message": "HI"}
         )
@@ -421,29 +421,43 @@ class TestTheSimpleEndpoints:
         keys = sorted(slot["key"] for slot in client.get("/v2/messages").json())
         assert keys == ["default", "doorbell"]
 
-    def test_a_bad_display_mode_is_still_a_200_with_an_error_body(self, client):
+    def test_a_bad_display_mode_is_a_400_and_keeps_the_body_shape(self, client):
         response = client.post(
             "/Write/Message",
             json={"display_mode": "NOSUCHMODE", "message": "HI"},
             headers=HEADERS,
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
+        # The status is new; the body is not. Anything reading these two fields
+        # sees exactly what it saw when this answered 200, which is the half of
+        # the change that must not break somebody's configuration file.
         assert response.json()["result"] == "ERROR"
         assert "not valid" in response.json()["result_message"]
 
-    def test_an_unknown_command_is_still_a_200_with_an_error_body(self, client):
+    def test_an_unknown_command_is_a_400_and_keeps_the_body_shape(self, client):
         response = client.post(
             "/Write/ControlCommand",
             json={"command": "NOPE", "parameter": ""},
             headers=HEADERS,
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
         assert response.json()["result"] == "ERROR"
         assert "Unrecognized control command" in response.json()["result_message"]
 
-    def test_an_unreachable_sign_is_still_a_200_with_an_error_body(self, client, sign):
+    def test_a_bad_parameter_is_a_400_and_keeps_the_body_shape(self, client):
+        response = client.post(
+            "/Write/ControlCommand",
+            json={"command": "SET_TIME", "parameter": "not a time"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 400
+        assert response.json()["result"] == "ERROR"
+        assert response.json()["result_message"]
+
+    def test_an_unreachable_sign_is_a_503_and_keeps_the_body_shape(self, client, sign):
         sign.fail_with = "cable unplugged"
 
         response = client.post(
@@ -452,8 +466,40 @@ class TestTheSimpleEndpoints:
             headers=HEADERS,
         )
 
-        assert response.status_code == 200
+        # The sign, not the caller. The same failure is a 503 on /v2, which is
+        # the whole point of both surfaces reading one table.
+        assert response.status_code == 503
         assert response.json()["result"] == "ERROR"
+
+    def test_a_success_is_still_a_200(self, client):
+        # Worth pinning on its own. A change that gave every simple response a
+        # status code could as easily have got the successful one wrong.
+        response = client.post(
+            "/Write/Message",
+            json={"display_mode": "HOLD", "message": "HI"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 200
+        assert response.json()["result"] == "OK"
+
+    def test_the_two_surfaces_agree_about_what_a_failure_means(self, client, sign):
+        # One table, read twice. If the simple surface ever grew its own copy,
+        # this is what would catch the day the two drifted apart.
+        sign.fail_with = "cable unplugged"
+
+        simple = client.post(
+            "/Write/ControlCommand",
+            json={"command": "SET_TIME", "parameter": "0930"},
+            headers=HEADERS,
+        )
+        v2 = client.post(
+            "/v2/sign/command",
+            json={"command": "SET_TIME", "parameter": "0930"},
+            headers=HEADERS,
+        )
+
+        assert simple.status_code == v2.status_code == 503
 
     def test_an_unknown_markup_token_is_passed_through_rather_than_rejected(self, client):
         # Lenient rendering, so a message written against a newer token set

@@ -348,7 +348,10 @@ OPERATIONS: tuple[Operation, ...] = (
             ),
         ),
         formatter="simple",
-        note="Answers 200 whatever happens; the outcome is in the body.",
+        note=(
+            "The outcome is in the body. A service running 0.2.0 or earlier "
+            "answers 200 even when it failed."
+        ),
     ),
     Operation(
         id="simple_control_command",
@@ -367,7 +370,10 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(name="parameter", prefill="", description="a parameter for the command"),
         ),
         formatter="simple",
-        note="Answers 200 whatever happens; the outcome is in the body.",
+        note=(
+            "The outcome is in the body. A service running 0.2.0 or earlier "
+            "answers 200 even when it failed."
+        ),
     ),
     Operation(
         id="simple_display_modes",

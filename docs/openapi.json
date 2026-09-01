@@ -393,7 +393,7 @@
         "type": "object"
       },
       "SimpleResult": {
-        "description": "The body the old endpoints have always returned, whatever happened.",
+        "description": "The body the simple endpoints return, whatever happened.\n\nThe status code beside it says the same thing. This shape has not changed\nwith it, so anything reading ``result`` and ``result_message`` reads exactly\nwhat it always did.",
         "properties": {
           "result": {
             "description": "OK or ERROR",
@@ -573,7 +573,7 @@
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. Reads and `GET /health` do not. On this\npage, put the key in once with the **Authorize** button and every write below\ncarries it.\n\nThe `/Write` and `/Enumerations` paths are a smaller surface for clients that\nwould rather not read status codes: every response there is a 200 with the\noutcome in the body, unless the request never reaches the route at all. A missing\nor wrong `X-API-Key` is a 401, a service with no API key configured is a 503, and\na body that is not the shape the endpoint declares is a 422.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. Reads and `GET /health` do not. On this\npage, put the key in once with the **Authorize** button and every write below\ncarries it.\n\nThe `/Write` and `/Enumerations` paths are a smaller surface for callers that\npost a fixed body to a fixed path: one message, no slot to name, and a\n`result` of `OK` or `ERROR` in the body. The status code says the same thing the\nbody does, and means what it means everywhere else here: 400 for a message the\nsign cannot render, 401 for a missing or wrong `X-API-Key`, 503 when the sign is\nunreachable or no API key is configured at all, and 422 for a body that is not\nthe shape the endpoint declares.\n",
     "title": "readerboard",
     "version": "0.2.0"
   },
@@ -682,6 +682,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimpleResult"
+                }
+              }
+            },
+            "description": "The sign cannot render it, or the mode or command is not one it has"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -691,6 +701,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimpleResult"
+                }
+              }
+            },
+            "description": "The service raised something it does not have a code for"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimpleResult"
+                }
+              }
+            },
+            "description": "The sign is unreachable"
           }
         },
         "security": [
@@ -729,6 +759,16 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimpleResult"
+                }
+              }
+            },
+            "description": "The sign cannot render it, or the mode or command is not one it has"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -738,6 +778,26 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimpleResult"
+                }
+              }
+            },
+            "description": "The service raised something it does not have a code for"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimpleResult"
+                }
+              }
+            },
+            "description": "The sign is unreachable"
           }
         },
         "security": [

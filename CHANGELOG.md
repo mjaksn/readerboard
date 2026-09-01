@@ -12,10 +12,12 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
-No path, request body, response body, status code or setting name changes, and
-no byte this service sends to a sign changes either. What changes is where the
-protocol constants come from, how the state file is written on Windows, and a
-second tool alongside the simulator for exercising the API by hand.
+No path, request body, response body or setting name changes, and no byte this
+service sends to a sign changes either. Two status codes do change: a failed
+write to the simple surface now says so in the status as well as in the body.
+Otherwise, what changes is where the protocol constants come from, how the state
+file is written on Windows, and a second tool alongside the simulator for
+exercising the API by hand.
 
 ### Added
 
@@ -37,10 +39,12 @@ second tool alongside the simulator for exercising the API by hand.
   cosmetic. The enumerations are empty until a button is pressed, so the markup
   tokens a message field offers are the ones this service answered rather than a
   copy that went stale in the client. And an error is not a 4xx: the simple
-  surface answers 200 with the outcome in the body, so a `result` of `ERROR` is
-  treated as the failure it is, and so is a body that is not JSON at all, which
-  is what being pointed at a proxy error page looks like. A client that coloured
-  by status code alone would show a failed write in green.
+  surface answered 200 with the outcome in the body up to and including 0.2.0,
+  and this client is built to be pointed at a Pi that has not been updated, so a
+  `result` of `ERROR` is treated as the failure it is whatever the status says.
+  So is a body that is not JSON at all, which is what being pointed at a proxy
+  error page looks like. A client that coloured by status code alone would show
+  one of those failed writes in green.
 
   It is a tool, not part of the service. Qt stays out of `pyproject.toml`,
   `tools/` stays in `.dockerignore`, and the client has its own hash-pinned lock
@@ -49,6 +53,34 @@ second tool alongside the simulator for exercising the API by hand.
   has the rest.
 
 ### Changed
+
+- **A failed write to the simple surface answers 4xx or 5xx rather than 200.**
+  `POST /Write/Message` and `POST /Write/ControlCommand` used to answer 200 to
+  everything and report the outcome in the body alone. **The body is unchanged**:
+  `result` and `result_message` say exactly what they said before, so anything
+  reading them keeps working. What is added is a status code that agrees with
+  them, 400 for a mode or a command the sign does not have, 503 when the sign is
+  unreachable, taking the same meanings `/v2` already gives them.
+
+  The old behaviour existed for a Home Assistant `rest_command` and a shell
+  one-liner in cron, on the reasoning that neither branches on a status code.
+  Neither reads a JSON body either, which is where that reasoning fails: a
+  `rest_command` fired without `response_variable` never saw `result_message`,
+  and plain `curl` exits 0 and prints it to a log nobody reads. So the outcome
+  lived only in the place those two callers were least likely to look, and a
+  failed write was silent to exactly the callers the design was for. A status
+  code is the one thing both of them surface without being asked.
+
+  Anything that was treating a 200 as proof of success will now see the failures
+  it was already having. That is the point of the change, and it is the one way
+  it can bite: a cron line running `curl --fail` starts reporting a broken sign
+  it used to pass over in silence.
+
+  Which exception means which status code now lives in one table,
+  `readerboard/api/errors.py`, read both by the handlers that answer `/v2` and by
+  the simple routes that catch the same exceptions to answer in their own shape.
+  Two surfaces cannot come to disagree about what a broken cable means, and a
+  test asserts they do not.
 
 - **`readerboard/protocol/constants.py` is regenerated from the protocol
   document.** It was vendored from a repository that carries no licence file,
