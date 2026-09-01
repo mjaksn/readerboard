@@ -1,5 +1,5 @@
 {
-    // Three ways to start the service from the editor, and the tests.
+    // Four ways to start the service from the editor, and the tests.
     //
     // "readerboard and the sign simulator" is the one to reach for. It runs
     // both, with the service already pointed at the simulator, so every
@@ -8,6 +8,14 @@
     // file and the command line cannot drift apart, and the same is true of the
     // matching PyCharm configuration in .idea/runConfigurations/, which carries
     // the same name.
+    //
+    // "readerboard, the sign simulator and the client" is that same script
+    // with --with-client, which adds the client pointed at the service, so the
+    // whole loop comes up at once. The client asks for the API key itself
+    // rather than taking one from a command line, so the key in use is printed
+    // for pasting, and starting it this way replaces the base URL it remembers
+    // between runs. Closing the client leaves the other two running; closing
+    // either of those stops the rest.
     //
     // "readerboard against the loopback" needs no hardware either: loop:// is
     // pyserial's loopback, so the service starts, serves /docs, and accepts
@@ -24,6 +32,17 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/run_with_simulator.py",
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "readerboard, the sign simulator and the client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_with_simulator.py",
+            "args": [
+                "--with-client"
+            ],
             "console": "integratedTerminal",
             "justMyCode": false
         },

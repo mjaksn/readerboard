@@ -124,6 +124,21 @@ a second tool alongside the simulator for exercising the API by hand.
   already have, because its HTTP client is `QtNetwork`. `tools/apiclient/README.md`
   has the rest.
 
+- **`scripts/run_with_simulator.py --with-client` starts all three at once.**
+  The script already brought up the simulator and the service pointed at it.
+  The flag adds the client pointed at the service, so the whole loop comes up
+  from one command with no sign in the room. Both editors have it as
+  "readerboard, the sign simulator and the client", beside the two way one
+  they already had.
+
+  Three things about it are deliberate. Closing the client leaves the other
+  two running, which closing either of those does not: the service and the
+  simulator are no use without each other, and a closed client is only
+  closed. The client takes no API key from a command line by design, so the
+  key in use is printed for pasting rather than passed to it. And starting
+  the client this way writes the base URL into the settings it remembers
+  between runs, replacing an address left in it from last time.
+
 ### Changed
 
 - **Which exception means which status code lives in one table**,

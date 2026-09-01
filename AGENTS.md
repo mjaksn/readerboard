@@ -203,7 +203,11 @@ no Qt, and it needs no dependency the simulator does not already have because it
 HTTP client is `QtNetwork`. `tools/apiclient/README.md` has the rest.
 
 With the simulator on one side and the client on the other, the whole loop runs
-with no sign in the room.
+with no sign in the room. `scripts/run_with_simulator.py --with-client` brings
+all three up from one command, and both editors have that as "readerboard, the
+sign simulator and the client". Closing the client leaves the other two running,
+which closing either of those does not: they are no use without each other,
+and the client is only a thing to poke the service with.
 
 ## Prose is part of the product
 

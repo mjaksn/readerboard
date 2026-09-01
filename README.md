@@ -264,10 +264,12 @@ loads from the service rather than one compiled into it. The tests of both are
 collected by the `pytest` run here and need no Qt installed; the applications do, and
 each is pinned separately so that nothing the service installs ever pulls Qt in.
 
-`scripts/run_with_simulator.py` starts the service and the simulator together. Both
-editors have it as a launch configuration under the same name, "readerboard and the
-sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`, along with
-configurations for each half on its own.
+`scripts/run_with_simulator.py` starts the service and the simulator together, and
+with `--with-client` the client as well, so the whole loop comes up from one command.
+Both editors carry it as a launch configuration under the same name, "readerboard and
+the sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`, beside
+configurations for running the pieces separately. Both carry the three way one as
+"readerboard, the sign simulator and the client" as well.
 
 ## Licence
 
