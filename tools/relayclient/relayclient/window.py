@@ -227,7 +227,7 @@ class OperationForm(QWidget):
             combo = QComboBox()
             combo.setEditable(True)
             self._body[item.name] = combo
-            self._fill_combo(item, combo)
+            self._fill_combo(item, combo, initial=True)
             return combo
 
         if item.kind == "textarea":
@@ -264,13 +264,18 @@ class OperationForm(QWidget):
         self._body[item.name] = line
         return line
 
-    def _fill_combo(self, item: Input, combo: QComboBox) -> None:
+    def _fill_combo(self, item: Input, combo: QComboBox, *, initial: bool = False) -> None:
         """Offer whatever has been loaded for this field's set, and say so if nothing has.
 
         Loading a set must not answer the question for the caller. ``addItems``
         selects the first entry, so without the restore below, loading the
         control commands would leave the command box holding the first one and
         Send would fire a command nobody picked.
+
+        The prefill is applied only when the field is first built. Refreshing
+        happens whenever any set is loaded, and putting the prefill back then
+        would undo a box somebody had emptied on purpose, which is the one thing
+        clearing a required field is for.
         """
         current = combo.currentText()
         combo.clear()
@@ -280,7 +285,7 @@ class OperationForm(QWidget):
 
         if current:
             combo.setCurrentText(current)
-        elif item.prefill is not None:
+        elif initial and item.prefill is not None:
             combo.setCurrentText(str(item.prefill))
         else:
             combo.setCurrentIndex(-1)
@@ -382,13 +387,15 @@ class MainWindow(QMainWindow):
         self.history = History()
         self._caller = Caller(self)
         self._caller.completed.connect(self._completed)
+        # One check per address, and only after something has answered, so that
+        # an unreachable service is reported by the call that failed rather than
+        # by a second complaint about a file nobody asked for. Declared before
+        # the connections below, which reach into it.
+        self._checked: set[str] = set()
         self._describer = DescriptionFetcher(self)
         self._describer.fetched.connect(self._described)
         self._describer.failed.connect(self._not_described)
-        # One check per address, and only after something has answered, so that
-        # an unreachable service is reported by the call that failed rather than
-        # by a second complaint about a file nobody asked for.
-        self._checked: set[str] = set()
+        self._describer.superseded.connect(self._release)
         self._settings = QSettings()
         self._form: OperationForm | None = None
         self._pending_slot_keys = False
@@ -718,6 +725,21 @@ class MainWindow(QMainWindow):
         self._checked.add(address)
         self._describer.fetch(address)
 
+    def _release(self, address: str) -> None:
+        """Stop claiming an address was checked when its fetch was abandoned."""
+        self._checked.discard(address)
+
+    def _current_address(self) -> str:
+        """Return the address in the box, or a blank when it is not a usable one."""
+        try:
+            return request_module.normalise_base_url(self.base_url.text())
+        except request_module.InvalidRequest:
+            return ""
+
+    def _label_for(self, address: str, text: str) -> str:
+        """Name the address when the verdict is not about the one on screen now."""
+        return text if address == self._current_address() else "%s: %s" % (address, text)
+
     def _described(self, address: str, document: object) -> None:
         """Say whether the service's surface is the one this client was built for."""
         try:
@@ -726,18 +748,22 @@ class MainWindow(QMainWindow):
             self._not_described(address, str(err))
             return
 
-        self.surface.setText(difference.summary())
+        self.surface.setText(self._label_for(address, difference.summary()))
         self.surface.setToolTip(difference.detail())
         if difference.matches:
             self.surface.setStyleSheet(MUTED)
             return
 
         self.surface.setStyleSheet("color:%s;font-weight:600" % fmt.BAD_COLOUR)
-        QMessageBox.warning(
-            self,
-            "This service is not the one this client was built for",
-            difference.detail(),
-        )
+        # Named rather than implied. A verdict can arrive after the address in
+        # the box has moved on, and a dialog about neither would be worse than
+        # no dialog at all.
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("This service is not the one this client was built for")
+        box.setText(address)
+        box.setInformativeText(difference.detail())
+        box.exec()
 
     def _not_described(self, address: str, reason: str, retryable: bool = False) -> None:
         """Say that the surface could not be checked, without making a fuss of it.
@@ -749,7 +775,7 @@ class MainWindow(QMainWindow):
         """
         if retryable:
             self._checked.discard(address)
-        self.surface.setText("surface not checked: %s" % reason)
+        self.surface.setText(self._label_for(address, "surface not checked: %s" % reason))
         self.surface.setToolTip(
             "The service did not hand over %s, so this client cannot tell whether the "
             "surface it offers is the one the service has. Calls are unaffected."

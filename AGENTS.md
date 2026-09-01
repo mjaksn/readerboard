@@ -82,7 +82,11 @@ fails, the frame builder is wrong, not the test.
 
 `pytest` also collects `tools/signsim/tests` and `tools/relayclient/tests`, the
 two tools' own suites. Both import only the pure half of their tool, never
-PySide6, so they run in CI where Qt is not installed. The one worth knowing about
+PySide6, so they run in CI where Qt is not installed. That leaves one gap, which
+CI covers separately: nothing in either suite ever builds a window, so a signal
+wired to an attribute that does not exist yet would raise only on construction
+and no test would see it. The lint job already installs Qt to type-check the
+tools, so it builds each window once offscreen as well. The one worth knowing about
 in the simulator round trips the frame builders above through its decoder:
 whatever the service builds has to read back as the command that built it. The
 one worth knowing about in the client diffs its endpoint catalogue against

@@ -76,6 +76,18 @@ jobs:
         env:
           MYPYPATH: tools/relayclient
 
+      # The tools' own test suites run without Qt, deliberately, so nothing in
+      # them ever builds a window. That leaves a gap exactly the width of a
+      # signal connected to an attribute that does not exist yet, which raises
+      # only on construction. Qt is already installed for the checks above, so
+      # building each of them once offscreen costs seconds and closes it.
+      - name: build the tools' windows once
+        run: |
+          python -c "import sys; sys.path.insert(0, 'tools/relayclient'); from PySide6.QtWidgets import QApplication; from relayclient.window import MainWindow; app = QApplication([]); MainWindow()"
+          python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
+        env:
+          QT_QPA_PLATFORM: offscreen
+
   test:
     name: tests ${{ matrix.python }} on ${{ matrix.os }}
     strategy:

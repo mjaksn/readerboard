@@ -167,4 +167,8 @@ of those would make this a worse Swagger page and a poor Postman.
 pytest tools/relayclient/tests
 ```
 
-Runs without Qt, and is collected by the repository's own `pytest` run.
+Runs without Qt, and is collected by the repository's own `pytest` run. Because
+of that, nothing in it builds a window, so CI additionally constructs one
+offscreen in the job that already has Qt installed. A signal connected to an
+attribute that does not exist yet raises on construction and nowhere else, and
+that is otherwise nobody's job to notice.

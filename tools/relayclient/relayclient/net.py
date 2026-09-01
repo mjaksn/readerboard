@@ -143,6 +143,10 @@ class DescriptionFetcher(QObject):
 
     fetched = Signal(str, object)
     failed = Signal(str, str, bool)
+    # An address whose fetch was abandoned, so whoever recorded it as being
+    # checked can stop believing that. Separate from `failed` because nothing
+    # went wrong and there is nothing to report on screen.
+    superseded = Signal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Build the fetcher with its own network manager."""
@@ -159,9 +163,14 @@ class DescriptionFetcher(QObject):
         # with the old reply still in place that would report a cancellation
         # nobody asked about and release an address that was never checked.
         stale, self._reply = self._reply, None
+        stale_address = self._address
         if stale is not None:
             stale.abort()
             stale.deleteLater()
+            # Aborting means `_finished` returns without emitting, so nothing
+            # else would ever say that this address went unchecked.
+            if stale_address:
+                self.superseded.emit(stale_address)
 
         self._address = base_url.rstrip("/")
         request = QNetworkRequest(QUrl(self._address + DESCRIPTION_PATH))
