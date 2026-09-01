@@ -5,10 +5,10 @@ presses the button that calls the endpoint, which is the point: a client that
 ships its own copy of the markup tokens is a client that goes on offering
 ``<degree>`` for a year after the service stopped answering it.
 
-Two endpoint families fill the same four sets in two different shapes. ``/v2``
-answers ``{"name": ..., "description": ...}``; the simple endpoints answer the
-same pairs under ``token_text``, ``display_mode`` or ``control_command``. Both
-land here as :class:`Entry`, so everything downstream reads one shape.
+All four sets arrive in one shape, ``{"name": ..., "description": ...}``, and
+land here as :class:`Entry`. The parsing is still strict about that shape rather
+than tolerant of anything list-like, because a set of empty names looks exactly
+like a healthy one on screen.
 """
 
 from __future__ import annotations
@@ -51,12 +51,13 @@ class LoadedSet:
         )
 
 
-def parse(payload: object, name_field: str) -> tuple[Entry, ...]:
-    """Turn an enumeration response into entries, whichever shape it arrived in.
+def parse(payload: object) -> tuple[Entry, ...]:
+    """Turn an enumeration response into entries, refusing anything else.
 
-    ``name_field`` comes from the catalogue rather than being guessed, so a
-    payload that is a list of objects but not *this* list of objects is rejected
-    rather than quietly producing a set of empty names.
+    A payload that is a list of objects but not *this* list of objects is
+    rejected rather than quietly producing a set of empty names, which is what
+    being pointed at a service whose enumerations answer something else looks
+    like.
     """
     if not isinstance(payload, list):
         raise MalformedEnumeration(
@@ -69,14 +70,14 @@ def parse(payload: object, name_field: str) -> tuple[Entry, ...]:
             raise MalformedEnumeration(
                 "entry %d is %s, not an object" % (index, type(item).__name__)
             )
-        if name_field not in item:
+        if "name" not in item:
             raise MalformedEnumeration(
-                "entry %d has no %r; the fields present are %s"
-                % (index, name_field, ", ".join(sorted(item)) or "none")
+                "entry %d has no 'name'; the fields present are %s"
+                % (index, ", ".join(sorted(item)) or "none")
             )
         entries.append(
             Entry(
-                name=str(item[name_field]),
+                name=str(item["name"]),
                 description=str(item.get("description", "")),
             )
         )

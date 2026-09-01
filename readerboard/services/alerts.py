@@ -116,10 +116,9 @@ class AlertService:
         mode: str,
         position: str,
         ttl_seconds: float | None = None,
-        strict: bool = True,
     ) -> AlertState:
         """Take the sign over with an alert."""
-        body = render(message, strict=strict)
+        body = render(message)
         if len(body) > c.PRIORITY_FILE_CAPACITY:
             raise AlertTooLong(
                 "the alert renders to %d bytes but the sign's priority file holds %d "

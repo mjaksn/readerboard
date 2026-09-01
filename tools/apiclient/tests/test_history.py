@@ -54,7 +54,7 @@ def test_the_key_cannot_reach_the_curl_command_because_it_is_not_in_the_record()
 def test_the_curl_command_is_the_call_that_was_made():
     _history, record = record_a_call()
     command = record.as_curl()
-    assert "curl -X PUT 'http://127.0.0.1:8000/v2/messages/kitchen'" in command
+    assert "curl -X PUT 'http://127.0.0.1:8000/messages/kitchen'" in command
     assert '"message": "hello"' in command
 
 

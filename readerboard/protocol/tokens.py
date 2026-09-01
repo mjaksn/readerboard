@@ -159,8 +159,3 @@ MARKUP_BY_TEXT: dict[str, Token] = {token.text: token for token in MARKUP_TOKENS
 MODE_BY_NAME: dict[str, Token] = {token.text: token for token in DISPLAY_MODES}
 COMMAND_BY_NAME: dict[str, Token] = {token.text: token for token in CONTROL_COMMANDS}
 POSITION_BY_NAME: dict[str, Token] = {token.text: token for token in TEXT_POSITIONS}
-
-
-def describe(tokens: tuple[Token, ...], key: str) -> list[dict[str, str]]:
-    """Render a token table as a list of dicts keyed by ``key`` and "description"."""
-    return [{key: token.text, "description": token.description} for token in tokens]

@@ -124,6 +124,12 @@ mkdir -p "$CONFIG_DIR"
 
 if [ -f "$CONFIG_FILE" ]; then
     say "keeping the existing $CONFIG_FILE"
+    # An unknown setting is refused rather than ignored, so a release that
+    # removes one stops the service starting on a machine whose config file
+    # still names it. That file is exactly the one this branch never rewrites,
+    # so the failure lands in the journal rather than here. Worded to stay true
+    # of every release, since most remove no setting at all.
+    say "a setting a release has removed is refused, not ignored; if it does not come up, the journal names it"
     GENERATED_KEY=""
 else
     install -m 0640 -o root -g "$SERVICE_USER" \

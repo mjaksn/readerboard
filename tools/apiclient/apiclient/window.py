@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty
+Everything the tool does is on it: the connection, the enumerations, all fifteen
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -118,10 +118,7 @@ class EnumerationPanel(QGroupBox):
         buttons = QHBoxLayout()
         buttons.setSpacing(6)
         for operation in catalogue.loaders_for(set_key):
-            # Two endpoints can fill the same set. Both are offered, because the
-            # tool has to be able to call either, and the label says which.
-            label = "Load" if operation.group == "Enumerations" else "Load (simple)"
-            button = QPushButton(label)
+            button = QPushButton("Load")
             button.setToolTip(operation.signature)
             button.clicked.connect(
                 lambda _checked=False, op=operation: self._window.run(op)
@@ -241,7 +238,7 @@ class OperationForm(QWidget):
         self._path[item.name] = combo
 
         load = QPushButton("Load keys")
-        load.setToolTip("Call GET /v2/messages and offer the keys it returns")
+        load.setToolTip("Call GET /messages and offer the keys it returns")
         load.clicked.connect(self._window.load_slot_keys)
 
         row = QHBoxLayout()
@@ -767,7 +764,7 @@ class MainWindow(QMainWindow):
         if operation.loads is None:
             return
         try:
-            entries = enums.parse(payload, operation.loads.name_field)
+            entries = enums.parse(payload)
         except enums.MalformedEnumeration as err:
             QMessageBox.warning(
                 self,
@@ -777,7 +774,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        self.store.load(operation.loads.set_key, operation.signature, entries)
+        self.store.load(operation.loads, operation.signature, entries)
         self.enumerations.refresh()
         if self._form is not None:
             self._form.refresh_enumerations()

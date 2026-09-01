@@ -22,7 +22,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from readerboard import __version__, logging_setup, names
-from readerboard.api import errors, routes_simple, routes_v2
+from readerboard.api import errors, routes
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
 from readerboard.config import Settings
@@ -49,15 +49,13 @@ Every write needs an `X-API-Key` header. Reads and `GET /health` do not. On this
 page, put the key in once with the **Authorize** button and every write below
 carries it.
 
-The `/Write` and `/Enumerations` paths are a smaller surface for callers that
-post a fixed body to a fixed path: one message, no slot to name, and a `result`
-of `OK` or `ERROR` in the body. The status code says the same thing the body
-does, and means what it means everywhere else here: 400 for a mode or a command
-the sign does not have, a parameter it will not accept or a message too long for
-its slot, 401 for a missing or wrong `X-API-Key`, 409 when every message slot is
-already in use, 503 when the sign is unreachable or no API key is configured at
-all, 500 for something the service has no code for, and 422 for a body that is
-not the shape the endpoint declares.
+A failure is reported by the status code, with the reason in a `detail` field:
+400 for a mode or a command the sign does not have, a parameter it will not
+accept, a message too long for its slot or markup the sign cannot render, 401
+for a missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409
+when every message slot is already in use, 503 when the sign is unreachable or
+no API key is configured at all, 500 for something the service has no code for,
+and 422 for a body that is not the shape the endpoint declares.
 """
 
 
@@ -205,8 +203,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
     app.state.settings = settings
 
     _install_error_handlers(app)
-    app.include_router(routes_v2.router)
-    app.include_router(routes_simple.router)
+    app.include_router(routes.router)
 
     @app.get("/health", tags=["Health"], summary="Is the service talking to the sign")
     async def health(request: Request) -> HealthResponse:
@@ -245,8 +242,8 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
 def _install_error_handlers(app: FastAPI) -> None:
     """Turn the service's own exceptions into the status codes they mean.
 
-    Registered by walking the same table the simple surface reads, so the two
-    cannot come to disagree about what any one of these means.
+    Registered by walking the table in readerboard.api.errors, which is the one
+    place that decides what any of them means.
     """
 
     def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:

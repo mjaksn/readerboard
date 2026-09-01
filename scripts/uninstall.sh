@@ -89,7 +89,7 @@ if [ "$PURGE" -eq 1 ]; then
     echo
     echo "  The sign itself still holds whatever it was last told to show. To blank"
     echo "  it, press the ADV key on its infrared keyboard, or reinstall and use"
-    echo "  DELETE /v2/messages."
+    echo "  DELETE /messages."
     echo
 else
     echo

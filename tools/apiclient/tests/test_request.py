@@ -37,12 +37,12 @@ def test_an_empty_base_url_is_refused():
 
 def test_a_path_parameter_is_substituted():
     operation = catalogue.BY_ID["get_message"]
-    assert fill_path(operation, {"key": "kitchen"}) == "/v2/messages/kitchen"
+    assert fill_path(operation, {"key": "kitchen"}) == "/messages/kitchen"
 
 
 def test_a_path_parameter_is_percent_encoded():
     operation = catalogue.BY_ID["get_message"]
-    assert fill_path(operation, {"key": "a b/c"}) == "/v2/messages/a%20b%2Fc"
+    assert fill_path(operation, {"key": "a b/c"}) == "/messages/a%20b%2Fc"
 
 
 def test_an_empty_path_parameter_is_refused_because_the_url_would_collapse():
@@ -94,15 +94,15 @@ def test_an_emptied_required_field_goes_out_empty_so_the_service_answers_for_it(
     # Clearing a required box is how you ask what the service does with an empty
     # one. Substituting the prefill would answer the question the client was
     # asked to put to the service.
-    operation = catalogue.BY_ID["simple_write_message"]
-    body = build_body(operation, {"message": "hello", "display_mode": ""})
-    assert body == {"message": "hello", "display_mode": ""}
+    operation = catalogue.BY_ID["send_command"]
+    body = build_body(operation, {"command": "", "parameter": "0930"})
+    assert body == {"command": "", "parameter": "0930"}
 
 
 def test_a_required_field_left_alone_still_sends_what_is_in_it():
-    operation = catalogue.BY_ID["simple_write_message"]
-    body = build_body(operation, {"message": "hello", "display_mode": "ROTATE"})
-    assert body == {"message": "hello", "display_mode": "ROTATE"}
+    operation = catalogue.BY_ID["send_command"]
+    body = build_body(operation, {"command": "SET_TIME", "parameter": "0930"})
+    assert body == {"command": "SET_TIME", "parameter": "0930"}
 
 
 def test_the_origin_is_the_address_a_request_actually_went_to():
@@ -110,7 +110,7 @@ def test_the_origin_is_the_address_a_request_actually_went_to():
         catalogue.BY_ID["get_message"], "http://pi.local:5001", path_values={"key": "k"}
     )
     assert prepared.origin == "http://pi.local:5001"
-    assert prepared.url == "http://pi.local:5001/v2/messages/k"
+    assert prepared.url == "http://pi.local:5001/messages/k"
 
 
 def test_an_operation_with_no_body_sends_none():
@@ -144,7 +144,7 @@ def test_the_body_is_json_the_service_would_accept():
         "display_mode": "HOLD",
         "order": 2,
     }
-    assert prepared.url == "http://127.0.0.1:8000/v2/messages/kitchen"
+    assert prepared.url == "http://127.0.0.1:8000/messages/kitchen"
     assert prepared.method == "PUT"
 
 
@@ -160,7 +160,7 @@ def test_the_prepared_request_can_hand_back_headers_with_the_key_gone():
 def test_curl_never_writes_the_key_into_the_command():
     command = as_curl(
         "POST",
-        "http://host/v2/alerts",
+        "http://host/alerts",
         {"Content-Type": "application/json", API_KEY_HEADER: "hunter2"},
         '{"message": "fire"}',
     )

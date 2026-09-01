@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from twenty hand-written
+The window builds its forms from this table rather than from fifteen hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -19,9 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 # The enumeration sets a field can draw from. These are the client's own names
-# for them, not the service's paths, because two different endpoints can fill
-# the same set: /v2/enumerations/display-modes and /Enumerations/DisplayModes
-# say the same thing in different shapes.
+# for them rather than the service's paths, so that a field says which
+# vocabulary it draws from without naming the endpoint that happens to serve it.
 MARKUP_TOKENS = "markup-tokens"
 DISPLAY_MODES = "display-modes"
 TEXT_POSITIONS = "text-positions"
@@ -46,9 +45,8 @@ class Input:
     the schema's default and is deliberately named so it cannot be mistaken for
     it. Usually the two agree, and ``tests/test_catalogue.py`` insists on that
     wherever the schema declares a default. Where it declares none the prefill
-    is a convenience of this client's own: ``POST /Write/Message`` requires a
-    display mode with no default, and starting that field on ``HOLD`` saves
-    typing the commonest answer without the service having promised it.
+    is a convenience of this client's own, offered without the service having
+    promised it.
     """
 
     name: str
@@ -67,20 +65,6 @@ class Input:
 
 
 @dataclass(frozen=True, slots=True)
-class Loads:
-    """What an enumeration endpoint fills, and the field its entries are named by.
-
-    The two families spell the name differently. ``/v2`` answers ``name`` for
-    every set; the simple endpoints answer ``token_text``, ``display_mode`` or
-    ``control_command`` depending on which one was asked. Both normalise to the
-    same store on the way in.
-    """
-
-    set_key: str
-    name_field: str
-
-
-@dataclass(frozen=True, slots=True)
 class Operation:
     """One callable endpoint."""
 
@@ -93,7 +77,7 @@ class Operation:
     path_inputs: tuple[Input, ...] = ()
     body: tuple[Input, ...] = ()
     formatter: str = "generic"
-    loads: Loads | None = None
+    loads: str | None = None
     destructive: bool = False
     note: str = ""
 
@@ -130,7 +114,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="list_messages",
         group="Messages",
         method="GET",
-        path="/v2/messages",
+        path="/messages",
         summary="List the messages sharing the sign",
         formatter="slots",
     ),
@@ -138,7 +122,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="get_message",
         group="Messages",
         method="GET",
-        path="/v2/messages/{key}",
+        path="/messages/{key}",
         summary="Read one message",
         path_inputs=(_MESSAGE_KEY,),
         formatter="slot",
@@ -147,7 +131,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="put_message",
         group="Messages",
         method="PUT",
-        path="/v2/messages/{key}",
+        path="/messages/{key}",
         summary="Register or replace a message",
         needs_key=True,
         path_inputs=(_MESSAGE_KEY,),
@@ -183,7 +167,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="delete_message",
         group="Messages",
         method="DELETE",
-        path="/v2/messages/{key}",
+        path="/messages/{key}",
         summary="Take a message off the sign",
         needs_key=True,
         path_inputs=(_MESSAGE_KEY,),
@@ -193,7 +177,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="clear_messages",
         group="Messages",
         method="DELETE",
-        path="/v2/messages",
+        path="/messages",
         summary="Take every message off the sign",
         needs_key=True,
         formatter="empty",
@@ -205,7 +189,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="get_alert",
         group="Alerts",
         method="GET",
-        path="/v2/alerts",
+        path="/alerts",
         summary="Read the alert holding the sign",
         formatter="alert",
     ),
@@ -213,7 +197,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="post_alert",
         group="Alerts",
         method="POST",
-        path="/v2/alerts",
+        path="/alerts",
         summary="Take the sign over with an alert",
         needs_key=True,
         body=(
@@ -239,7 +223,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="delete_alert",
         group="Alerts",
         method="DELETE",
-        path="/v2/alerts",
+        path="/alerts",
         summary="Give the sign back",
         needs_key=True,
         formatter="empty",
@@ -249,7 +233,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="sync_clock",
         group="Sign",
         method="POST",
-        path="/v2/sign/sync-clock",
+        path="/sign/sync-clock",
         summary="Set the sign's clock now",
         needs_key=True,
         formatter="clock",
@@ -258,7 +242,7 @@ OPERATIONS: tuple[Operation, ...] = (
         id="send_command",
         group="Sign",
         method="POST",
-        path="/v2/sign/command",
+        path="/sign/command",
         summary="Send a control command to the sign",
         needs_key=True,
         body=(
@@ -276,42 +260,42 @@ OPERATIONS: tuple[Operation, ...] = (
         ),
         formatter="empty",
     ),
-    # == Enumerations, the current shape ==================================
+    # == Enumerations =====================================================
     Operation(
-        id="v2_markup_tokens",
+        id="markup_tokens",
         group="Enumerations",
         method="GET",
-        path="/v2/enumerations/markup-tokens",
+        path="/enumerations/markup-tokens",
         summary="Markup tokens a message may contain",
         formatter="tokens",
-        loads=Loads(MARKUP_TOKENS, "name"),
+        loads=MARKUP_TOKENS,
     ),
     Operation(
-        id="v2_display_modes",
+        id="display_modes",
         group="Enumerations",
         method="GET",
-        path="/v2/enumerations/display-modes",
+        path="/enumerations/display-modes",
         summary="Ways the sign can present a message",
         formatter="tokens",
-        loads=Loads(DISPLAY_MODES, "name"),
+        loads=DISPLAY_MODES,
     ),
     Operation(
-        id="v2_text_positions",
+        id="text_positions",
         group="Enumerations",
         method="GET",
-        path="/v2/enumerations/text-positions",
+        path="/enumerations/text-positions",
         summary="Where text sits vertically",
         formatter="tokens",
-        loads=Loads(TEXT_POSITIONS, "name"),
+        loads=TEXT_POSITIONS,
     ),
     Operation(
-        id="v2_control_commands",
+        id="control_commands",
         group="Enumerations",
         method="GET",
-        path="/v2/enumerations/control-commands",
+        path="/enumerations/control-commands",
         summary="Commands aimed at the sign itself",
         formatter="tokens",
-        loads=Loads(CONTROL_COMMANDS, "name"),
+        loads=CONTROL_COMMANDS,
     ),
     # == Health ===========================================================
     Operation(
@@ -323,90 +307,11 @@ OPERATIONS: tuple[Operation, ...] = (
         formatter="health",
         note="Needs no API key. Neither does any read; only the writes carry one.",
     ),
-    # == The simple surface ===============================================
-    Operation(
-        id="simple_write_message",
-        group="Simple",
-        method="POST",
-        path="/Write/Message",
-        summary="Write a message to the sign",
-        needs_key=True,
-        body=(
-            Input(
-                name="display_mode",
-                required=True,
-                prefill="HOLD",
-                enum_set=DISPLAY_MODES,
-                description="the display mode to use when showing the message",
-            ),
-            Input(
-                name="message",
-                kind="textarea",
-                required=True,
-                markup=True,
-                description="the message, including markup tokens, to display on the sign",
-            ),
-        ),
-        formatter="simple",
-        note=(
-            "The outcome is in the body. A service running 0.2.0 or earlier "
-            "answers 200 even when it failed."
-        ),
-    ),
-    Operation(
-        id="simple_control_command",
-        group="Simple",
-        method="POST",
-        path="/Write/ControlCommand",
-        summary="Send a control command to the sign",
-        needs_key=True,
-        body=(
-            Input(
-                name="command",
-                required=True,
-                enum_set=CONTROL_COMMANDS,
-                description="the control command to send to the sign",
-            ),
-            Input(name="parameter", prefill="", description="a parameter for the command"),
-        ),
-        formatter="simple",
-        note=(
-            "The outcome is in the body. A service running 0.2.0 or earlier "
-            "answers 200 even when it failed."
-        ),
-    ),
-    Operation(
-        id="simple_display_modes",
-        group="Simple",
-        method="GET",
-        path="/Enumerations/DisplayModes",
-        summary="Available display modes",
-        formatter="tokens",
-        loads=Loads(DISPLAY_MODES, "display_mode"),
-    ),
-    Operation(
-        id="simple_control_commands",
-        group="Simple",
-        method="GET",
-        path="/Enumerations/ControlCommands",
-        summary="Available control commands",
-        formatter="tokens",
-        loads=Loads(CONTROL_COMMANDS, "control_command"),
-    ),
-    Operation(
-        id="simple_markup_tokens",
-        group="Simple",
-        method="GET",
-        path="/Enumerations/MarkupTokens",
-        summary="Available markup tokens",
-        formatter="tokens",
-        loads=Loads(MARKUP_TOKENS, "token_text"),
-    ),
 )
 
 # The order the operation list shows the groups in. Health first because it is
 # what you press to find out whether anything else is worth trying.
-GROUP_ORDER = ("Health", "Messages", "Alerts", "Sign", "Enumerations", "Simple")
+GROUP_ORDER = ("Health", "Messages", "Alerts", "Sign", "Enumerations")
 
 BY_ID: dict[str, Operation] = {operation.id: operation for operation in OPERATIONS}
 
@@ -421,6 +326,6 @@ def grouped() -> list[tuple[str, list[Operation]]]:
 
 def loaders_for(set_key: str) -> list[Operation]:
     """Return every operation that can fill the given enumeration set."""
-    return [op for op in OPERATIONS if op.loads is not None and op.loads.set_key == set_key]
+    return [op for op in OPERATIONS if op.loads == set_key]
 
 

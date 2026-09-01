@@ -1,4 +1,8 @@
-"""Reading responses back, including the one that fails while answering 200."""
+"""Reading responses back, including the one that fails while answering 200.
+
+That one is not the old simple surface, which is gone. It is a body that is not
+JSON at all, which is what a proxy error page on the right port looks like.
+"""
 
 from __future__ import annotations
 
@@ -36,13 +40,12 @@ def rendered_text(operation_id, status, body, reason=""):
 # ===========================================================================
 
 
-def test_a_simple_surface_failure_is_an_error_even_though_it_answered_200():
-    payload = {"result": "ERROR", "result_message": "The display mode 'X' is not valid"}
-    assert is_error(200, payload)
+def test_a_body_that_is_not_json_is_an_error_even_though_it_answered_200():
+    assert is_error(200, UNREADABLE)
 
 
-def test_a_simple_surface_success_is_not_an_error():
-    assert not is_error(200, {"result": "OK", "result_message": "Message displayed on sign"})
+def test_a_body_that_reads_is_not_an_error_on_a_200():
+    assert not is_error(200, {"message": "HI"})
 
 
 def test_a_status_code_of_four_hundred_or_more_is_an_error():
@@ -52,27 +55,6 @@ def test_a_status_code_of_four_hundred_or_more_is_an_error():
 
 def test_a_request_that_never_completed_is_an_error():
     assert is_error(0, None)
-
-
-def test_the_failed_simple_write_renders_as_a_failure_and_says_why_the_status_is_200():
-    result, text = rendered_text(
-        "simple_write_message",
-        200,
-        json.dumps({"result": "ERROR", "result_message": "The display mode 'X' is not valid"}),
-    )
-    assert result.ok is False
-    assert "The display mode 'X' is not valid" in text
-    assert "reported the failure in the body" in text
-
-
-def test_the_successful_simple_write_renders_as_a_success():
-    result, text = rendered_text(
-        "simple_write_message",
-        200,
-        json.dumps({"result": "OK", "result_message": "Message displayed on sign"}),
-    )
-    assert result.ok is True
-    assert "Message displayed on sign" in text
 
 
 # ===========================================================================
@@ -146,13 +128,11 @@ def test_a_204_reads_as_success_rather_than_as_an_empty_panel():
     assert "returned no content" in text
 
 
-def test_an_enumeration_renders_in_either_shape():
-    v2 = json.dumps([{"name": "<red>", "description": "Set text colour to red"}])
-    simple = json.dumps([{"token_text": "<red>", "description": "Set text colour to red"}])
-    _v2_result, v2_text = rendered_text("v2_markup_tokens", 200, v2)
-    _simple_result, simple_text = rendered_text("simple_markup_tokens", 200, simple)
-    assert "<red>" in v2_text
-    assert "<red>" in simple_text
+def test_an_enumeration_renders_as_a_table():
+    body = json.dumps([{"name": "<red>", "description": "Set text colour to red"}])
+    _result, text = rendered_text("markup_tokens", 200, body)
+    assert "<red>" in text
+    assert "Set text colour to red" in text
 
 
 # ===========================================================================
@@ -171,7 +151,7 @@ def test_a_404_also_offers_the_reading_that_the_route_is_missing():
     # A client pointed at an older service gets a 404 for an endpoint that
     # service never had. Naming only the slot reading would send the reader
     # looking for the wrong thing.
-    result, _text = rendered_text("v2_text_positions", 404, json.dumps({"detail": "Not Found"}))
+    result, _text = rendered_text("text_positions", 404, json.dumps({"detail": "Not Found"}))
     assert "no such route on this service" in result.headline
 
 
@@ -217,11 +197,11 @@ def test_a_request_that_never_left_says_what_stopped_it():
 
 
 def test_the_panel_never_shows_a_raw_json_object():
-    body = json.dumps({"result": "OK", "result_message": "Message displayed on sign"})
-    result = render(catalogue.BY_ID["simple_write_message"], 200, "OK", body)
+    body = json.dumps({"synced_at": "2026-08-31T07:00:00+00:00"})
+    result = render(catalogue.BY_ID["sync_clock"], 200, "OK", body)
     html = as_html(result)
-    assert "Message displayed on sign" in html
-    assert '{"result"' not in html
+    assert "2026-08-31" in html
+    assert '{"synced_at"' not in html
 
 
 def test_markup_in_a_message_is_escaped_rather_than_rendered_as_html():
@@ -264,7 +244,7 @@ def test_a_body_that_is_not_json_is_a_failure_rather_than_a_quiet_success():
 
 
 def test_a_body_that_is_a_literal_null_still_means_what_it_says():
-    # GET /v2/alerts answers null when nothing is holding the sign, and its
+    # GET /alerts answers null when nothing is holding the sign, and its
     # schema says so. Reading the unreadable body as null is the bug above;
     # reading null as unreadable would break the endpoint's own answer, so this
     # is the half of the pair that stops the fix overshooting.
@@ -273,29 +253,32 @@ def test_a_body_that_is_a_literal_null_still_means_what_it_says():
     assert "No alert is holding the sign" in text
 
 
-def test_a_simple_surface_failure_is_not_headlined_as_a_success():
+def test_an_unreadable_body_is_not_headlined_as_a_success():
     # The headline is built from the status code, and 200 means "the call
     # succeeded". Saying that above a response this module has just decided is
     # a failure would be the exact mistake the module exists to prevent, made
     # in its own first line.
-    result, _text = rendered_text(
-        "simple_write_message",
-        200,
-        json.dumps({"result": "ERROR", "result_message": "the sign is unreachable"}),
-        reason="OK",
-    )
+    result, _text = rendered_text("put_message", 200, "<html>gateway</html>", reason="OK")
     assert result.ok is False
     assert "the call succeeded" not in result.headline
-    assert "the body reports a failure" in result.headline
+    assert "not JSON" in result.headline
 
 
 def test_a_real_success_still_says_so():
-    result, _text = rendered_text(
-        "simple_write_message",
-        200,
-        json.dumps({"result": "OK", "result_message": "Message displayed on sign"}),
-        reason="OK",
+    body = json.dumps(
+        {
+            "key": "k",
+            "label": "A",
+            "message": "HI",
+            "display_mode": "HOLD",
+            "position": "MIDDLE",
+            "order": 0,
+            "source": None,
+            "expires_at": None,
+            "updated_at": "2026-08-31T07:00:00+00:00",
+        }
     )
+    result, _text = rendered_text("put_message", 200, body, reason="OK")
     assert result.ok is True
     assert "the call succeeded" in result.headline
 
@@ -352,25 +335,15 @@ def test_no_colour_the_themes_carry_is_written_down_instead_of_themed():
             assert getattr(other, name) not in html, name
 
 
-def test_an_enumeration_is_read_with_the_field_the_catalogue_names():
-    # The simple display modes endpoint names its entries `display_mode`. A
-    # payload in the other shape must not render a healthy table here while
-    # enums.parse rejects it, which is what guessing the field produced.
-    v2_shape = json.dumps([{"name": "HOLD", "description": "hold"}])
-    _result, text = rendered_text("simple_display_modes", 200, v2_shape)
-    assert "HOLD" not in text
-
-    own_shape = json.dumps([{"display_mode": "HOLD", "description": "hold"}])
-    _result, text = rendered_text("simple_display_modes", 200, own_shape)
+def test_an_enumeration_is_read_with_the_same_field_the_store_reads():
+    # A payload naming its entries something else must not render a healthy
+    # table here while enums.parse rejects it, which is what a table renderer
+    # guessing at the field would produce: a green table and a "that did not
+    # look like an enumeration" warning about the same response.
+    expected = json.dumps([{"name": "HOLD", "description": "hold"}])
+    _result, text = rendered_text("display_modes", 200, expected)
     assert "HOLD" in text
 
-
-def test_the_note_about_an_old_service_is_not_attached_to_a_status_that_means_it():
-    # The note explains away a status code that disagrees with the body, which
-    # only an older service produces. A 503 carrying the same body means exactly
-    # what it says, and the note would tell the reader the opposite.
-    body = json.dumps({"result": "ERROR", "result_message": "the sign is unreachable"})
-    _result, text = rendered_text("simple_write_message", 503, body)
-    assert "reported the failure in the body" not in text
-    _result, text = rendered_text("simple_write_message", 200, body)
-    assert "reported the failure in the body" in text
+    other_shape = json.dumps([{"display_mode": "HOLD", "description": "hold"}])
+    _result, text = rendered_text("display_modes", 200, other_shape)
+    assert "HOLD" not in text

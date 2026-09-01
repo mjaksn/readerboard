@@ -12,8 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from apiclient import catalogue, skew
 
 # Worked out here rather than imported from conftest. Both tools have a
@@ -90,19 +88,13 @@ def test_every_field_enumeration_is_a_set_something_can_load():
                 assert item.enum_set in catalogue.SET_ORDER, (operation.id, item.name)
 
 
-@pytest.mark.parametrize(
-    ("set_key", "expected"),
-    [
-        (catalogue.MARKUP_TOKENS, 2),
-        (catalogue.DISPLAY_MODES, 2),
-        (catalogue.CONTROL_COMMANDS, 2),
-        # The simple surface has no text positions endpoint, so this one can
-        # only ever be filled from /v2. If that stops being true, this fails.
-        (catalogue.TEXT_POSITIONS, 1),
-    ],
-)
-def test_the_two_endpoint_families_fill_the_sets_they_are_expected_to(set_key, expected):
-    assert len(catalogue.loaders_for(set_key)) == expected
+def test_each_set_is_filled_by_exactly_one_endpoint():
+    # One endpoint per set is what makes the "Load" button on the enumeration
+    # panel unambiguous. A second one appearing is a change to that panel, not
+    # only to the table, so it should fail here rather than grow a button
+    # nobody decided to add.
+    for set_key in catalogue.SET_ORDER:
+        assert len(catalogue.loaders_for(set_key)) == 1, set_key
 
 
 def test_the_markup_fields_are_the_ones_that_take_markup():
@@ -115,7 +107,6 @@ def test_the_markup_fields_are_the_ones_that_take_markup():
     assert markup == {
         ("put_message", "message"),
         ("post_alert", "message"),
-        ("simple_write_message", "message"),
     }
 
 
@@ -222,10 +213,11 @@ def test_a_prefill_agrees_with_the_schema_default_wherever_there_is_one():
                 assert item.prefill == declared["default"], (operation.id, item.name)
 
 
-def test_the_prefill_without_a_schema_default_is_this_client_s_own_convenience():
-    # The one case, spelled out so that a second one has to be deliberate. The
-    # service requires a display mode here and promises no default, so starting
-    # the field on HOLD is the client's choice rather than the service's.
+def test_no_prefill_is_offered_that_the_schema_does_not_back():
+    # Every prefilled field now has a declared default behind it, so the client
+    # promises the caller nothing the service has not. Spelled out as an empty
+    # set rather than left unwritten, so that adding a prefill of the client's
+    # own has to be a deliberate change to this assertion.
     unbacked = {
         (operation.id, item.name)
         for operation, schema in with_bodies()
@@ -233,7 +225,7 @@ def test_the_prefill_without_a_schema_default_is_this_client_s_own_convenience()
         if item.prefill is not None
         and "default" not in schema.get("properties", {}).get(item.name, {})
     }
-    assert unbacked == {("simple_write_message", "display_mode")}
+    assert unbacked == set()
 
 
 def test_a_number_field_is_typed_as_one():

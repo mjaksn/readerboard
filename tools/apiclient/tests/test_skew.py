@@ -35,20 +35,20 @@ def test_the_summary_names_the_version_it_found():
 
 def test_an_older_service_missing_an_endpoint_is_reported_as_one_this_client_offers():
     document = current()
-    del document["paths"]["/v2/enumerations/text-positions"]
+    del document["paths"]["/enumerations/text-positions"]
     difference = compare(document, catalogue.OPERATIONS)
     assert not difference.matches
-    assert ("GET", "/v2/enumerations/text-positions") in difference.unknown
+    assert ("GET", "/enumerations/text-positions") in difference.unknown
     assert difference.uncallable == ()
     assert "1 this client offers that it does not have" in difference.summary()
 
 
 def test_a_newer_service_with_an_extra_endpoint_is_reported_as_one_it_cannot_call():
     document = current()
-    document["paths"]["/v2/sign/brightness"] = {"post": {}}
+    document["paths"]["/sign/brightness"] = {"post": {}}
     difference = compare(document, catalogue.OPERATIONS)
     assert not difference.matches
-    assert ("POST", "/v2/sign/brightness") in difference.uncallable
+    assert ("POST", "/sign/brightness") in difference.uncallable
     assert difference.unknown == ()
     assert "1 it has that this client cannot call" in difference.summary()
 
@@ -56,10 +56,10 @@ def test_a_newer_service_with_an_extra_endpoint_is_reported_as_one_it_cannot_cal
 def test_both_directions_are_reported_at_once():
     document = current()
     del document["paths"]["/health"]
-    document["paths"]["/v2/sign/brightness"] = {"post": {}}
+    document["paths"]["/sign/brightness"] = {"post": {}}
     difference = compare(document, catalogue.OPERATIONS)
     assert difference.unknown == (("GET", "/health"),)
-    assert difference.uncallable == (("POST", "/v2/sign/brightness"),)
+    assert difference.uncallable == (("POST", "/sign/brightness"),)
 
 
 def test_the_detail_says_what_will_actually_go_wrong():
@@ -106,9 +106,9 @@ def test_a_path_item_s_own_keys_are_not_mistaken_for_methods():
     # read other services' descriptions, and one that did would otherwise look
     # like a service full of endpoints named PARAMETERS.
     document = current()
-    document["paths"]["/v2/messages"]["parameters"] = []
-    document["paths"]["/v2/messages"]["summary"] = "the slots"
-    document["paths"]["/v2/messages"]["servers"] = []
+    document["paths"]["/messages"]["parameters"] = []
+    document["paths"]["/messages"]["summary"] = "the slots"
+    document["paths"]["/messages"]["servers"] = []
     difference = compare(document, catalogue.OPERATIONS)
     assert difference.matches, difference.detail()
 

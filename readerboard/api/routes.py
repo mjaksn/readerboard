@@ -1,15 +1,16 @@
-"""The current API.
+"""The API.
 
 Status codes mean what they say here: 400 for a message the sign cannot render,
 401 for a missing key, 404 for a slot that does not exist, 409 when the pool is
 full, and 503 when the sign is unreachable. Which exception means which lives in
-``readerboard.api.errors``, and the routes in ``routes_simple`` read the same
-table, so the two surfaces cannot come to disagree about what a failure was.
+``readerboard.api.errors``, and these routes read no part of that table
+themselves: they let the exception through and the handler registered from it
+turns the failure into a status code and a ``detail`` body.
 
-What differs between them is the shape of the answer, not the code: these routes
-let the exception through and it becomes FastAPI's ``detail`` body, while the
-simple ones catch it and report the same failure as ``result`` and
-``result_message``.
+The paths carry no version prefix. They carried ``/v2`` while a second, older
+surface stood beside them, and lost it when that surface was removed: a prefix
+distinguishing one surface from nothing is a word every caller writes and no
+reader learns anything from.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from readerboard.protocol.tokens import (
 )
 from readerboard.services import commands
 
-router = APIRouter(prefix="/v2")
+router = APIRouter()
 
 messages = APIRouter(prefix="/messages", tags=["Messages"])
 alerts_routes = APIRouter(prefix="/alerts", tags=["Alerts"])
