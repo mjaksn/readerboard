@@ -208,12 +208,16 @@ def render_error(status: int, reason: str, payload: object | None, raw: str) -> 
                 ),
             )
         )
-        rendered.blocks.append(
-            Note(
-                "This endpoint answers 200 whatever happens and reports the outcome in "
-                "the body, so the status code above is not the failure."
+        if status < 400:
+            # Only then is the status the thing that is misleading. A 503
+            # carrying a result field would mean what it says, and this note
+            # would tell the reader the opposite.
+            rendered.blocks.append(
+                Note(
+                    "This endpoint answers 200 whatever happens and reports the outcome "
+                    "in the body, so the status code above is not the failure."
+                )
             )
-        )
         rendered.detail = raw
         return rendered
 
@@ -373,20 +377,22 @@ def _clock(payload: object) -> list[Block]:
     ]
 
 
-def _tokens(payload: object) -> list[Block]:
-    """Render an enumeration, in either of the two shapes it comes in."""
+def _tokens(payload: object, name_field: str = "name") -> list[Block]:
+    """Render an enumeration, reading the names the way the catalogue says to.
+
+    ``name_field`` is not guessed. Guessing it lets this render a healthy table
+    from a payload that :func:`relayclient.enums.parse` is about to reject,
+    which would put a green table and a "that did not look like an enumeration"
+    warning on screen for one response. Reading the same field both places means
+    the panel and the store always agree.
+    """
     if not isinstance(payload, list):
         return _generic(payload)
     rows: list[tuple[str, ...]] = []
     for item in payload:
         if not isinstance(item, dict):
             continue
-        name = ""
-        for candidate in ("name", "token_text", "display_mode", "control_command"):
-            if candidate in item:
-                name = str(item[candidate])
-                break
-        rows.append((name, str(item.get("description", ""))))
+        rows.append((str(item.get(name_field, "")), str(item.get("description", ""))))
     return [
         Note("%d entr%s." % (len(rows), "y" if len(rows) == 1 else "ies")),
         Table(title="", columns=("name", "description"), rows=tuple(rows)),
@@ -461,9 +467,13 @@ def render(operation: Operation, status: int, reason: str, raw: str) -> Rendered
     if is_error(status, payload):
         return render_error(status, reason, payload, raw)
 
-    formatter = _FORMATTERS.get(operation.formatter, _generic)
     rendered = Rendered(headline=headline_for(status, reason), ok=True)
-    rendered.blocks.extend(formatter(payload))
+    if operation.formatter == "tokens":
+        # The one formatter that needs to know what the catalogue expects.
+        field = operation.loads.name_field if operation.loads else "name"
+        rendered.blocks.extend(_tokens(payload, field))
+    else:
+        rendered.blocks.extend(_FORMATTERS.get(operation.formatter, _generic)(payload))
     return rendered
 
 
@@ -475,47 +485,84 @@ def render(operation: Operation, status: int, reason: str, raw: str) -> Rendered
 # so it can be tested. The response panel and the history details pane both
 # render through here, which is why the two never drift apart.
 
-OK_COLOUR = "#0f7d5c"
-BAD_COLOUR = "#c2410c"
+@dataclass(frozen=True, slots=True)
+class Theme:
+    """The colours the rendered HTML uses, so a dark desktop is not grey on dark.
+
+    QTextBrowser paints its own background from the widget palette, so a
+    formatter that hardcodes ink for a near-white ground produces mid-grey text
+    on a dark panel for anybody running a dark system theme. The window picks
+    the pair; everything here just reads them.
+    """
+
+    ink: str
+    muted: str
+    rule: str
+    faint_rule: str
+    ok: str
+    bad: str
 
 
-def _rows_html(rows: tuple[Row, ...]) -> str:
+LIGHT = Theme(
+    ink="#1b1917",
+    muted="#7a746a",
+    rule="#d8d2c6",
+    faint_rule="#eee8dc",
+    ok="#0f7d5c",
+    bad="#c2410c",
+)
+
+DARK = Theme(
+    ink="#f2eee6",
+    muted="#a79f91",
+    rule="#4c463c",
+    faint_rule="#332f28",
+    ok="#43bf95",
+    bad="#e08a4f",
+)
+
+# Kept for the callers that want the accent without a whole theme.
+OK_COLOUR = LIGHT.ok
+BAD_COLOUR = LIGHT.bad
+
+
+def _rows_html(rows: tuple[Row, ...], theme: Theme) -> str:
     """Render labelled values as a two column table."""
     cells = []
     for row in rows:
         hint = (
-            "<div style='color:#7a746a;font-size:11px'>%s</div>" % escape(row.hint)
+            "<div style='color:%s;font-size:11px'>%s</div>" % (theme.muted, escape(row.hint))
             if row.hint
             else ""
         )
         cells.append(
             "<tr>"
-            "<td style='padding:3px 14px 3px 0;color:#7a746a;vertical-align:top;"
+            "<td style='padding:3px 14px 3px 0;color:%s;vertical-align:top;"
             "white-space:nowrap'>%s</td>"
             "<td style='padding:3px 0;vertical-align:top'>%s%s</td>"
-            "</tr>" % (escape(row.label), escape(row.value) or "&#183;", hint)
+            "</tr>" % (theme.muted, escape(row.label), escape(row.value) or "&#183;", hint)
         )
     return "<table style='border-collapse:collapse'>%s</table>" % "".join(cells)
 
 
-def _table_html(block: Table) -> str:
+def _table_html(block: Table, theme: Theme) -> str:
     """Render a grid."""
     head = "".join(
-        "<th style='text-align:left;padding:4px 14px 4px 0;color:#7a746a;"
-        "font-weight:normal;border-bottom:1px solid #d8d2c6;white-space:nowrap'>%s</th>"
-        % escape(column)
+        "<th style='text-align:left;padding:4px 14px 4px 0;color:%s;"
+        "font-weight:normal;border-bottom:1px solid %s;white-space:nowrap'>%s</th>"
+        % (theme.muted, theme.rule, escape(column))
         for column in block.columns
     )
     body = []
     for row in block.rows:
         cells = "".join(
             "<td style='padding:4px 14px 4px 0;vertical-align:top;"
-            "border-bottom:1px solid #eee8dc'>%s</td>" % (escape(cell) or "&#183;")
+            "border-bottom:1px solid %s'>%s</td>" % (theme.faint_rule, escape(cell) or "&#183;")
             for cell in row
         )
         body.append("<tr>%s</tr>" % cells)
     title = (
-        "<div style='margin:10px 0 4px;color:#7a746a'>%s</div>" % escape(block.title)
+        "<div style='margin:10px 0 4px;color:%s'>%s</div>" % (theme.muted, escape(block.title))
         if block.title
         else ""
     )
@@ -526,16 +573,16 @@ def _table_html(block: Table) -> str:
     )
 
 
-def as_html(rendered: Rendered) -> str:
+def as_html(rendered: Rendered, theme: Theme = LIGHT) -> str:
     """Render a response as the HTML the panel displays.
 
     Never a JSON dump. The raw body is available from the history pane, which is
     a network tab and would be useless without it, but the main panel shows only
     what the formatters made of it.
     """
-    colour = OK_COLOUR if rendered.ok else BAD_COLOUR
+    colour = theme.ok if rendered.ok else theme.bad
     parts = [
-        "<div style='font-family:sans-serif;font-size:13px'>",
+        "<div style='font-family:sans-serif;font-size:13px;color:%s'>" % theme.ink,
         "<div style='color:%s;font-weight:600;margin-bottom:10px'>%s</div>"
         % (colour, escape(rendered.headline)),
     ]
@@ -543,7 +590,7 @@ def as_html(rendered: Rendered) -> str:
     for block in rendered.blocks:
         if isinstance(block, Note):
             parts.append(
-                "<div style='margin:8px 0;color:#56514a'>%s</div>" % escape(block.text)
+                "<div style='margin:8px 0;color:%s'>%s</div>" % (theme.muted, escape(block.text))
             )
         elif isinstance(block, Section):
             if block.title:
@@ -551,9 +598,9 @@ def as_html(rendered: Rendered) -> str:
                     "<div style='margin:12px 0 4px;font-weight:600'>%s</div>"
                     % escape(block.title)
                 )
-            parts.append(_rows_html(block.rows))
+            parts.append(_rows_html(block.rows, theme))
         else:
-            parts.append(_table_html(block))
+            parts.append(_table_html(block, theme))
 
     parts.append("</div>")
     return "".join(parts)

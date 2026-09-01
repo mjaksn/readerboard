@@ -268,3 +268,38 @@ def test_a_real_success_still_says_so():
 def test_a_four_hundred_keeps_the_meaning_it_had():
     result, _text = rendered_text("get_message", 404, json.dumps({"detail": "nope"}))
     assert "no slot by that name" in result.headline
+
+
+def test_the_rendered_html_takes_its_ink_from_the_theme():
+    from relayclient.format import DARK, LIGHT
+
+    result = render(catalogue.BY_ID["get_alert"], 200, "OK", "null")
+    light = as_html(result, LIGHT)
+    dark = as_html(result, DARK)
+    assert LIGHT.ink in light and LIGHT.muted in light
+    assert DARK.ink in dark and DARK.muted in dark
+    # The point of the pair: neither theme's ink may leak into the other, which
+    # is what produces grey on dark.
+    assert DARK.ink not in light
+    assert LIGHT.muted not in dark
+
+
+def test_an_enumeration_is_read_with_the_field_the_catalogue_names():
+    # The simple display modes endpoint names its entries `display_mode`. A
+    # payload in the other shape must not render a healthy table here while
+    # enums.parse rejects it, which is what guessing the field produced.
+    v2_shape = json.dumps([{"name": "HOLD", "description": "hold"}])
+    _result, text = rendered_text("simple_display_modes", 200, v2_shape)
+    assert "HOLD" not in text
+
+    own_shape = json.dumps([{"display_mode": "HOLD", "description": "hold"}])
+    _result, text = rendered_text("simple_display_modes", 200, own_shape)
+    assert "HOLD" in text
+
+
+def test_the_always_200_note_is_not_attached_to_a_status_that_means_it():
+    body = json.dumps({"result": "ERROR", "result_message": "the sign is unreachable"})
+    _result, text = rendered_text("simple_write_message", 503, body)
+    assert "answers 200 whatever happens" not in text
+    _result, text = rendered_text("simple_write_message", 200, body)
+    assert "answers 200 whatever happens" in text

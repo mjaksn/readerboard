@@ -6,12 +6,12 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import REPO_ROOT
 
 from relayclient import catalogue
 from relayclient.skew import UnreadableDescription, compare, paths_in, version_in
 
-OPENAPI = Path(REPO_ROOT) / "docs" / "openapi.json"
+# Not imported from conftest; see the note in test_catalogue.py.
+OPENAPI = Path(__file__).resolve().parents[3] / "docs" / "openapi.json"
 
 
 def current() -> dict:

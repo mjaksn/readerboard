@@ -88,7 +88,6 @@ class EntryPicker(QDialog):
             self._insert_button.clicked.connect(self._take)
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
-        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
         layout.addWidget(buttons)
 
         self._apply_filter("")
@@ -122,7 +121,13 @@ class EntryPicker(QDialog):
 class ErrorDialog(QDialog):
     """The full content of a failed response, as required whenever one arrives."""
 
-    def __init__(self, rendered: fmt.Rendered, *, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        rendered: fmt.Rendered,
+        *,
+        parent: QWidget | None = None,
+        theme: fmt.Theme = fmt.LIGHT,
+    ) -> None:
         """Build the dialog around an already rendered failure."""
         super().__init__(parent)
         self.setWindowTitle("The service reported a problem")
@@ -131,7 +136,7 @@ class ErrorDialog(QDialog):
         layout = QVBoxLayout(self)
 
         summary = QTextBrowser()
-        summary.setHtml(fmt.as_html(rendered))
+        summary.setHtml(fmt.as_html(rendered, theme))
         layout.addWidget(summary, 1)
 
         layout.addWidget(QLabel("The response exactly as it arrived:"))
@@ -147,7 +152,6 @@ class ErrorDialog(QDialog):
         )
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
-        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
         layout.addWidget(buttons)
 
 
@@ -180,7 +184,7 @@ def _body_html(title: str, body: str | None) -> str:
     )
 
 
-def record_html(record: Record) -> str:
+def record_html(record: Record, theme: fmt.Theme = fmt.LIGHT) -> str:
     """Render one history entry as the details pane shows it."""
     operation = catalogue.BY_ID.get(record.operation_id)
     rendered = (
@@ -188,10 +192,10 @@ def record_html(record: Record) -> str:
         if operation is not None
         else None
     )
-    colour = fmt.OK_COLOUR if record.ok else fmt.BAD_COLOUR
+    colour = theme.ok if record.ok else theme.bad
 
     parts = [
-        "<div style='font-family:sans-serif;font-size:13px'>",
+        "<div style='font-family:sans-serif;font-size:13px;color:%s'>" % theme.ink,
         "<div style='color:%s;font-weight:600;font-size:14px'>%s %s</div>"
         % (colour, escape(record.method), escape(record.path)),
         "<div style='color:#7a746a;margin-bottom:6px'>%s</div>" % escape(record.summary),
@@ -215,7 +219,7 @@ def record_html(record: Record) -> str:
 
     if rendered is not None:
         parts.append("<div style='margin:12px 0 4px;font-weight:600'>Response, read back</div>")
-        parts.append(fmt.as_html(rendered))
+        parts.append(fmt.as_html(rendered, theme))
 
     parts.append(_body_html("Response body, exactly as it arrived", record.response_body))
     parts.append("</div>")
@@ -225,21 +229,21 @@ def record_html(record: Record) -> str:
 class HistoryDialog(QDialog):
     """Every call this run has made, with a details pane beside the list."""
 
-    def __init__(self, history: History, *, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        history: History,
+        *,
+        parent: QWidget | None = None,
+        theme: fmt.Theme = fmt.LIGHT,
+    ) -> None:
         """Build the dialog over the run's history."""
         super().__init__(parent)
+        self._theme = theme
         self.setWindowTitle("Calls made this run")
         self.resize(1000, 620)
         self._records = history.latest_first()
 
         layout = QVBoxLayout(self)
-
-        if not self._records:
-            layout.addWidget(QLabel("No calls have been made yet."))
-            close_only = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-            close_only.rejected.connect(self.reject)
-            layout.addWidget(close_only)
-            return
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
 
@@ -261,6 +265,8 @@ class HistoryDialog(QDialog):
         splitter.addWidget(self._list)
 
         self._details = QTextBrowser()
+        if not self._records:
+            self._details.setPlainText("No calls have been made yet.")
         splitter.addWidget(self._details)
         splitter.setSizes([380, 620])
         layout.addWidget(splitter, 1)
@@ -278,11 +284,11 @@ class HistoryDialog(QDialog):
         holder.setLayout(footer)
         buttons.addButton(QDialogButtonBox.StandardButton.Close)
         buttons.rejected.connect(self.reject)
-        buttons.button(QDialogButtonBox.StandardButton.Close).clicked.connect(self.reject)
         layout.addWidget(holder)
 
-        self._list.selectRow(0)
-        self._show()
+        if self._records:
+            self._list.selectRow(0)
+            self._show()
 
     def _current(self) -> Record | None:
         """Return the highlighted record, if there is one."""
@@ -295,7 +301,7 @@ class HistoryDialog(QDialog):
         """Fill the details pane from the highlighted record."""
         record = self._current()
         if record is not None:
-            self._details.setHtml(record_html(record))
+            self._details.setHtml(record_html(record, self._theme))
 
     def _copy_curl(self) -> None:
         """Put the highlighted call on the clipboard as a curl command."""

@@ -16,4 +16,7 @@ for _path in (str(_TOOL_ROOT), str(_REPO_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-REPO_ROOT = Path(_REPO_ROOT)
+# Nothing is exported. Both tools have a conftest.py, pytest imports each by
+# its basename, and a test that does `from conftest import ...` gets whichever
+# one reached sys.modules first. The tests work the repository root out for
+# themselves instead.

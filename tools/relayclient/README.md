@@ -14,8 +14,10 @@ python tools/relayclient/run.py --base-url http://192.168.2.40:8000
 ```
 
 Qt is not a dependency of the service and must not become one. This tool has its
-own hash-pinned lock file, `tools/` is in `.dockerignore`, and nothing in
-`pyproject.toml` mentions either of them.
+own hash-pinned lock file, `tools/` is in `.dockerignore`, and `pyproject.toml`
+names no Qt package at all. It does mention this directory, in `testpaths`, the
+per-file lint ignores and the import-sorting list, none of which installs
+anything.
 
 ```
 pip install --require-hashes -r tools/relayclient/requirements.lock

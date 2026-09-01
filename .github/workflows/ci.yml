@@ -74,10 +74,10 @@ jobs:
             echo "::error::the tools' lock files have diverged, and this job installs both into one environment; give each its own before moving either"
             exit 1
           fi
+      # One install, because the step above has just proved the two files
+      # identical. Split this at the same time as the guard, not before.
       - name: install the tools' dependencies
-        run: |
-          pip install --require-hashes -r tools/signsim/requirements.lock
-          pip install --require-hashes -r tools/relayclient/requirements.lock
+        run: pip install --require-hashes -r tools/signsim/requirements.lock
       - name: mypy the sign simulator
         run: mypy tools/signsim/signsim
         env:
@@ -92,6 +92,12 @@ jobs:
       # signal connected to an attribute that does not exist yet, which raises
       # only on construction. Qt is already installed for the checks above, so
       # building each of them once offscreen costs seconds and closes it.
+      # Every step before this one only reads PySide6's stubs; this is the
+      # first that loads Qt itself, and libQt6Gui links against libraries the
+      # runner image does not carry as standard. Without these the step dies on
+      # a dlopen failure that points at Qt rather than at the missing package.
+      - name: the shared libraries Qt loads at run time
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libxkbcommon0 libfontconfig1
       - name: build the tools' windows once
         run: |
           python -c "import sys; sys.path.insert(0, 'tools/relayclient'); from PySide6.QtWidgets import QApplication; from relayclient.window import MainWindow; app = QApplication([]); MainWindow()"

@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -130,7 +130,7 @@ class EnumerationPanel(QGroupBox):
                 self._view[set_key].setEnabled(False)
             else:
                 label.setText(loaded.summary())
-                label.setStyleSheet("color:%s" % fmt.OK_COLOUR)
+                label.setStyleSheet("color:%s" % self._window.theme.ok)
                 self._view[set_key].setEnabled(True)
 
     def _show(self, set_key: str) -> None:
@@ -153,6 +153,7 @@ class OperationForm(QWidget):
         self._window = window
         self._path: dict[str, QWidget] = {}
         self._body: dict[str, QWidget] = {}
+        self._token_buttons: list[QPushButton] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -242,7 +243,6 @@ class OperationForm(QWidget):
             insert.clicked.connect(
                 lambda _checked=False, name=item.name: self._insert_token(name)
             )
-            self._token_buttons = getattr(self, "_token_buttons", [])
             self._token_buttons.append(insert)
 
             row = QVBoxLayout()
@@ -329,7 +329,7 @@ class OperationForm(QWidget):
             widget = self._body.get(item.name)
             if item.enum_set and isinstance(widget, QComboBox):
                 self._fill_combo(item, widget)
-        for button in getattr(self, "_token_buttons", []):
+        for button in self._token_buttons:
             self._refresh_token_button(button)
 
     def offer_slot_keys(self, keys: list[str]) -> None:
@@ -382,6 +382,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("readerboard client")
         self.resize(1280, 840)
+
+        # QTextBrowser and the labels paint on the palette's own ground, so the
+        # ink has to come from the same place or a dark desktop reads grey on
+        # dark. Decided once here rather than guessed per render.
+        ground = self.palette().color(QPalette.ColorRole.Base)
+        self.theme = fmt.DARK if ground.lightness() < 128 else fmt.LIGHT
 
         self.store = enums.EnumStore()
         self.history = History()
@@ -470,7 +476,9 @@ class MainWindow(QMainWindow):
         health.clicked.connect(lambda: self.run(catalogue.BY_ID["health"]))
 
         history = QPushButton("History")
-        history.clicked.connect(lambda: HistoryDialog(self.history, parent=self).exec())
+        history.clicked.connect(
+            lambda: HistoryDialog(self.history, parent=self, theme=self.theme).exec()
+        )
 
         self.surface = QLabel("")
         self.surface.setStyleSheet(MUTED)
@@ -528,15 +536,13 @@ class MainWindow(QMainWindow):
     def _build_response(self) -> QWidget:
         """Build the status strip and the formatted response below it."""
         self.status_strip = QLabel("No call made yet.")
-        self.status_strip.setStyleSheet(
-            "padding:7px 10px;border-radius:4px;background:#efebe3;color:#56514a"
-        )
+        self.status_strip.setStyleSheet("padding:7px 10px;border-radius:4px")
 
         self.response = QTextBrowser()
         self.response.setHtml(
-            "<div style='font-family:sans-serif;color:#7a746a'>"
+            "<div style='font-family:sans-serif;color:%s'>"
             "Pick an operation, fill anything it needs and press Send."
-            "</div>"
+            "</div>" % self.theme.muted
         )
 
         layout = QVBoxLayout()
@@ -569,6 +575,11 @@ class MainWindow(QMainWindow):
 
         if self._form is not None:
             self._form_holder.removeWidget(self._form)
+            # Removing from a layout does not hide it. Until the deferred delete
+            # runs it is still a child at its old geometry, overlapping the new
+            # form, and whether that is ever seen depends on event loop timing
+            # rather than on anything here.
+            self._form.setParent(None)
             self._form.deleteLater()
 
         self._form = OperationForm(catalogue.BY_ID[operation_id], self)
@@ -606,6 +617,12 @@ class MainWindow(QMainWindow):
         caller acting as though it had.
         """
         if self._caller.busy:
+            # Only Send is greyed while a call is out, so every other button
+            # that reaches here is still live. Saying so beats looking broken.
+            self._set_strip(
+                "Still waiting on the last call. %s was not sent." % operation.signature,
+                None,
+            )
             return False
 
         if operation.destructive:
@@ -681,13 +698,13 @@ class MainWindow(QMainWindow):
             "%s  %s  %d ms" % (operation.signature, rendered.headline, result.duration_ms),
             ok,
         )
-        self.response.setHtml(fmt.as_html(rendered))
+        self.response.setHtml(fmt.as_html(rendered, self.theme))
 
         if ok:
             self._absorb(operation, payload)
         else:
             # Required: every failure opens with its full content, not just a colour.
-            ErrorDialog(rendered, parent=self).exec()
+            ErrorDialog(rendered, parent=self, theme=self.theme).exec()
 
         if result.status:
             # Only once something has actually answered. A call that never
@@ -767,7 +784,7 @@ class MainWindow(QMainWindow):
             self._not_described(address, str(err))
             return
 
-        style = MUTED if difference.matches else "color:%s;font-weight:600" % fmt.BAD_COLOUR
+        style = MUTED if difference.matches else "color:%s;font-weight:600" % self.theme.bad
         self._remember_verdict(address, difference.summary(), difference.detail(), style)
         if difference.matches:
             return
@@ -808,11 +825,11 @@ class MainWindow(QMainWindow):
     def _set_strip(self, text: str, ok: bool | None) -> None:
         """Colour the status strip by outcome, or neutrally while in flight."""
         if ok is None:
-            background, colour = "#efebe3", "#56514a"
+            background, colour = "transparent", self.theme.muted
         elif ok:
-            background, colour = "#e2f1ea", fmt.OK_COLOUR
+            background, colour = "transparent", self.theme.ok
         else:
-            background, colour = "#f7e4da", fmt.BAD_COLOUR
+            background, colour = "transparent", self.theme.bad
         self.status_strip.setStyleSheet(
             "padding:7px 10px;border-radius:4px;background:%s;color:%s;font-weight:600"
             % (background, colour)

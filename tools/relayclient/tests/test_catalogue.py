@@ -13,11 +13,15 @@ import json
 from pathlib import Path
 
 import pytest
-from conftest import REPO_ROOT
 
 from relayclient import catalogue, skew
 
-OPENAPI = Path(REPO_ROOT) / "docs" / "openapi.json"
+# Worked out here rather than imported from conftest. Both tools have a
+# conftest.py, pytest imports each by its basename, and whichever lands in
+# sys.modules first wins: importing a name from "conftest" resolves to the
+# other tool's file and fails collection depending on the order the paths are
+# given. tests / relayclient / tools / the repository.
+OPENAPI = Path(__file__).resolve().parents[3] / "docs" / "openapi.json"
 
 
 def described() -> set[tuple[str, str]]:
@@ -120,40 +124,24 @@ def test_only_clearing_every_message_is_marked_destructive():
     assert destructive == {"clear_messages"}
 
 
-def test_every_write_carries_the_key():
-    for operation_id in (
-        "put_message",
-        "delete_message",
-        "clear_messages",
-        "post_alert",
-        "delete_alert",
-        "sync_clock",
-        "send_command",
-        "simple_write_message",
-        "simple_control_command",
-    ):
-        assert catalogue.BY_ID[operation_id].needs_key, operation_id
-
-
-def test_the_keyless_operations_are_exactly_the_reads():
-    # Spelled out rather than sampled, because a note in the catalogue once
-    # claimed health was the only endpoint needing no key and there are eleven.
-    # Only the writes carry one; every read is open, which is what the service
-    # documents.
-    keyless = {operation.id for operation in catalogue.OPERATIONS if not operation.needs_key}
-    assert keyless == {
-        "health",
-        "list_messages",
-        "get_message",
-        "get_alert",
-        "v2_markup_tokens",
-        "v2_display_modes",
-        "v2_text_positions",
-        "v2_control_commands",
-        "simple_markup_tokens",
-        "simple_display_modes",
-        "simple_control_commands",
+def test_the_operations_that_need_a_key_are_the_ones_the_service_secures():
+    # Diffed rather than restated. Two hand-written lists of ids agreeing with
+    # each other is the self-comparison this module exists to avoid: if the
+    # service started securing a read, both lists would still pass and the
+    # client would send no key and get a 401 that looked like its own fault.
+    document = json.loads(OPENAPI.read_text(encoding="utf-8"))
+    secured = {
+        (method.upper(), path)
+        for path, operations in document["paths"].items()
+        for method, operation in operations.items()
+        if method.lower() in skew.HTTP_METHODS and operation.get("security")
     }
+    catalogued = {
+        (operation.method, operation.path)
+        for operation in catalogue.OPERATIONS
+        if operation.needs_key
+    }
+    assert catalogued == secured
 
 
 def test_no_note_claims_health_is_the_only_keyless_endpoint():
