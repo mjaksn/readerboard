@@ -279,9 +279,12 @@ claim. Read it before changing anything in `readerboard/protocol/`.
 `scripts/protocol_spike.py` settles the few questions the document cannot answer about
 this particular sign. It is destructive and refuses to run without `--confirm-erase`.
 
-`tools/signsim/` is a PySide6 stand-in for the sign, described above. Its own tests
-are collected by the `pytest` run here and need no Qt installed; the application does,
-and it is pinned separately so that nothing the service installs ever pulls Qt in.
+`tools/signsim/` is a PySide6 stand-in for the sign, described above, and
+`tools/relayclient/` is a PySide6 client for calling the API by hand: every endpoint,
+responses shown as text rather than JSON, and a vocabulary it loads from the service
+rather than one compiled into it. The tests of both are collected by the `pytest` run
+here and need no Qt installed; the applications do, and each is pinned separately so
+that nothing the service installs ever pulls Qt in.
 
 `scripts/run_with_simulator.py` starts the service and the simulator together. Both
 editors have it as a launch configuration, "API and sign simulator" in

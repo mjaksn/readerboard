@@ -14,7 +14,39 @@ library, and the names inside it may move without that being a breaking change.
 
 No path, request body, response body, status code or setting name changes, and
 no byte this service sends to a sign changes either. What changes is where the
-protocol constants come from, and how the state file is written on Windows.
+protocol constants come from, how the state file is written on Windows, and a
+second tool alongside the simulator for exercising the API by hand.
+
+### Added
+
+- **A desktop client for the HTTP surface, `tools/relayclient/`.** The simulator
+  stands in for the sign; this stands in for a caller. It can call all twenty
+  endpoints, and the twenty are checked rather than claimed: its endpoint table
+  is diffed against `docs/openapi.json` for every endpoint in both directions,
+  and for each one the body field names and which of them are required. A route
+  or a field added here fails that tool's tests in the same commit.
+
+  It also asks each address it is pointed at for that service's own description,
+  once, and reports when the surface it finds is not the one it was built for.
+  Pointed at a Pi running an older release, it says so rather than leaving the
+  difference to be discovered as a 404 that looks like a bug in the client.
+
+  Responses are read back as text rather than printed as JSON, with a formatter
+  for each shape the service answers with, including the null alert, the 204,
+  and both error shapes. Two things in it are load bearing rather than
+  cosmetic. The enumerations are empty until a button is pressed, so the markup
+  tokens a message field offers are the ones this service answered rather than a
+  copy that went stale in the client. And an error is not a 4xx: the simple
+  surface answers 200 with the outcome in the body, so a `result` of `ERROR` is
+  treated as the failure it is, and so is a body that is not JSON at all, which
+  is what being pointed at a proxy error page looks like. A client that coloured
+  by status code alone would show a failed write in green.
+
+  It is a tool, not part of the service. Qt stays out of `pyproject.toml`,
+  `tools/` stays in `.dockerignore`, and the client has its own hash-pinned lock
+  file, the fourth in the tree. It needs no dependency the simulator did not
+  already have, because its HTTP client is `QtNetwork`. `tools/relayclient/README.md`
+  has the rest.
 
 ### Changed
 

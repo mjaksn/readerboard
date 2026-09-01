@@ -31,9 +31,8 @@ CLAUDE.md
 Dockerfile
 .dockerignore
 
-# The sign simulator, which is a desktop Qt application for watching what the
-# service sends. The image builds for 32-bit arm among others, and Qt has no
-# business anywhere near that.
+# The two desktop Qt tools, the sign simulator and the API client. The image
+# builds for 32-bit arm among others, and Qt has no business anywhere near that.
 tools/
 
 # Build leftovers. An egg-info from a local editable install names paths that do

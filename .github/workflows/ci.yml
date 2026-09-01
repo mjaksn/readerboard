@@ -54,18 +54,56 @@ jobs:
         # of what a consumer receives and are worth checking.
         run: mypy readerboard
 
-      # The sign simulator is not part of the package and is not installed with
-      # it, so `mypy readerboard` above does not reach it and neither does the
-      # test job, which deliberately runs without Qt. Left out, the invocation
-      # its README documents would be run by nothing at all, which is the same
-      # way the release path used to rot: a thing exercised only by hand is a
-      # thing nobody finds out about until they need it.
-      - name: install the simulator's dependencies
+      # Neither tool under tools/ is part of the package or installed with it,
+      # so `mypy readerboard` above reaches neither, and nor does the test job,
+      # which deliberately runs without Qt. Left out, the invocations their
+      # READMEs document would be run by nothing at all, which is the same way
+      # the release path used to rot: a thing exercised only by hand is a thing
+      # nobody finds out about until they need it.
+      #
+      # The two lock files exist so that either tool can move Qt without the
+      # other having to. This job installs both into one environment, so for as
+      # long as that is true they have to agree: otherwise the second install
+      # replaces the first, and the checks below run against a Qt one of the
+      # tools never pinned, with a green tick either way. Diverging is allowed;
+      # doing it without splitting this job is not, and this is what says so.
+      - name: the tools pin the same Qt, which sharing one environment requires
+        run: |
+          strip() { grep -vE '^\s*(#|$)' "$1"; }
+          if ! diff <(strip tools/signsim/requirements.lock) <(strip tools/relayclient/requirements.lock); then
+            echo "::error::the tools' lock files have diverged, and this job installs both into one environment; give each its own before moving either"
+            exit 1
+          fi
+      # One install, because the step above has just proved the two files
+      # identical. Split this at the same time as the guard, not before.
+      - name: install the tools' dependencies
         run: pip install --require-hashes -r tools/signsim/requirements.lock
       - name: mypy the sign simulator
         run: mypy tools/signsim/signsim
         env:
           MYPYPATH: tools/signsim
+      - name: mypy the relay client
+        run: mypy tools/relayclient/relayclient
+        env:
+          MYPYPATH: tools/relayclient
+
+      # The tools' own test suites run without Qt, deliberately, so nothing in
+      # them ever builds a window. That leaves a gap exactly the width of a
+      # signal connected to an attribute that does not exist yet, which raises
+      # only on construction. Qt is already installed for the checks above, so
+      # building each of them once offscreen costs seconds and closes it.
+      # Every step before this one only reads PySide6's stubs; this is the
+      # first that loads Qt itself, and libQt6Gui links against libraries the
+      # runner image does not carry as standard. Without these the step dies on
+      # a dlopen failure that points at Qt rather than at the missing package.
+      - name: the shared libraries Qt loads at run time
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libxkbcommon0 libfontconfig1
+      - name: build the tools' windows once
+        run: |
+          python -c "import sys; sys.path.insert(0, 'tools/relayclient'); from PySide6.QtWidgets import QApplication; from relayclient.window import MainWindow; app = QApplication([]); MainWindow()"
+          python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
+        env:
+          QT_QPA_PLATFORM: offscreen
 
   test:
     name: tests ${{ matrix.python }} on ${{ matrix.os }}

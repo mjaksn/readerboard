@@ -1,15 +1,23 @@
-# The simulator's dependency, pinned and hashed the way the service's are.
+# The relay client's dependency, pinned and hashed the way the service's are.
 #
 # This file is not part of the service. Nothing here is installed by the
 # container image, by scripts/install.sh or by the wheel, and it must stay that
 # way: the image builds for linux/arm/v7 under emulation, and Qt has no business
 # anywhere near that.
 #
-# PySide6-Essentials rather than the PySide6 meta package. The simulator imports
+# The same two pins as tools/signsim/requirements.lock, and deliberately a
+# separate file rather than a shared one: the two tools are independent, and one
+# of them moving Qt should not oblige the other to move on the same day.
+#
+# PySide6-Essentials rather than the PySide6 meta package. The client imports
 # QtCore, QtGui, QtWidgets and QtNetwork, all of which are in Essentials. The
 # meta package also pulls in Addons, which is a large download for modules this
 # never touches. shiboken6 is named because Essentials requires it, and a pinned
 # install has to name everything it will fetch.
+#
+# QtNetwork is why this tool needs nothing else. The HTTP client is Qt's own, so
+# there is no requests, no httpx and no certifi to pin, and the logic that would
+# otherwise sit behind them is in the modules that import no Qt at all.
 #
 # Refreshed by scripts/lock_hashes.py, the same as the other three lock files.
 
