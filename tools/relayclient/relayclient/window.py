@@ -36,13 +36,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from relayclient import catalogue, enums
+from relayclient import catalogue, enums, skew
 from relayclient import format as fmt
 from relayclient import request as request_module
 from relayclient.catalogue import Input, Operation
 from relayclient.dialogs import CurlPreview, EntryPicker, ErrorDialog, HistoryDialog
 from relayclient.history import History
-from relayclient.net import Caller, Completed
+from relayclient.net import Caller, Completed, DescriptionFetcher
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 
@@ -259,8 +259,8 @@ class OperationForm(QWidget):
 
         line = QLineEdit()
         line.setPlaceholderText(item.description)
-        if item.default is not None:
-            line.setText(str(item.default))
+        if item.prefill is not None:
+            line.setText(str(item.prefill))
         self._body[item.name] = line
         return line
 
@@ -280,8 +280,8 @@ class OperationForm(QWidget):
             )
         if current:
             combo.setCurrentText(current)
-        elif item.default is not None:
-            combo.setCurrentText(str(item.default))
+        elif item.prefill is not None:
+            combo.setCurrentText(str(item.prefill))
 
     def _refresh_token_button(self, button: QPushButton) -> None:
         """Enable the token inserter only once the tokens are actually loaded."""
@@ -366,6 +366,13 @@ class MainWindow(QMainWindow):
         self.history = History()
         self._caller = Caller(self)
         self._caller.completed.connect(self._completed)
+        self._describer = DescriptionFetcher(self)
+        self._describer.fetched.connect(self._described)
+        self._describer.failed.connect(self._not_described)
+        # One check per address, and only after something has answered, so that
+        # an unreachable service is reported by the call that failed rather than
+        # by a second complaint about a file nobody asked for.
+        self._checked: set[str] = set()
         self._settings = QSettings()
         self._form: OperationForm | None = None
         self._pending_slot_keys = False
@@ -437,6 +444,13 @@ class MainWindow(QMainWindow):
         history = QPushButton("History")
         history.clicked.connect(lambda: HistoryDialog(self.history, parent=self).exec())
 
+        self.surface = QLabel("")
+        self.surface.setStyleSheet(MUTED)
+        self.surface.setToolTip(
+            "Whether the service's own description matches the surface this client "
+            "was built for. Checked once per address."
+        )
+
         row = QHBoxLayout()
         row.addWidget(QLabel("Base URL"))
         row.addWidget(self.base_url, 2)
@@ -445,8 +459,13 @@ class MainWindow(QMainWindow):
         row.addWidget(health)
         row.addWidget(history)
 
+        outer = QVBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(row)
+        outer.addWidget(self.surface)
+
         holder = QWidget()
-        holder.setLayout(row)
+        holder.setLayout(outer)
         return holder
 
     def _build_form_side(self) -> QWidget:
@@ -627,6 +646,8 @@ class MainWindow(QMainWindow):
             # Required: every failure opens with its full content, not just a colour.
             ErrorDialog(rendered, parent=self).exec()
 
+        self._check_surface()
+
         if self._pending_slot_keys and operation.id == "list_messages":
             self._pending_slot_keys = False
             if ok and isinstance(payload, list):
@@ -657,6 +678,48 @@ class MainWindow(QMainWindow):
         self.enumerations.refresh()
         if self._form is not None:
             self._form.refresh_enumerations()
+
+    def _check_surface(self) -> None:
+        """Ask this address to describe itself, the first time it answers anything."""
+        try:
+            address = request_module.normalise_base_url(self.base_url.text())
+        except request_module.InvalidRequest:
+            return
+        if address in self._checked:
+            return
+        self._checked.add(address)
+        self._describer.fetch(address)
+
+    def _described(self, document: object) -> None:
+        """Say whether the service's surface is the one this client was built for."""
+        try:
+            difference = skew.compare(document, catalogue.OPERATIONS)
+        except skew.UnreadableDescription as err:
+            self._not_described(str(err))
+            return
+
+        self.surface.setText(difference.summary())
+        self.surface.setToolTip(difference.detail())
+        if difference.matches:
+            self.surface.setStyleSheet(MUTED)
+            return
+
+        self.surface.setStyleSheet("color:%s;font-weight:600" % fmt.BAD_COLOUR)
+        QMessageBox.warning(
+            self,
+            "This service is not the one this client was built for",
+            difference.detail(),
+        )
+
+    def _not_described(self, reason: str) -> None:
+        """Say that the surface could not be checked, without making a fuss of it."""
+        self.surface.setText("surface not checked: %s" % reason)
+        self.surface.setToolTip(
+            "The service did not hand over %s, so this client cannot tell whether the "
+            "surface it offers is the one the service has. Calls are unaffected."
+            % skew.DESCRIPTION_PATH
+        )
+        self.surface.setStyleSheet(MUTED)
 
     def _set_strip(self, text: str, ok: bool | None) -> None:
         """Colour the status strip by outcome, or neutrally while in flight."""

@@ -12,6 +12,7 @@ behind one lock, so overlapping calls would tell you less than they appear to.
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 
@@ -19,6 +20,7 @@ from PySide6.QtCore import QByteArray, QObject, QUrl, Signal
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
 from relayclient.request import Prepared
+from relayclient.skew import DESCRIPTION_PATH
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,3 +122,57 @@ class Caller(QObject):
                 duration_ms=duration_ms,
             )
         )
+
+
+class DescriptionFetcher(QObject):
+    """Asks a service to describe itself, on a connection of its own.
+
+    Deliberately not routed through :class:`Caller`. This is not a call anybody
+    made, so it must not occupy the one in-flight slot, must not turn the Send
+    button off, and must not appear in the history beside the calls that were
+    actually asked for.
+    """
+
+    fetched = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, parent: QObject | None = None) -> None:
+        """Build the fetcher with its own network manager."""
+        super().__init__(parent)
+        self._manager = QNetworkAccessManager(self)
+        self._reply: QNetworkReply | None = None
+
+    def fetch(self, base_url: str) -> None:
+        """Fetch the description from a base URL, replacing any fetch in progress."""
+        if self._reply is not None:
+            self._reply.abort()
+            self._reply = None
+
+        request = QNetworkRequest(QUrl(base_url.rstrip("/") + DESCRIPTION_PATH))
+        request.setRawHeader(b"Accept", b"application/json")
+        reply = self._manager.get(request)
+        self._reply = reply
+        reply.finished.connect(self._finished)
+
+    def _finished(self) -> None:
+        """Parse what came back, or say why it could not be had."""
+        reply = self._reply
+        self._reply = None
+        if reply is None:
+            return
+
+        body = bytes(reply.readAll().data()).decode("utf-8", "replace")
+        status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+        error = reply.errorString()
+        reply.deleteLater()
+
+        if status is None:
+            self.failed.emit(error)
+            return
+        if int(status) != 200:
+            self.failed.emit("the service answered %d for %s" % (int(status), DESCRIPTION_PATH))
+            return
+        try:
+            self.fetched.emit(json.loads(body))
+        except ValueError as err:
+            self.failed.emit("the description did not parse: %s" % err)

@@ -107,12 +107,12 @@ def build_body(operation: Operation, values: dict[str, str]) -> dict[str, object
         raw = values.get(item.name)
         text = "" if raw is None else str(raw)
         if not text.strip():
-            if item.required and item.default is None:
+            if item.required and item.prefill is None:
                 # Still sent, so the service can answer for it rather than the
                 # client deciding what an empty required field means.
                 body[item.name] = ""
-            elif item.required and item.default is not None:
-                body[item.name] = item.default
+            elif item.required and item.prefill is not None:
+                body[item.name] = item.prefill
             continue
         body[item.name] = coerce(item.kind, text)
     return body

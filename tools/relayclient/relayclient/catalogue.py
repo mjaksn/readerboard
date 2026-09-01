@@ -40,12 +40,21 @@ SET_ORDER = (MARKUP_TOKENS, DISPLAY_MODES, TEXT_POSITIONS, CONTROL_COMMANDS)
 
 @dataclass(frozen=True, slots=True)
 class Input:
-    """One value the caller supplies, in the path or in the body."""
+    """One value the caller supplies, in the path or in the body.
+
+    ``prefill`` is what the field starts out holding, which is not the same as
+    the schema's default and is deliberately named so it cannot be mistaken for
+    it. Usually the two agree, and ``tests/test_catalogue.py`` insists on that
+    wherever the schema declares a default. Where it declares none the prefill
+    is a convenience of this client's own: ``POST /Write/Message`` requires a
+    display mode with no default, and starting that field on ``HOLD`` saves
+    typing the commonest answer without the service having promised it.
+    """
 
     name: str
     kind: str = "text"
     required: bool = False
-    default: object = None
+    prefill: object = None
     enum_set: str | None = None
     markup: bool = False
     slot_keys: bool = False
@@ -103,14 +112,14 @@ _MESSAGE_KEY = Input(
 
 _DISPLAY_MODE = Input(
     name="display_mode",
-    default="HOLD",
+    prefill="HOLD",
     enum_set=DISPLAY_MODES,
     description="how the sign presents the message",
 )
 
 _POSITION = Input(
     name="position",
-    default="MIDDLE",
+    prefill="MIDDLE",
     enum_set=TEXT_POSITIONS,
     description="where the text sits vertically",
 )
@@ -155,7 +164,7 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(
                 name="order",
                 kind="int",
-                default=0,
+                prefill=0,
                 description="lower numbers play earlier in the rotation",
             ),
             Input(
@@ -259,7 +268,11 @@ OPERATIONS: tuple[Operation, ...] = (
                 enum_set=CONTROL_COMMANDS,
                 description="one of the sign's own control commands",
             ),
-            Input(name="parameter", description="the command's parameter, if it takes one"),
+            Input(
+                name="parameter",
+                prefill="",
+                description="the command's parameter, if it takes one",
+            ),
         ),
         formatter="empty",
     ),
@@ -322,7 +335,7 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(
                 name="display_mode",
                 required=True,
-                default="HOLD",
+                prefill="HOLD",
                 enum_set=DISPLAY_MODES,
                 description="the display mode to use when showing the message",
             ),
@@ -351,7 +364,7 @@ OPERATIONS: tuple[Operation, ...] = (
                 enum_set=CONTROL_COMMANDS,
                 description="the control command to send to the sign",
             ),
-            Input(name="parameter", description="a parameter for the command"),
+            Input(name="parameter", prefill="", description="a parameter for the command"),
         ),
         formatter="simple",
         note="Answers 200 whatever happens; the outcome is in the body.",

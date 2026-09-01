@@ -61,6 +61,20 @@ failed write in green. This one treats a 4xx or 5xx *or* a simple-surface
 `result` of `ERROR` as a failure: the status strip turns red and the full
 response opens in a dialog.
 
+**It says when it is pointed at a different service than it was built for.**
+The catalogue below describes the surface in this checkout. A Pi that has not been
+updated still answers the surface it shipped with, and without a word about it the
+way you would find out is a 404 that looks like a bug in the client. So the first
+time an address answers anything, the client asks it for its own
+`/openapi.json` and reports the difference: the version it found, what this client
+offers that the service does not have, and what the service has that this client
+cannot call. It is one line beside the address, and a dialog when the two disagree.
+
+That check is not a call you made, so it runs on its own connection, stays out of
+the history, and never occupies the one in-flight slot. A service that will not
+hand over its description is reported as unchecked rather than as broken, and
+calls are unaffected either way.
+
 **History, in the shape a network tab has it.** Every call this run has made,
 with the request line, headers, body, status, timing and the response both read
 back and exactly as it arrived. Any of them can be copied as a curl command.
@@ -93,6 +107,7 @@ reason.
 | module | Qt | what it is |
 | --- | --- | --- |
 | `catalogue.py` | no | every operation as data: method, path, fields, which enumeration each field draws on |
+| `skew.py` | no | comparing a live service's description against that catalogue |
 | `request.py` | no | inputs to a request, and the curl equivalent |
 | `format.py` | no | responses to readable blocks, and those to HTML |
 | `enums.py` | no | the loaded sets, normalised from either shape |
@@ -105,9 +120,23 @@ reason.
 The forms are generated from `catalogue.py` rather than written out one by one,
 which is what makes "it can call any endpoint" a property of a table rather than
 a claim about a window. Hand-written tables drift, so
-`tests/test_catalogue.py` diffs it against `docs/openapi.json` in both
-directions: a route added to the service fails this tool's tests in the same
-commit.
+`tests/test_catalogue.py` diffs it against `docs/openapi.json`: every endpoint in
+both directions, and for each one the body field names, which of them are
+required, and which operations carry a body at all. A route or a field added to
+the service fails this tool's tests in the same commit.
+
+What the description cannot supply is the reason the table is written by hand
+rather than generated. It declares no enumerations at all: `display_mode` is a
+string with a default, because the service validates against `tokens.py` at
+request time rather than freezing the vocabulary into the schema. So which field
+draws on which set, which response gets which formatter, and which text fields
+take markup are all decisions no generator could read out of it.
+
+One thing in the table is not from the schema and is named so it cannot be
+mistaken for it. `prefill` is what a field starts out holding. Where the schema
+declares a default the two must agree, and a test insists on it; where it declares
+none the prefill is this client's own convenience, which is true in exactly one
+place and a test pins that too.
 
 The HTTP client is Qt's own `QtNetwork`, which is why this tool needs no
 dependency the simulator does not already have. There is no requests, no httpx

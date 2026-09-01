@@ -135,6 +135,11 @@ is not a 4xx: the simple surface answers 200 with the outcome in the body, so th
 client treats a `result` of `ERROR` as a failure exactly as it treats a 503. A
 tool that coloured by status code alone would show a failed write in green.
 
+It also asks each address for its own `/openapi.json` the first time that address
+answers anything, and says when the surface it finds is not the one the client was
+built for. That is what a Pi running an older release looks like, and without the
+check it looks like a bug in the client instead.
+
 It splits the same way the simulator does, with the logic in modules that import
 no Qt, and it needs no dependency the simulator does not already have because its
 HTTP client is `QtNetwork`. `tools/relayclient/README.md` has the rest.
