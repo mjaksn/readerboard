@@ -5,12 +5,11 @@ formatter here, and anything unrecognised falls back to a readable walk rather
 than to a dump, so a new field added to the service shows up as a labelled row
 instead of breaking the view.
 
-The one thing worth knowing before changing anything here: **an error is not the
-same as a 4xx**. The simple surface used to answer 200 to everything and put the
-outcome in the body, and this client is pointed at services that still do, so a
-``result`` of ``ERROR`` is a failure whatever the status above it says. A tool
-that colours by status code alone would show one of those writes in green.
-:func:`is_error` is the whole of that rule.
+The one thing worth knowing before changing anything here: **an error is not
+only a 4xx**. A body that is not JSON at all is one too, whatever the status
+above it, because every formatter below reads a missing value as a value and
+would state the absence as a fact. That is what being pointed at a proxy's own
+error page looks like. :func:`is_error` is the whole of that rule.
 """
 
 from __future__ import annotations
@@ -70,7 +69,7 @@ class Rendered:
 
 
 # What the codes this service uses actually mean here, in its own terms. Taken
-# from the docstring at the top of readerboard/api/routes_v2.py and from
+# from the docstring at the top of readerboard/api/routes.py and from
 # readerboard/api/deps.py, which are the two places that decide them.
 STATUS_MEANING = {
     200: "the call succeeded",
@@ -90,7 +89,7 @@ STATUS_MEANING = {
 class Unreadable:
     """A body that is not JSON at all, which is not the same as a body of null.
 
-    ``GET /v2/alerts`` answers a literal ``null`` when nothing is holding the
+    ``GET /alerts`` answers a literal ``null`` when nothing is holding the
     sign, and :func:`_alert` turns that into a sentence saying so. Collapsing
     both onto ``None`` would print that sentence, in green, over a proxy error
     page or a captive portal: the same mistake as colouring by status code,
@@ -127,22 +126,16 @@ def parse_body(text: str) -> object | None:
 def is_error(status: int, payload: object | None) -> bool:
     """Whether this response should be read as a failure.
 
-    Three ways to fail. The usual one is a status code of 400 or above. The
-    second is a ``result`` of ``ERROR`` in the body whatever the status says,
-    which is how a service running 0.2.0 or earlier reports every failure its
-    simple surface has. The third is a body that is not JSON at all:
-    something answered, but every formatter below reads a missing value as a
-    value and would state the absence as a fact.
+    Two ways to fail. The usual one is a status code of 400 or above, or no
+    response at all. The other is a body that is not JSON: something answered,
+    but every formatter below reads a missing value as a value and would state
+    the absence as a fact.
 
-    All three are decided here rather than in :func:`render`, because the window
-    asks this question separately to colour its status strip. A rule that lived
-    in the renderer would turn the panel red and leave the strip green.
+    Both are decided here rather than in :func:`render`, because the window asks
+    this question separately to colour its status strip. A rule that lived in
+    the renderer would turn the panel red and leave the strip green.
     """
-    if status == 0 or status >= 400:
-        return True
-    if payload is UNREADABLE:
-        return True
-    return isinstance(payload, dict) and str(payload.get("result", "")).upper() == "ERROR"
+    return status == 0 or status >= 400 or payload is UNREADABLE
 
 
 def when(value: object) -> str:
@@ -182,27 +175,20 @@ def yes_no(value: object) -> str:
     return "yes" if value else "no"
 
 
-def headline_for(status: int, reason: str, *, ok: bool = True, readable: bool = True) -> str:
+def headline_for(status: int, reason: str, *, ok: bool = True) -> str:
     """Return the status line as it appears above the response.
 
-    ``ok`` is not decoration. A simple-surface failure from an older service
-    arrives as 200, and ``STATUS_MEANING`` reads that as "the call succeeded", so
-    a headline built from the status alone would announce success at the top of a
-    response this module has just decided is a failure. That is precisely the
-    mistake the module exists to prevent, and it would be made in its own first
-    line.
-
-    ``readable`` separates the two ways a 200 can be a failure. A body that
-    would not parse reports nothing at all, so saying that it reports a failure
-    would put words in its mouth.
+    ``ok`` is not decoration. A body that is not JSON can arrive under a 200,
+    and ``STATUS_MEANING`` reads that as "the call succeeded", so a headline
+    built from the status alone would announce success at the top of a response
+    this module has just decided is a failure. That is precisely the mistake the
+    module exists to prevent, and it would be made in its own first line.
     """
     if status == 0:
         return "No response: %s" % (reason or "the request did not complete")
     label = "%d %s" % (status, reason) if reason else str(status)
     if not ok and status < 400:
-        if not readable:
-            return "%s, but the body is not JSON and cannot be read" % label
-        return "%s, but the body reports a failure" % label
+        return "%s, but the body is not JSON and cannot be read" % label
     meaning = STATUS_MEANING.get(status)
     return "%s, %s" % (label, meaning) if meaning else label
 
@@ -213,13 +199,8 @@ def headline_for(status: int, reason: str, *, ok: bool = True, readable: bool = 
 
 
 def render_error(status: int, reason: str, payload: object | None, raw: str) -> Rendered:
-    """Render a failure, whichever of the four shapes it arrived in."""
-    rendered = Rendered(
-        headline=headline_for(
-            status, reason, ok=False, readable=payload is not UNREADABLE
-        ),
-        ok=False,
-    )
+    """Render a failure, whichever of the three shapes it arrived in."""
+    rendered = Rendered(headline=headline_for(status, reason, ok=False), ok=False)
 
     if payload is UNREADABLE:
         # Said on a 4xx as well as on a 200, deliberately. This service reports
@@ -255,32 +236,6 @@ def render_error(status: int, reason: str, payload: object | None, raw: str) -> 
             )
         else:
             rendered.blocks.append(Note(str(detail)))
-        rendered.detail = raw
-        return rendered
-
-    if isinstance(payload, dict) and "result" in payload:
-        rendered.blocks.append(
-            Section(
-                title="",
-                rows=(
-                    Row("result", str(payload.get("result", ""))),
-                    Row("result message", str(payload.get("result_message", ""))),
-                ),
-            )
-        )
-        if status < 400:
-            # Only then is the status the thing that is misleading. A 503
-            # carrying a result field would mean what it says, and this note
-            # would tell the reader the opposite. The service now sets a status
-            # code that agrees with the body, so reaching this at all says the
-            # service that answered is an older one.
-            rendered.blocks.append(
-                Note(
-                    "This service answered 200 and reported the failure in the body, "
-                    "which is what 0.2.0 and earlier did, so the status code above "
-                    "is not the failure."
-                )
-            )
         rendered.detail = raw
         return rendered
 
@@ -440,14 +395,12 @@ def _clock(payload: object) -> list[Block]:
     ]
 
 
-def _tokens(payload: object, name_field: str = "name") -> list[Block]:
-    """Render an enumeration, reading the names the way the catalogue says to.
+def _tokens(payload: object) -> list[Block]:
+    """Render an enumeration as the name and description table it is.
 
-    ``name_field`` is not guessed. Guessing it lets this render a healthy table
-    from a payload that :func:`apiclient.enums.parse` is about to reject,
-    which would put a green table and a "that did not look like an enumeration"
-    warning on screen for one response. Reading the same field both places means
-    the panel and the store always agree.
+    ``name`` is read here and in :func:`apiclient.enums.parse` alike. Reading a
+    different field in either place would put a green table and a "that did not
+    look like an enumeration" warning on screen for the same response.
     """
     if not isinstance(payload, list):
         return _generic(payload)
@@ -455,25 +408,10 @@ def _tokens(payload: object, name_field: str = "name") -> list[Block]:
     for item in payload:
         if not isinstance(item, dict):
             continue
-        rows.append((str(item.get(name_field, "")), str(item.get("description", ""))))
+        rows.append((str(item.get("name", "")), str(item.get("description", ""))))
     return [
         Note("%d entr%s." % (len(rows), "y" if len(rows) == 1 else "ies")),
         Table(title="", columns=("name", "description"), rows=tuple(rows)),
-    ]
-
-
-def _simple(payload: object) -> list[Block]:
-    """Render the simple surface's one response shape."""
-    if not isinstance(payload, dict):
-        return _generic(payload)
-    return [
-        Section(
-            title="",
-            rows=(
-                Row("result", str(payload.get("result", ""))),
-                Row("result message", str(payload.get("result_message", ""))),
-            ),
-        )
     ]
 
 
@@ -517,7 +455,6 @@ _FORMATTERS = {
     "alert": _alert,
     "clock": _clock,
     "tokens": _tokens,
-    "simple": _simple,
     "empty": _empty,
     "generic": _generic,
 }
@@ -531,12 +468,7 @@ def render(operation: Operation, status: int, reason: str, raw: str) -> Rendered
         return render_error(status, reason, payload, raw)
 
     rendered = Rendered(headline=headline_for(status, reason), ok=True)
-    if operation.formatter == "tokens":
-        # The one formatter that needs to know what the catalogue expects.
-        field = operation.loads.name_field if operation.loads else "name"
-        rendered.blocks.extend(_tokens(payload, field))
-    else:
-        rendered.blocks.extend(_FORMATTERS.get(operation.formatter, _generic)(payload))
+    rendered.blocks.extend(_FORMATTERS.get(operation.formatter, _generic)(payload))
     return rendered
 
 

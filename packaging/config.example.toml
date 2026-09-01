@@ -49,9 +49,6 @@ slot_capacity = 256
 
 # == behaviour ===============================================================
 
-default_display_mode = "HOLD"
-default_text_position = "MIDDLE"
-
 # How often to expire messages and alerts whose deadlines have passed.
 registry_sweep_seconds = 15.0
 
@@ -59,12 +56,6 @@ registry_sweep_seconds = 15.0
 # changed. This is what repairs a sign that was power cycled while the Ethernet
 # adapter stayed connected, which nothing else can detect.
 refresh_interval_seconds = 900.0
-
-# Expire the slot POST /Write/Message writes to, after this long. Unset, which
-# is the default, is exactly how that endpoint has always behaved: the message
-# stays until something replaces it. Set it and a Home Assistant automation that
-# dies leaves a visibly empty sign rather than a quietly wrong temperature.
-#default_slot_ttl_seconds = 10800
 
 # == the sign's clock ========================================================
 

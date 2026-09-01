@@ -3,7 +3,8 @@
 Notable changes to readerboard. Versions follow [semantic
 versioning](https://semver.org/spec/v2.0.0.html): while the major version is 0
 the interface may still change, and any such change is called out here under
-**Changed** rather than assumed to be obvious from the version number.
+**Changed** or **Removed** rather than assumed to be obvious from the version
+number.
 
 What is versioned is the HTTP surface: the paths, the request and response
 bodies, the status codes, and the settings names. The `readerboard` package is
@@ -12,18 +13,92 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
-No path, request body, response body or setting name changes, and no byte this
-service sends to a sign changes either. The two `/Write` posts do change what
-status they answer with: a failed write to the simple surface now says so in the
-status as well as in the body. Otherwise, what changes is where the protocol
-constants come from, how the state file is written on Windows, and a second tool
-alongside the simulator for exercising the API by hand.
+**Every path changes, and three settings are removed.** The second, older HTTP
+surface is gone, and with nothing left for a version prefix to distinguish, the
+remaining paths lose theirs: `/v2/messages` is now `/messages`. Every caller
+rewrites the address it posts to, and a config file naming one of the removed
+settings stops the service booting until the line is deleted. **Read the Removed
+section below before upgrading a machine that is running.**
+
+No byte this service sends to a sign changes. Otherwise, what changes is where
+the protocol constants come from, how the state file is written on Windows, and
+a second tool alongside the simulator for exercising the API by hand.
+
+### Removed
+
+- **The `/Write` and `/Enumerations` surface is gone.** `POST /Write/Message`,
+  `POST /Write/ControlCommand` and the three `/Enumerations` reads answered a
+  fixed body at a fixed path, with the outcome carried in the body as `result`
+  and `result_message`. Everything they did, `/messages`, `/sign/command` and
+  `/enumerations` do, and that surface also serves text positions, which the
+  older one never had.
+
+  A caller migrates by rewriting its path and its body. The message write is the
+  one that changes shape rather than only address:
+
+  ```
+  POST /Write/Message  {"display_mode": "HOLD", "message": "..."}
+  PUT  /messages/YOUR-SLOT-NAME  {"display_mode": "HOLD", "message": "..."}
+  ```
+
+  Choose the slot name; it is the thing the older surface never let a caller
+  say, and it is why several sources can share the sign. The control command
+  write becomes `POST /sign/command` with the same `command` and `parameter`
+  fields, and answers 204 rather than a body. Failures are reported in a
+  `detail` field under a status code that already meant the same thing on the
+  surface that remains.
+
+- **The `/v2` prefix is gone from every remaining path.** It distinguished that
+  surface from the older one beside it. With the older one removed it
+  distinguishes the surface from nothing, so `/v2/messages/{key}` is now
+  `/messages/{key}`, `/v2/alerts` is `/alerts`, and so on through all fifteen
+  operations. `docs/openapi.json` lists them; `/docs` on a running service is
+  the same list.
+
+- **A slot named `default` is left behind on an upgraded machine.** The message
+  write owned one reserved slot under that name, and the state file outlives the
+  code that wrote it. Nothing in the service writes to it any more, but the
+  refresh loop goes on pushing it to the sign every fifteen minutes, so the last
+  message it held stays on the display for good. Remove it once, after
+  upgrading:
+
+  ```
+  curl -X DELETE http://localhost:5001/messages/default -H 'X-API-Key: YOUR-KEY'
+  ```
+
+  A 404 means there was nothing to remove, which is the answer on a machine that
+  never used that surface.
+
+- **Three settings are removed, and an unknown setting stops the service
+  starting.** Configuration is validated with `extra="forbid"`, so a
+  `config.toml` naming any of these raises at startup and the service refuses to
+  boot. `scripts/install.sh` keeps an existing config file on upgrade, which is
+  exactly the file that may carry one. The environment form is not the same: a
+  `READERBOARD_` variable matching no setting is ignored rather than refused, so
+  a container passing one starts normally. Delete these lines before restarting:
+
+  - `default_slot_ttl_seconds`, which expired the reserved slot the removed
+    message write owned. `ttl_seconds` on a message write does the same thing
+    per message and is unaffected.
+  - `default_display_mode` and `default_text_position`, which have been read by
+    nothing since the first commit. They were declared, validated, documented in
+    the example config and printed by `--print-config` as settings in force, so
+    the program stated a fact about itself that was not true. `packaging/config.example.toml`
+    no longer lists any of the three.
+
+- **Lenient rendering is no longer reachable over HTTP.** The removed message
+  write passed an unknown markup token through to the sign as literal text. A
+  write now earns a 400 saying which token the sign does not have, so a caller
+  is told rather than shown something it did not ask for. Nothing already stored
+  is affected: a slot or an alert put back from the state file is still
+  re-rendered leniently, so content accepted once cannot fail to come back
+  because the rules around it tightened.
 
 ### Added
 
 - **A desktop client for the HTTP surface, `tools/apiclient/`.** The simulator
-  stands in for the sign; this stands in for a caller. It can call all twenty
-  endpoints, and the twenty are checked rather than claimed: its endpoint table
+  stands in for the sign; this stands in for a caller. It can call all fifteen
+  endpoints, and the fifteen are checked rather than claimed: its endpoint table
   is diffed against `docs/openapi.json` for every endpoint in both directions,
   and for each one the body field names and which of them are required. A route
   or a field added here fails that tool's tests in the same commit.
@@ -38,13 +113,10 @@ alongside the simulator for exercising the API by hand.
   and both error shapes. Two things in it are load bearing rather than
   cosmetic. The enumerations are empty until a button is pressed, so the markup
   tokens a message field offers are the ones this service answered rather than a
-  copy that went stale in the client. And an error is not a 4xx: the simple
-  surface answered 200 with the outcome in the body up to and including 0.2.0,
-  and this client is built to be pointed at a Pi that has not been updated, so a
-  `result` of `ERROR` is treated as the failure it is whatever the status says.
-  So is a body that is not JSON at all, which is what being pointed at a proxy
-  error page looks like. A client that coloured by status code alone would show
-  one of those failed writes in green.
+  copy that went stale in the client. And an error is not only a 4xx: a body
+  that is not JSON at all is one too, whatever the status above it, which is
+  what being pointed at a proxy error page on the right port looks like. A
+  client that coloured by status code alone would show one of those in green.
 
   It is a tool, not part of the service. Qt stays out of `pyproject.toml`,
   `tools/` stays in `.dockerignore`, and the client has its own hash-pinned lock
@@ -52,37 +124,29 @@ alongside the simulator for exercising the API by hand.
   already have, because its HTTP client is `QtNetwork`. `tools/apiclient/README.md`
   has the rest.
 
+- **`scripts/run_with_simulator.py --with-client` starts all three at once.**
+  The script already brought up the simulator and the service pointed at it.
+  The flag adds the client pointed at the service, so the whole loop comes up
+  from one command with no sign in the room. Both editors have it as
+  "readerboard, the sign simulator and the client", beside the two way one
+  they already had.
+
+  Three things about it are deliberate. Closing the client leaves the other
+  two running, which closing either of those does not: the service and the
+  simulator are no use without each other, and a closed client is only
+  closed. The client takes no API key from a command line by design, so the
+  key in use is printed for pasting rather than passed to it. And starting
+  the client this way writes the base URL into the settings it remembers
+  between runs, replacing an address left in it from last time.
+
 ### Changed
 
-- **A failed write to the simple surface answers 4xx or 5xx rather than 200.**
-  `POST /Write/Message` and `POST /Write/ControlCommand` used to answer 200 to
-  everything and report the outcome in the body alone. **The body is unchanged**:
-  `result` and `result_message` say exactly what they said before, so anything
-  reading them keeps working. What is added is a status code that agrees with
-  them: 400 for a mode or a command the sign does not have, a parameter it will
-  not accept or a message too long for its slot, 409 when every message slot is
-  in use, 503 when the sign is unreachable, and 500 for anything the service has
-  no code for, all taking the same meanings `/v2` already gives them.
-
-  The old behaviour existed for a Home Assistant `rest_command` and a shell
-  one-liner in cron, on the reasoning that neither branches on a status code.
-  Neither reads a JSON body either, which is where that reasoning fails: a
-  `rest_command` fired without `response_variable` never saw `result_message`,
-  and plain `curl` exits 0 and prints it to a log nobody reads. So the outcome
-  lived only in the place those two callers were least likely to look, and a
-  failed write was silent to exactly the callers the design was for. A status
-  code is the one thing both of them surface without being asked.
-
-  Anything that was treating a 200 as proof of success will now see the failures
-  it was already having. That is the point of the change, and it is the one way
-  it can bite: a cron line running `curl --fail` starts reporting a broken sign
-  it used to pass over in silence.
-
-  Which exception means which status code now lives in one table,
-  `readerboard/api/errors.py`, read both by the handlers that answer `/v2` and by
-  the simple routes that catch the same exceptions to answer in their own shape.
-  Two surfaces cannot come to disagree about what a broken cable means, and a
-  test asserts they do not.
+- **Which exception means which status code lives in one table**,
+  `readerboard/api/errors.py`. Every entry in it registers the handler that
+  answers it, so the mapping and the wiring cannot come apart, and an exception
+  the table does not name reaches no handler of ours and is a 500. That is the
+  honest answer for something the service never planned for: it cannot say whose
+  fault it was.
 
 - **`readerboard/protocol/constants.py` is regenerated from the protocol
   document.** It was vendored from a repository that carries no licence file,
@@ -140,6 +204,16 @@ alongside the simulator for exercising the API by hand.
   lead with `readerboard` in the same way, and the files under
   `.idea/runConfigurations/` are renamed to match the configurations they hold.
 
+- **The loopback launch configuration says what it runs against.** It was
+  "readerboard against a fake sign" in both editors, sitting beside "readerboard
+  and the sign simulator", and the two names were the wrong way round: the
+  simulator is the thing that behaves like a fake sign, and `loop://` is not a
+  sign at all. It is pyserial's loopback, so nothing on the far end acts on a
+  byte, keeps a file table or objects to anything. Both editors now call it
+  "readerboard against the loopback", which is the word `README.md` already uses
+  for it, and the file under `.idea/runConfigurations/` is renamed to match the
+  configuration it holds.
+
 ### Fixed
 
 - **A state save could fail on Windows, and take the request down with it.** The
@@ -147,8 +221,7 @@ alongside the simulator for exercising the API by hand.
   refuses that rename while any handle is open on either file. A virus scanner
   opens a file the moment it is written, so the rename failed at random. Measured
   on one machine with Defender running, about one save in thirty five raised
-  `PermissionError`. Nothing catches it, so a `/v2` write would have answered 500,
-  and a simple route would have reported the failure in its body.
+  `PermissionError`. Nothing catches it, so a write would have answered 500.
 
   The rename is now attempted up to five times, four of them retries. The second
   attempt is immediate, because in the same measurement a single immediate retry

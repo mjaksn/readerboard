@@ -1,12 +1,10 @@
-"""Tests for the HTTP surface, including the exact payloads already in use."""
+"""Tests for the HTTP surface."""
 
 import re
 from collections.abc import Iterator
 
 import pytest
-from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.testclient import TestClient
-from starlette.exceptions import HTTPException
 
 from readerboard.api import errors
 from readerboard.api.app import create_app
@@ -76,12 +74,12 @@ ANY_DESCRIPTION = _AnyDescription()
 
 class TestAuth:
     def test_a_write_without_a_key_is_refused(self, client):
-        response = client.put("/v2/messages/temperature", json={"message": "HI"})
+        response = client.put("/messages/temperature", json={"message": "HI"})
         assert response.status_code == 401
 
     def test_a_write_with_the_wrong_key_is_refused(self, client):
         response = client.put(
-            "/v2/messages/temperature",
+            "/messages/temperature",
             json={"message": "HI"},
             headers={"X-API-Key": "wrong"},
         )
@@ -89,25 +87,17 @@ class TestAuth:
 
     def test_a_write_with_the_key_is_allowed(self, client):
         response = client.put(
-            "/v2/messages/temperature", json={"message": "HI"}, headers=HEADERS
+            "/messages/temperature", json={"message": "HI"}, headers=HEADERS
         )
         assert response.status_code == 200
 
     def test_reads_do_not_need_a_key(self, client):
-        assert client.get("/v2/messages").status_code == 200
-
-    def test_the_simple_endpoints_also_need_it(self, client):
-        # A caller the service will not talk to is not the same as a request
-        # that failed, so this is a 401 rather than an ERROR in the body.
-        response = client.post(
-            "/Write/Message", json={"display_mode": "HOLD", "message": "HI"}
-        )
-        assert response.status_code == 401
+        assert client.get("/messages").status_code == 200
 
     def test_the_refusal_says_which_header_is_wanted(self, client):
         # The scheme is declared with auto_error=False precisely so this wording
         # and the 503 below stay ours rather than becoming "Not authenticated".
-        response = client.put("/v2/messages/temperature", json={"message": "HI"})
+        response = client.put("/messages/temperature", json={"message": "HI"})
         assert response.json()["detail"] == "a valid X-API-Key header is required"
         assert response.headers["WWW-Authenticate"] == "X-API-Key"
 
@@ -135,15 +125,13 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
     def test_every_write_requires_it(self, settings, sign):
         schema = create_app(settings, transport=sign).openapi()
         for path, method in [
-            ("/v2/messages/{key}", "put"),
-            ("/v2/messages/{key}", "delete"),
-            ("/v2/messages", "delete"),
-            ("/v2/alerts", "post"),
-            ("/v2/alerts", "delete"),
-            ("/v2/sign/sync-clock", "post"),
-            ("/v2/sign/command", "post"),
-            ("/Write/Message", "post"),
-            ("/Write/ControlCommand", "post"),
+            ("/messages/{key}", "put"),
+            ("/messages/{key}", "delete"),
+            ("/messages", "delete"),
+            ("/alerts", "post"),
+            ("/alerts", "delete"),
+            ("/sign/sync-clock", "post"),
+            ("/sign/command", "post"),
         ]:
             assert schema["paths"][path][method]["security"] == [{"ApiKeyAuth": []}], (
                 "%s %s should be marked as needing the key" % (method.upper(), path)
@@ -156,9 +144,9 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
         schema = create_app(settings, transport=sign).openapi()
         for path, method in [
             ("/health", "get"),
-            ("/v2/messages", "get"),
-            ("/v2/alerts", "get"),
-            ("/v2/enumerations/display-modes", "get"),
+            ("/messages", "get"),
+            ("/alerts", "get"),
+            ("/enumerations/display-modes", "get"),
         ]:
             assert "security" not in schema["paths"][path][method]
 
@@ -190,57 +178,57 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
 class TestMessages:
     def test_registering_and_reading_back(self, client):
         client.put(
-            "/v2/messages/temperature",
+            "/messages/temperature",
             json={"message": "<green>18.4<degree>", "display_mode": "HOLD"},
             headers=HEADERS,
         )
 
-        body = client.get("/v2/messages/temperature").json()
+        body = client.get("/messages/temperature").json()
         assert body["message"] == "<green>18.4<degree>"
         assert body["label"] == "A"
 
     def test_several_messages_share_the_sign(self, client):
-        client.put("/v2/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        client.put("/v2/messages/two", json={"message": "TWO"}, headers=HEADERS)
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/two", json={"message": "TWO"}, headers=HEADERS)
 
-        keys = [slot["key"] for slot in client.get("/v2/messages").json()]
+        keys = [slot["key"] for slot in client.get("/messages").json()]
         assert keys == ["one", "two"]
 
     def test_an_unknown_slot_is_404(self, client):
-        assert client.get("/v2/messages/nobody").status_code == 404
+        assert client.get("/messages/nobody").status_code == 404
 
     def test_deleting_an_unknown_slot_is_404(self, client):
-        assert client.delete("/v2/messages/nobody", headers=HEADERS).status_code == 404
+        assert client.delete("/messages/nobody", headers=HEADERS).status_code == 404
 
     def test_deleting_a_slot(self, client):
-        client.put("/v2/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        assert client.delete("/v2/messages/one", headers=HEADERS).status_code == 204
-        assert client.get("/v2/messages").json() == []
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        assert client.delete("/messages/one", headers=HEADERS).status_code == 204
+        assert client.get("/messages").json() == []
 
     def test_an_unknown_markup_token_is_400(self, client):
         response = client.put(
-            "/v2/messages/one", json={"message": "<nosuchtag>"}, headers=HEADERS
+            "/messages/one", json={"message": "<nosuchtag>"}, headers=HEADERS
         )
         assert response.status_code == 400
         assert "unknown markup token" in response.json()["detail"]
 
     def test_a_message_too_long_for_a_slot_is_400(self, client):
         response = client.put(
-            "/v2/messages/one", json={"message": "X" * 300}, headers=HEADERS
+            "/messages/one", json={"message": "X" * 300}, headers=HEADERS
         )
         assert response.status_code == 400
 
     def test_a_full_pool_is_409(self, client):
         for key in ("one", "two", "three"):
-            client.put("/v2/messages/%s" % key, json={"message": key}, headers=HEADERS)
+            client.put("/messages/%s" % key, json={"message": key}, headers=HEADERS)
 
-        response = client.put("/v2/messages/four", json={"message": "X"}, headers=HEADERS)
+        response = client.put("/messages/four", json={"message": "X"}, headers=HEADERS)
         assert response.status_code == 409
         assert "slots are in use" in response.json()["detail"]
 
     def test_an_unknown_display_mode_is_422(self, client):
         response = client.put(
-            "/v2/messages/one",
+            "/messages/one",
             json={"message": "HI", "display_mode": "NOSUCHMODE"},
             headers=HEADERS,
         )
@@ -248,38 +236,51 @@ class TestMessages:
 
     def test_an_unusable_slot_name_is_422(self, client):
         response = client.put(
-            "/v2/messages/not a valid key", json={"message": "HI"}, headers=HEADERS
+            "/messages/not a valid key", json={"message": "HI"}, headers=HEADERS
         )
         assert response.status_code == 422
 
 
 class TestAlerts:
     def test_raising_and_releasing(self, client):
-        response = client.post("/v2/alerts", json={"message": "<red>ALERT"}, headers=HEADERS)
+        response = client.post("/alerts", json={"message": "<red>ALERT"}, headers=HEADERS)
         assert response.status_code == 200
         assert client.get("/health").json()["alert_active"] is True
 
-        assert client.delete("/v2/alerts", headers=HEADERS).status_code == 204
+        assert client.delete("/alerts", headers=HEADERS).status_code == 204
         assert client.get("/health").json()["alert_active"] is False
 
     def test_no_alert_reads_as_null(self, client):
-        assert client.get("/v2/alerts").json() is None
+        assert client.get("/alerts").json() is None
 
     def test_an_alert_over_the_priority_file_size_is_400(self, client):
-        response = client.post("/v2/alerts", json={"message": "X" * 200}, headers=HEADERS)
+        response = client.post("/alerts", json={"message": "X" * 200}, headers=HEADERS)
         assert response.status_code == 400
         assert "125" in response.json()["detail"]
+
+    def test_an_unknown_markup_token_in_an_alert_is_400(self, client):
+        # An alert renders twice: once here, to decide whether to accept it, and
+        # again on the re-assert path, which renders leniently so that an alert
+        # already accepted cannot fail to come back. Harmonise the two and this
+        # acceptance stops validating anything: an unknown tag would reach the
+        # display as literal text instead of earning a 400, and nothing else in
+        # the suite would notice.
+        response = client.post(
+            "/alerts", json={"message": "<nosuchtag>FIRE"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "unknown markup token" in response.json()["detail"]
 
 
 class TestSignCommands:
     def test_syncing_the_clock(self, client):
-        response = client.post("/v2/sign/sync-clock", headers=HEADERS)
+        response = client.post("/sign/sync-clock", headers=HEADERS)
         assert response.status_code == 200
         assert "synced_at" in response.json()
 
     def test_a_control_command(self, client):
         response = client.post(
-            "/v2/sign/command",
+            "/sign/command",
             json={"command": "SET_TIME", "parameter": "0930"},
             headers=HEADERS,
         )
@@ -287,13 +288,13 @@ class TestSignCommands:
 
     def test_an_unknown_command_is_400(self, client):
         response = client.post(
-            "/v2/sign/command", json={"command": "NOPE", "parameter": ""}, headers=HEADERS
+            "/sign/command", json={"command": "NOPE", "parameter": ""}, headers=HEADERS
         )
         assert response.status_code == 400
 
     def test_a_bad_parameter_is_400(self, client):
         response = client.post(
-            "/v2/sign/command",
+            "/sign/command",
             json={"command": "SET_TIME", "parameter": "9999"},
             headers=HEADERS,
         )
@@ -304,10 +305,10 @@ class TestEnumerations:
     @pytest.mark.parametrize(
         "path",
         [
-            "/v2/enumerations/markup-tokens",
-            "/v2/enumerations/display-modes",
-            "/v2/enumerations/text-positions",
-            "/v2/enumerations/control-commands",
+            "/enumerations/markup-tokens",
+            "/enumerations/display-modes",
+            "/enumerations/text-positions",
+            "/enumerations/control-commands",
         ],
     )
     def test_each_lists_something_described(self, client, path):
@@ -315,267 +316,17 @@ class TestEnumerations:
         assert body
         assert all(entry["name"] and entry["description"] for entry in body)
 
-
-class TestUnreachableSign:
-    """A validated registry write is satisfiable even with the sign unplugged.
-
-    Alerts, the clock and control commands are not: immediacy is their point,
-    so those are the ones that get a 503.
-    """
-
-    def test_a_registry_write_is_accepted(self, client, sign):
-        sign.fail_with = "cable unplugged"
-
-        response = client.put(
-            "/v2/messages/temperature", json={"message": "18.4"}, headers=HEADERS
-        )
-
-        assert response.status_code == 200
-
-    def test_health_says_the_sign_is_behind(self, client, sign):
-        sign.fail_with = "cable unplugged"
-        client.put("/v2/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
-
-        assert client.get("/health").json()["sign_in_sync"] is False
-
-    def test_an_alert_is_503(self, client, sign):
-        sign.fail_with = "cable unplugged"
-
-        response = client.post("/v2/alerts", json={"message": "ALERT"}, headers=HEADERS)
-
-        assert response.status_code == 503
-
-    def test_a_clock_sync_is_503(self, client, sign):
-        sign.fail_with = "cable unplugged"
-        assert client.post("/v2/sign/sync-clock", headers=HEADERS).status_code == 503
-
-    def test_a_control_command_is_503(self, client, sign):
-        sign.fail_with = "cable unplugged"
-        response = client.post(
-            "/v2/sign/command",
-            json={"command": "SET_TIME", "parameter": "0930"},
-            headers=HEADERS,
-        )
-        assert response.status_code == 503
-
-
-class TestTheSimpleEndpoints:
-    """The payload shapes these endpoints accept, written out in full.
-
-    They exist for callers that post a fixed body to a fixed path, so the
-    bodies below are spelled out rather than built. A change that breaks one
-    of them breaks somebody's configuration file, which is exactly what these
-    tests are here to notice.
-    """
-
-    def test_the_home_assistant_rest_command_payload(self, client):
-        # A temperature and the time, the common shape: a value from somewhere
-        # else, then <time> for the sign to fill in on its own.
-        response = client.post(
-            "/Write/Message",
-            json={
-                "display_mode": "HOLD",
-                "message": "<green>18.4<degree> <red><time>",
-            },
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 200
-        assert response.json() == {
-            "result": "OK",
-            "result_message": "Message displayed on sign",
-        }
-
-    def test_the_cron_line_payload(self, client):
-        # SET_TIME takes the time as HHMM on a 24 hour clock.
-        response = client.post(
-            "/Write/ControlCommand",
-            json={"command": "SET_TIME", "parameter": "2359"},
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 200
-        assert response.json() == {
-            "result": "OK",
-            "result_message": "Control command sent to sign",
-        }
-
-    def test_the_simple_message_goes_to_a_slot_not_the_priority_file(self, client):
-        client.post(
-            "/Write/Message",
-            json={"display_mode": "HOLD", "message": "HI"},
-            headers=HEADERS,
-        )
-
-        slots = client.get("/v2/messages").json()
-        assert [slot["key"] for slot in slots] == ["default"]
-        # File "0" is the priority file, which by protocol suppresses every
-        # other message. Writing here would make this a one-message service.
-        assert slots[0]["label"] != "0"
-
-    def test_a_simple_message_coexists_with_a_registered_one(self, client):
-        client.post(
-            "/Write/Message",
-            json={"display_mode": "HOLD", "message": "TEMP"},
-            headers=HEADERS,
-        )
-        client.put("/v2/messages/doorbell", json={"message": "DING"}, headers=HEADERS)
-
-        keys = sorted(slot["key"] for slot in client.get("/v2/messages").json())
-        assert keys == ["default", "doorbell"]
-
-    def test_a_bad_display_mode_is_a_400_and_keeps_the_body_shape(self, client):
-        response = client.post(
-            "/Write/Message",
-            json={"display_mode": "NOSUCHMODE", "message": "HI"},
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 400
-        # The status is new; the body is not. Anything reading these two fields
-        # sees exactly what it saw when this answered 200, which is the half of
-        # the change that must not break somebody's configuration file.
-        assert response.json()["result"] == "ERROR"
-        assert "not valid" in response.json()["result_message"]
-
-    def test_an_unknown_command_is_a_400_and_keeps_the_body_shape(self, client):
-        response = client.post(
-            "/Write/ControlCommand",
-            json={"command": "NOPE", "parameter": ""},
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 400
-        assert response.json()["result"] == "ERROR"
-        assert "Unrecognized control command" in response.json()["result_message"]
-
-    def test_a_bad_parameter_is_a_400_and_keeps_the_body_shape(self, client):
-        response = client.post(
-            "/Write/ControlCommand",
-            json={"command": "SET_TIME", "parameter": "not a time"},
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 400
-        assert response.json()["result"] == "ERROR"
-        assert response.json()["result_message"]
-
-    def test_an_unreachable_sign_is_a_503_and_keeps_the_body_shape(self, client, sign):
-        sign.fail_with = "cable unplugged"
-
-        response = client.post(
-            "/Write/ControlCommand",
-            json={"command": "SET_TIME", "parameter": "0930"},
-            headers=HEADERS,
-        )
-
-        # The sign, not the caller. The same failure is a 503 on /v2, which is
-        # the whole point of both surfaces reading one table.
-        assert response.status_code == 503
-        assert response.json()["result"] == "ERROR"
-
-    def test_a_full_pool_is_a_409_and_keeps_the_body_shape(self, client):
-        # The one failure this write can produce that the other cannot: only a
-        # message takes a slot. It reaches the caller through the same table as
-        # the rest, so it has to be declared alongside them.
-        for key in ("one", "two", "three"):
-            client.put("/v2/messages/%s" % key, json={"message": key}, headers=HEADERS)
-
-        response = client.post(
-            "/Write/Message",
-            json={"display_mode": "HOLD", "message": "HI"},
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 409
-        assert response.json()["result"] == "ERROR"
-        assert "slots are in use" in response.json()["result_message"]
-
-    def test_a_success_is_still_a_200(self, client):
-        # Worth pinning on its own. A change that gave every simple response a
-        # status code could as easily have got the successful one wrong.
-        response = client.post(
-            "/Write/Message",
-            json={"display_mode": "HOLD", "message": "HI"},
-            headers=HEADERS,
-        )
-
-        assert response.status_code == 200
-        assert response.json()["result"] == "OK"
-
-    def test_the_two_surfaces_agree_about_an_unreachable_sign(self, client, sign):
-        # The one failure both surfaces can be made to produce on demand through
-        # HTTP. It pins that one, not the whole table; the test beside
-        # TestTheErrorTable covers the rest, which no request can trigger.
-        sign.fail_with = "cable unplugged"
-
-        simple = client.post(
-            "/Write/ControlCommand",
-            json={"command": "SET_TIME", "parameter": "0930"},
-            headers=HEADERS,
-        )
-        v2 = client.post(
-            "/v2/sign/command",
-            json={"command": "SET_TIME", "parameter": "0930"},
-            headers=HEADERS,
-        )
-
-        assert simple.status_code == v2.status_code == 503
-
-    def test_each_write_declares_every_status_it_can_answer(self, settings, sign):
-        # Spelled out rather than read back off the routes, because read off the
-        # routes it would agree with them however wrong both were. The 409 is on
-        # the message write alone: a control command takes no slot, so it can
-        # never find the pool full.
-        paths = create_app(settings, transport=sign).openapi()["paths"]
-
-        assert set(paths["/Write/Message"]["post"]["responses"]) == {
-            "200",
-            "400",
-            "409",
-            "422",
-            "500",
-            "503",
-        }
-        assert set(paths["/Write/ControlCommand"]["post"]["responses"]) == {
-            "200",
-            "400",
-            "422",
-            "500",
-            "503",
-        }
-
-    def test_an_unknown_markup_token_is_passed_through_rather_than_rejected(self, client):
-        # Lenient rendering, so a message written against a newer token set
-        # still displays rather than failing outright.
-        response = client.post(
-            "/Write/Message",
-            json={"display_mode": "HOLD", "message": "<nosuchtag>HI"},
-            headers=HEADERS,
-        )
-
-        assert response.json()["result"] == "OK"
-
-    @pytest.mark.parametrize(
-        "path,key",
-        [
-            ("/Enumerations/DisplayModes", "display_mode"),
-            ("/Enumerations/ControlCommands", "control_command"),
-            ("/Enumerations/MarkupTokens", "token_text"),
-        ],
-    )
-    def test_the_old_enumeration_shapes_are_unchanged(self, client, path, key):
-        body = client.get(path).json()
-        assert body
-        assert key in body[0]
-        assert "description" in body[0]
-
-    def test_the_old_display_modes_are_all_still_there(self, client):
-        names = {entry["display_mode"] for entry in client.get("/Enumerations/DisplayModes").json()}
+    def test_every_display_mode_is_still_offered(self, client):
+        # The vocabulary a caller writes into display_mode. Spelled out rather
+        # than read off the token table, which would agree with itself however
+        # much had quietly dropped out of it.
+        names = {entry["name"] for entry in client.get("/enumerations/display-modes").json()}
         assert {"HOLD", "FLASH", "ROTATE"} <= names
 
-    def test_the_old_markup_tokens_are_all_still_there(self, client):
-        names = {entry["token_text"] for entry in client.get("/Enumerations/MarkupTokens").json()}
+    def test_every_markup_token_is_still_offered(self, client):
+        # The same, for the tokens a caller writes inline in a message. Losing
+        # one of these silently turns somebody's working message into a 400.
+        names = {entry["name"] for entry in client.get("/enumerations/markup-tokens").json()}
         assert {
             "<red>",
             "<green>",
@@ -597,12 +348,56 @@ class TestTheSimpleEndpoints:
         } <= names
 
 
-class TestTheErrorTable:
-    """The one table both surfaces read to decide what a failure was.
+class TestUnreachableSign:
+    """A validated registry write is satisfiable even with the sign unplugged.
 
-    ``/v2`` lets its exceptions through to a handler; the simple routes catch
-    the same ones to answer in their own body shape. Only a table read by both
-    keeps them agreeing, and only these tests keep the table read by both.
+    Alerts, the clock and control commands are not: immediacy is their point,
+    so those are the ones that get a 503.
+    """
+
+    def test_a_registry_write_is_accepted(self, client, sign):
+        sign.fail_with = "cable unplugged"
+
+        response = client.put(
+            "/messages/temperature", json={"message": "18.4"}, headers=HEADERS
+        )
+
+        assert response.status_code == 200
+
+    def test_health_says_the_sign_is_behind(self, client, sign):
+        sign.fail_with = "cable unplugged"
+        client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
+
+        assert client.get("/health").json()["sign_in_sync"] is False
+
+    def test_an_alert_is_503(self, client, sign):
+        sign.fail_with = "cable unplugged"
+
+        response = client.post("/alerts", json={"message": "ALERT"}, headers=HEADERS)
+
+        assert response.status_code == 503
+
+    def test_a_clock_sync_is_503(self, client, sign):
+        sign.fail_with = "cable unplugged"
+        assert client.post("/sign/sync-clock", headers=HEADERS).status_code == 503
+
+    def test_a_control_command_is_503(self, client, sign):
+        sign.fail_with = "cable unplugged"
+        response = client.post(
+            "/sign/command",
+            json={"command": "SET_TIME", "parameter": "0930"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 503
+
+
+class TestTheErrorTable:
+    """The table that decides what each of the service's failures answers with.
+
+    Every entry becomes an exception handler, so an exception the table does
+    not name reaches no handler of ours at all. That is deliberate, and the
+    second test is what pins the consequence: it must be a 500 rather than
+    something that blames the caller.
     """
 
     def test_every_exception_in_the_table_is_registered_as_a_handler(self, settings, sign):
@@ -615,27 +410,19 @@ class TestTheErrorTable:
                 "%s is in the table but no handler answers it" % kind.__name__
             )
 
-    def test_no_handler_is_registered_that_the_table_does_not_name(self, settings, sign):
-        # The other direction. A handler added beside the loop rather than in
-        # the table would answer on /v2 and be invisible to the simple surface,
-        # which is exactly the drift the one table exists to prevent.
-        app = create_app(settings)
-        named = {kind for kind, _code in errors.STATUS_FOR_ERROR}
-
-        for registered in app.exception_handlers:
-            if registered in (HTTPException, RequestValidationError):
-                continue  # Starlette's and FastAPI's own, not this service's.
-            if registered is WebSocketRequestValidationError:
-                continue
-            assert registered in named, (
-                "%s has a handler but the simple surface cannot see it"
-                % getattr(registered, "__name__", registered)
-            )
-
-    def test_an_exception_the_table_does_not_name_is_a_500(self):
+    def test_an_exception_the_table_does_not_name_is_a_500(self, settings, sign, monkeypatch):
         # The honest answer for something this service never planned for. It
         # must not fall through to 400, which would blame the caller for it.
-        assert errors.status_for(RuntimeError("something nobody named")) == 500
+        app = create_app(settings, transport=sign)
+
+        async def explode(*_args, **_kwargs):
+            raise RuntimeError("something nobody named")
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            monkeypatch.setattr(app.state.registry, "upsert", explode)
+            response = client.put("/messages/one", json={"message": "HI"}, headers=HEADERS)
+
+        assert response.status_code == 500
 
 
 class TestNoApiKeyConfigured:
@@ -647,7 +434,7 @@ class TestNoApiKeyConfigured:
             clock_sync_enabled=False,
         )
         with TestClient(create_app(settings, transport=sign)) as client:
-            response = client.put("/v2/messages/one", json={"message": "HI"})
+            response = client.put("/messages/one", json={"message": "HI"})
             assert response.status_code == 503
             assert "no API key is configured" in response.json()["detail"]
 
@@ -658,5 +445,4 @@ def test_the_openapi_schema_can_be_produced_without_a_sign(settings, sign):
     schema = create_app(settings, transport=sign).openapi()
 
     assert schema["info"]["title"] == "readerboard"
-    assert "/v2/messages/{key}" in schema["paths"]
-    assert "/Write/Message" in schema["paths"]
+    assert "/messages/{key}" in schema["paths"]

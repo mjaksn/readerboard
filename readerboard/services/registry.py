@@ -28,12 +28,6 @@ from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
-# The slot the simple write endpoint uses, for callers that do not name one of
-# their own. It has no TTL by default, so what it holds stays on the sign until
-# something replaces it.
-DEFAULT_SLOT_KEY = "default"
-
-
 class RegistryError(Exception):
     """Something was wrong with a request to change the registry."""
 
@@ -178,10 +172,9 @@ class MessageRegistry:
         order: int = 0,
         ttl_seconds: float | None = None,
         source: str | None = None,
-        strict: bool = True,
     ) -> SlotState:
         """Register or replace a slot and put it on the sign."""
-        body = render(message, strict=strict)
+        body = render(message)
         if len(body) > self._layout.slot_capacity:
             raise MessageTooLong(
                 "the message renders to %d bytes but each slot holds %d. Shorten it, or "
@@ -393,7 +386,6 @@ class MessageRegistry:
 
 
 __all__ = [
-    "DEFAULT_SLOT_KEY",
     "LayoutFull",
     "MessageRegistry",
     "MessageTooLong",

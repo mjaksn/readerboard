@@ -7,9 +7,19 @@ address is read back from its own output, and the service is then started with
 streamed here, and Ctrl+C stops both.
 
     python scripts/run_with_simulator.py
+    python scripts/run_with_simulator.py --with-client
 
 The service ends up on http://127.0.0.1:5001 with its documentation at /docs,
 and every transmission it makes appears decoded in the simulator window.
+
+``--with-client`` starts the client as well, pointed at the service, so all
+three come up from one command. It is off by default because the client is a
+window you may not want, and because starting it writes the base URL into the
+settings the client remembers between runs, replacing whatever was there. The
+client asks for the API key itself and takes none from a command line, so the
+key in use is printed here for pasting. Closing the client leaves the other two
+running, which closing either of them does not: the service writing to a
+simulator that has gone away is broken, and a closed client is only closed.
 
 One default is worth knowing about, because getting it wrong is confusing rather
 than obviously broken. The service records the memory configuration it applied
@@ -38,6 +48,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent
 _SIMULATOR = _ROOT / "tools" / "signsim" / "run.py"
+_CLIENT = _ROOT / "tools" / "apiclient" / "run.py"
 
 DEFAULT_SIM_PORT = 4001
 DEFAULT_API_PORT = 5001
@@ -61,8 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
             "configuration needed."
         ),
         epilog=(
-            "Ctrl+C stops both. Anything already set in the environment is passed "
-            "through, so READERBOARD_SLOT_COUNT and the like still work."
+            "Ctrl+C stops everything. Anything already set in the environment is "
+            "passed through, so READERBOARD_SLOT_COUNT and the like still work."
         ),
     )
     parser.add_argument(
@@ -96,6 +107,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="the service's log level (default: DEBUG)",
     )
     parser.add_argument(
+        "--with-client",
+        action="store_true",
+        help="start the client too, pointed at the service, so all three come up "
+        "from one command. It asks for the API key itself rather than taking one "
+        "from a command line, so the key in use is printed for pasting. Starting "
+        "it this way also writes the base URL into the settings the client "
+        "remembers between runs, replacing whatever was there",
+    )
+    parser.add_argument(
         "--keep-state",
         action="store_true",
         help="reuse the state file instead of starting from a clean one. The "
@@ -113,15 +133,29 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Start both, stream both, stop both."""
+    """Start them, stream them, stop them."""
     args = build_parser().parse_args(argv)
 
     if importlib.util.find_spec("PySide6") is None:
+        blocked = (
+            "neither the simulator nor the client can start"
+            if args.with_client
+            else "the simulator cannot start"
+        )
+        # The two tools pin Qt separately, so the one that is wanted is the one
+        # named. They hold the same versions today and need not tomorrow.
+        locks = ["tools/signsim/requirements.lock"]
+        if args.with_client:
+            locks.append("tools/apiclient/requirements.lock")
         print(
-            "PySide6 is not installed in %s, so the simulator cannot start.\n"
-            "Install it with:\n"
-            "    pip install --require-hashes -r tools/signsim/requirements.lock"
-            % sys.executable,
+            "PySide6 is not installed in %s, so %s.\nInstall it with:\n%s"
+            % (
+                sys.executable,
+                blocked,
+                "\n".join(
+                    "    pip install --require-hashes -r %s" % lock for lock in locks
+                ),
+            ),
             file=sys.stderr,
         )
         return 1
@@ -137,15 +171,25 @@ def main(argv: list[str] | None = None) -> int:
     print("[run] simulator listening on %s" % address)
 
     service = _start_service(args, address)
-    print("[run] service on http://%s:%d, documentation at /docs"
-          % (_api_host(), args.api_port))
-    print("[run] Ctrl+C stops both")
+    base_url = "http://%s:%d" % (_api_host(), args.api_port)
+    print("[run] service on %s, documentation at /docs" % base_url)
 
+    children = {"sim": process, "api": service}
     streams = [
         _stream(process.stdout, "sim"),
         _stream(service.stdout, "api"),
     ]
-    return _wait(process, service, streams)
+
+    if args.with_client:
+        client = _start_client(base_url)
+        children["client"] = client
+        streams.append(_stream(client.stdout, "client"))
+        print("[run] client pointed at %s, and the API key to paste is %s"
+              % (base_url, args.api_key))
+
+    print("[run] Ctrl+C stops everything")
+
+    return _wait(children, streams, fatal=frozenset({"sim", "api"}))
 
 
 # ===========================================================================
@@ -216,10 +260,27 @@ def _start_service(args: argparse.Namespace, address: str) -> subprocess.Popen[s
     )
 
 
+def _start_client(base_url: str) -> subprocess.Popen[str]:
+    """Start the client, pointed at the service that is already up."""
+    # After the service rather than before it. The client asks an address for
+    # its /openapi.json the first time that address answers anything, and
+    # starting it last keeps a connection refused from being the first thing it
+    # ever sees on this one.
+    return subprocess.Popen(
+        [sys.executable, str(_CLIENT), "--base-url", base_url],
+        cwd=_ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        env=_child_env(),
+    )
+
+
 def _child_env() -> dict[str, str]:
-    """Build the environment both children start from."""
+    """Build the environment every child starts from."""
     env = dict(os.environ)
-    # Without this a child's output sits in its buffer and the two streams
+    # Without this a child's output sits in its buffer and the streams
     # interleave in an order that has nothing to do with what happened.
     env["PYTHONUNBUFFERED"] = "1"
     return env
@@ -264,24 +325,43 @@ def _stream(pipe: object, tag: str) -> threading.Thread:
 
 
 def _wait(
-    simulator: subprocess.Popen[str],
-    service: subprocess.Popen[str],
+    children: dict[str, subprocess.Popen[str]],
     streams: list[threading.Thread],
+    fatal: frozenset[str],
 ) -> int:
-    """Wait for either child to finish, then stop the other."""
-    children = {"sim": simulator, "api": service}
+    """Wait until something ends, then stop whatever is still running.
+
+    Only a tag in ``fatal`` ends the run. The simulator or the service going
+    away leaves the other writing to a socket with nothing on it, so both
+    stop. The client is a window for poking the service with, and closing it
+    breaks nothing, so that is reported and the rest keeps running.
+    """
     try:
         while True:
-            for tag, child in children.items():
-                if child.poll() is not None:
-                    print("[run] the %s exited with status %d, stopping the other"
-                          % (tag, child.returncode))
-                    _stop(other(children, tag))
-                    return child.returncode
+            for tag, child in list(children.items()):
+                if child.poll() is None:
+                    continue
+                if tag not in fatal:
+                    # Closing the window is how this one is meant to end, so it
+                    # is reported as an ordinary thing rather than as a status.
+                    if child.returncode == 0:
+                        print("[run] the %s was closed, leaving the rest running" % tag)
+                    else:
+                        print("[run] the %s exited with status %d, leaving the rest running"
+                              % (tag, child.returncode))
+                    del children[tag]
+                    continue
+                print("[run] the %s exited with status %d, stopping the rest"
+                      % (tag, child.returncode))
+                for name, running in children.items():
+                    if name != tag:
+                        _stop(running)
+                return child.returncode
             # Waiting on one child at a time is enough: whichever it is, the
-            # loop comes back around and notices the other.
+            # loop comes back around and notices the others. There is always one
+            # to wait on, because a fatal tag is never dropped.
             with contextlib.suppress(subprocess.TimeoutExpired):
-                simulator.wait(timeout=0.3)
+                next(iter(children.values())).wait(timeout=0.3)
     except KeyboardInterrupt:
         # Ctrl+C in a console reaches the children too, so they are usually
         # already on their way out. Give them that chance before insisting.
@@ -292,11 +372,6 @@ def _wait(
     finally:
         for thread in streams:
             thread.join(timeout=1.0)
-
-
-def other(children: dict[str, subprocess.Popen[str]], tag: str) -> subprocess.Popen[str]:
-    """Return the child that is not the one named."""
-    return next(child for name, child in children.items() if name != tag)
 
 
 def _stop(child: subprocess.Popen[str]) -> None:

@@ -1,5 +1,5 @@
 {
-    // Three ways to start the service from the editor, and the tests.
+    // Four ways to start the service from the editor, and the tests.
     //
     // "readerboard and the sign simulator" is the one to reach for. It runs
     // both, with the service already pointed at the simulator, so every
@@ -9,7 +9,15 @@
     // matching PyCharm configuration in .idea/runConfigurations/, which carries
     // the same name.
     //
-    // "readerboard against a fake sign" needs no hardware either: loop:// is
+    // "readerboard, the sign simulator and the client" is that same script
+    // with --with-client, which adds the client pointed at the service, so the
+    // whole loop comes up at once. The client asks for the API key itself
+    // rather than taking one from a command line, so the key in use is printed
+    // for pasting, and starting it this way replaces the base URL it remembers
+    // between runs. Closing the client leaves the other two running; closing
+    // either of those stops the rest.
+    //
+    // "readerboard against the loopback" needs no hardware either: loop:// is
     // pyserial's loopback, so the service starts, serves /docs, and accepts
     // writes that go nowhere. Use it when the API itself is the thing being
     // worked on and there is no reason to look at the bytes.
@@ -28,7 +36,18 @@
             "justMyCode": false
         },
         {
-            "name": "readerboard against a fake sign",
+            "name": "readerboard, the sign simulator and the client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_with_simulator.py",
+            "args": [
+                "--with-client"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "readerboard against the loopback",
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",

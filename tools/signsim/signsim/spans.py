@@ -79,7 +79,7 @@ def _build_table() -> dict[bytes, tuple[SpanKind, str, str]]:
     table: dict[bytes, tuple[SpanKind, str, str]] = {}
 
     # Everything a caller can write as markup, with the description the service
-    # already publishes for it through /v2/tokens.
+    # already publishes for it through /enumerations/markup-tokens.
     for token in MARKUP_TOKENS:
         kind = SpanKind.GLYPH if token.text in _GLYPH_TOKENS else SpanKind.CONTROL
         table[token.value] = (kind, token.text, token.description)

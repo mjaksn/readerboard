@@ -89,10 +89,13 @@ def render(message: str, *, strict: bool = True) -> bytes:
     """Render ``message`` to sign bytes.
 
     When ``strict`` is true an unknown tag, an unterminated tag or a character
-    the sign cannot display raises :class:`MarkupError`. When it is false each
-    of those is passed through as literal text instead, which is what the
-    simple endpoints need so that payloads that worked against the old
-    server keep working against this one.
+    the sign cannot display raises :class:`MarkupError`, which is what every
+    write over HTTP wants: the caller is told rather than shown something it
+    did not ask for. When it is false each of those is passed through as
+    literal text instead. Nothing accepts a message that way; the lenient path
+    is for re-rendering a message this service already accepted once, so that a
+    slot or an alert restored from disk cannot fail to come back because the
+    rules around it tightened in the meantime.
     """
     out = bytearray()
     index = 0

@@ -30,8 +30,9 @@ until it is released, after which the rotation resumes.
 - **It survives restarts and outages.** The registered messages are persisted, and a
   write that arrives while the sign is unreachable is accepted and delivered when the
   link returns.
-- **Errors are errors.** A dead serial link is a 503, not an HTTP 200 with the word
-  ERROR in the body.
+- **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
+  render is a 400, each with the reason in the body. Nothing here reports a failure
+  under a 200.
 
 ## Requirements
 
@@ -139,7 +140,7 @@ Swagger UI at `/docs`, the **Authorize** button puts it in once for the whole pa
 Register a message:
 
 ```
-curl -X PUT http://localhost:5001/v2/messages/temperature \
+curl -X PUT http://localhost:5001/messages/temperature \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<green>18.4<degree> <red><time>", "display_mode": "HOLD"}'
 ```
@@ -147,7 +148,7 @@ curl -X PUT http://localhost:5001/v2/messages/temperature \
 Register a second one and the sign rotates between them:
 
 ```
-curl -X PUT http://localhost:5001/v2/messages/doorbell \
+curl -X PUT http://localhost:5001/messages/doorbell \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<amber>Someone at the door", "ttl_seconds": 300}'
 ```
@@ -155,7 +156,7 @@ curl -X PUT http://localhost:5001/v2/messages/doorbell \
 Take the sign over for thirty seconds:
 
 ```
-curl -X POST http://localhost:5001/v2/alerts \
+curl -X POST http://localhost:5001/alerts \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<red><flash_on>SMOKE ALARM", "ttl_seconds": 30}'
 ```
@@ -165,46 +166,13 @@ The full API, including every markup token and display mode, is at `/docs`.
 ### Writing messages
 
 A message is plain text plus tokens written as `<name>`: `<green>18.4<degree>` is a
-colour change, a number, and a degree symbol. `GET /v2/enumerations/markup-tokens` lists
+colour change, a number, and a degree symbol. `GET /enumerations/markup-tokens` lists
 them all.
 
 Text is encoded against the sign's own character table rather than as UTF-8, so `café`
-displays correctly. A character the sign cannot render is rejected with a 400 on `/v2`,
-and replaced with `?` on the simpler endpoints described below.
-
-## A simpler set of endpoints
-
-Alongside `/v2` there is a smaller surface: `POST /Write/Message`,
-`POST /Write/ControlCommand`, and the `/Enumerations` reads.
-
-These follow one convention that `/v2` does not. The outcome is in the body, in the same
-two fields whether it worked or not:
-
-```json
-{"result": "OK", "result_message": "Message displayed on sign"}
-```
-
-That suits a caller posting a fixed body to a fixed path, such as a Home Assistant
-`rest_command` or a shell one-liner in a cron job, neither of which wants to name a slot or
-read a slot table back.
-
-The status code says the same thing the body does, and means what it means on `/v2`: 400 for
-a mode or a command the sign does not have, a parameter it will not accept or a message too
-long for its slot, 401 for a missing or wrong API key, 409 when every message slot is
-already in use, 503 when the sign is unreachable or no API key is configured at all, 500 for
-something the service has no code for, and FastAPI's own 422 for a body that is not the
-shape the endpoint declares.
-
-Up to and including 0.2.0 every response here was a 200 whatever happened, on the reasoning
-that those two callers do not branch on status codes. They do not, but neither do they read
-a JSON body, so a failed write was silent to exactly the callers the surface was for. The
-body has not changed, so anything reading `result` still reads what it always did; what is
-new is that a caller doing nothing at all now finds out.
-
-`POST /Write/Message` writes to one reserved slot, named `default`. It deliberately does
-not touch the sign's **priority** file, which by protocol suppresses every other message on
-the sign. Written to an ordinary slot it looks identical while it is the only message
-registered, and it shares the sign the moment anything else registers.
+displays correctly. A character the sign cannot render is rejected with a 400, as is an
+unknown token: a write is told what the sign would have made of it rather than being
+shown something it did not ask for.
 
 ## Configuration
 
@@ -296,10 +264,12 @@ loads from the service rather than one compiled into it. The tests of both are
 collected by the `pytest` run here and need no Qt installed; the applications do, and
 each is pinned separately so that nothing the service installs ever pulls Qt in.
 
-`scripts/run_with_simulator.py` starts the service and the simulator together. Both
-editors have it as a launch configuration under the same name, "readerboard and the
-sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`, along with
-configurations for each half on its own.
+`scripts/run_with_simulator.py` starts the service and the simulator together, and
+with `--with-client` the client as well, so the whole loop comes up from one command.
+Both editors carry it as a launch configuration under the same name, "readerboard and
+the sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`, beside
+configurations for running the pieces separately. Both carry the three way one as
+"readerboard, the sign simulator and the client" as well.
 
 ## Licence
 

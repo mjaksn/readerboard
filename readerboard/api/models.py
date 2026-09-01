@@ -1,9 +1,7 @@
 """Request and response shapes.
 
-The ``Simple*`` models are the shapes the ``/Write`` and ``/Enumerations``
-endpoints use, where the outcome is carried in the body as well as in the status
-code. The rest belong to ``/v2``, which reports through the status code and
-FastAPI's ``detail`` body.
+A failure is reported through the status code and FastAPI's ``detail`` body
+rather than in a field of its own, so none of these shapes has an outcome field.
 
 Every ``description`` here ends up in the OpenAPI page, so it is documentation
 in the same sense the README is, and it rots the same way.
@@ -34,7 +32,7 @@ def _normalise_mode(value: str) -> str:
     upper = value.strip().upper()
     if upper not in MODE_BY_NAME:
         raise ValueError(
-            "unknown display mode %r; see GET /v2/enumerations/display-modes" % value
+            "unknown display mode %r; see GET /enumerations/display-modes" % value
         )
     return upper
 
@@ -43,7 +41,7 @@ def _normalise_position(value: str) -> str:
     upper = value.strip().upper()
     if upper not in POSITION_BY_NAME:
         raise ValueError(
-            "unknown text position %r; see GET /v2/enumerations/text-positions" % value
+            "unknown text position %r; see GET /enumerations/text-positions" % value
         )
     return upper
 
@@ -205,74 +203,4 @@ class TokenInfo(BaseModel):
     """One entry in an enumeration."""
 
     name: str
-    description: str
-
-
-# ===========================================================================
-# The simple API's shapes. Every response carries the outcome in the body, and
-# a status code that says the same thing.
-# ===========================================================================
-
-
-class SimpleMessageRequest(BaseModel):
-    """The body POST /Write/Message has always accepted."""
-
-    display_mode: str = Field(description="the display mode to use when showing the message")
-    message: str = Field(
-        description="the message, including markup tokens, to display on the sign"
-    )
-
-
-class SimpleCommandRequest(BaseModel):
-    """The body POST /Write/ControlCommand has always accepted."""
-
-    command: str = Field(description="the control command to send to the sign")
-    parameter: str = Field(default="", description="a parameter for the command")
-
-
-class SimpleResult(BaseModel):
-    """The body the simple endpoints return, whatever happened.
-
-    The status code beside it says the same thing. This shape has not changed
-    with it, so anything reading ``result`` and ``result_message`` reads exactly
-    what it always did.
-    """
-
-    result: str = Field(description="OK or ERROR")
-    result_message: str = Field(description="text description of the command result")
-
-    @classmethod
-    def ok(cls, message: str) -> SimpleResult:
-        """Build a success, in the old shape."""
-        return cls(result="OK", result_message=message)
-
-    @classmethod
-    def error(cls, message: str) -> SimpleResult:
-        """Build a failure, in the old shape.
-
-        The status code is the caller's to set, because only the caller knows
-        which failure this is. :func:`readerboard.api.errors.status_for` is
-        what turns one of the service's own exceptions into that answer.
-        """
-        return cls(result="ERROR", result_message=message)
-
-
-class SimpleDisplayMode(BaseModel):
-    """One entry of GET /Enumerations/DisplayModes."""
-
-    display_mode: str
-    description: str
-
-
-class SimpleControlCommand(BaseModel):
-    """One entry of GET /Enumerations/ControlCommands."""
-
-    control_command: str
-    description: str
-
-
-class SimpleToken(BaseModel):
-    """One entry of GET /Enumerations/MarkupTokens."""
-
-    token_text: str
     description: str

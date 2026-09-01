@@ -25,7 +25,7 @@ pip install --require-hashes -r tools/apiclient/requirements.lock
 
 ## What it does
 
-**Every endpoint, on one screen.** All twenty operations are listed at once,
+**Every endpoint, on one screen.** All fifteen operations are listed at once,
 grouped by what they act on. Selecting one swaps the form beside it. There is no
 drill-down and no wizard: the things that would need a quarter of the window to
 show properly, a set of markup tokens or a call's full detail, open as dialogs
@@ -43,29 +43,25 @@ That is the point of the design rather than an inconvenience. A client that ship
 its own copy of the vocabulary is a client that goes on offering a token for a
 year after the service stopped answering it.
 
-Two endpoint families answer the same four sets in two different shapes. `/v2`
-names each entry `name`; the simple endpoints use `token_text`, `display_mode` or
-`control_command` depending on which was asked. Both are offered, because the
-client has to be able to call either, and both normalise to the same store.
-Text positions are `/v2` only; the simple surface has no endpoint for them.
+Each of the four sets has exactly one endpoint that fills it, so the button
+beside a set is unambiguous. All four answer the same shape, `name` and
+`description`, and the parsing insists on it: a payload that is a list of
+objects but not *this* list of objects is refused rather than quietly producing
+a set of empty names, which on screen looks exactly like a healthy one.
 
 **Responses are read, not dumped.** Every shape the service answers with has a
-formatter: the health breakdown, the slot table, the alert, the clock, both
-enumeration shapes, the simple surface's result, and a 204 rendered as the
-success it is rather than as an empty panel. Anything unrecognised falls back to
+formatter: the health breakdown, the slot table, the alert, the clock, the
+enumerations, and a 204 rendered as the success it is rather than as an empty
+panel. Anything unrecognised falls back to
 a labelled walk, so a field added to the service shows up as a row instead of
 breaking the view. No raw JSON reaches the main panel.
 
-**An error is not the same as a 4xx.** The simple surface answered HTTP 200 to
-everything and reported the outcome in the body up to and including 0.2.0, and
-this client is built to be pointed at a Pi that has not been updated, so it
-still cannot trust a status code on its own. A tool that coloured by status
-alone would show one of those failed writes in green. This one treats a 4xx or
-5xx, *or* a `result` of `ERROR` in the body, *or* a body that is not JSON at
-all as a failure: the status strip turns red and the full response opens in a
-dialog. That last one is how being pointed at a proxy error page looks, and
-reading it as an absent value would let a formatter announce that the sign is
-idle on the strength of it.
+**An error is not only a 4xx.** A body that is not JSON at all is one too,
+whatever the status above it, and the client treats it as a failure: the status
+strip turns red and the full response opens in a dialog. That is how being
+pointed at a proxy error page on the right port looks, and reading it as an
+absent value would let a formatter announce that the sign is idle on the
+strength of it. A tool that coloured by status alone would show it in green.
 
 **It says when it is pointed at a different service than it was built for.**
 The catalogue below describes the surface in this checkout. A Pi that has not been

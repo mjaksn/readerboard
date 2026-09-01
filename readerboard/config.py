@@ -91,8 +91,6 @@ class Settings(BaseSettings):
 
     # == behaviour =========================================================
 
-    default_display_mode: str = "HOLD"
-    default_text_position: str = "MIDDLE"
     registry_sweep_seconds: float = Field(default=15.0, gt=0)
     refresh_interval_seconds: float = Field(
         default=900.0,
@@ -101,17 +99,6 @@ class Settings(BaseSettings):
             "how often to push every message to the sign again whether or not it looks "
             "necessary. This is what repairs a sign that was power cycled behind a "
             "still-connected Ethernet adapter, which nothing else can detect"
-        ),
-    )
-    default_slot_ttl_seconds: float | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "expire the slot POST /Write/Message writes to, after this long. Unset, "
-            "which is the default, reproduces the old behaviour exactly: the message "
-            "stays until something replaces it. Setting it means a Home Assistant "
-            "automation that dies leaves a visibly empty sign rather than a quietly "
-            "wrong temperature"
         ),
     )
     clock_sync_enabled: bool = True
@@ -146,26 +133,6 @@ class Settings(BaseSettings):
         upper = value.upper()
         if upper not in allowed:
             raise ValueError("log_level must be one of %s" % ", ".join(sorted(allowed)))
-        return upper
-
-    @field_validator("default_display_mode")
-    @classmethod
-    def _check_mode(cls, value: str) -> str:
-        from readerboard.protocol.tokens import MODE_BY_NAME
-
-        upper = value.upper()
-        if upper not in MODE_BY_NAME:
-            raise ValueError("unknown display mode %r" % value)
-        return upper
-
-    @field_validator("default_text_position")
-    @classmethod
-    def _check_position(cls, value: str) -> str:
-        from readerboard.protocol.tokens import POSITION_BY_NAME
-
-        upper = value.upper()
-        if upper not in POSITION_BY_NAME:
-            raise ValueError("unknown text position %r" % value)
         return upper
 
     @field_validator("timezone")

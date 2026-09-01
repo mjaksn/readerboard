@@ -94,13 +94,18 @@ declines to write them again.
   separately powered, so the sign can be power cycled with the TCP link still
   up. Nothing fires, the write cache stays warm, and suppression would then skip
   exactly the writes that would repair a blank sign.
-- **The simple routes answer in their own body shape, not FastAPI's.** A
-  failure there is `result` and `result_message` with a status code beside it,
-  rather than the `detail` body `/v2` produces. Only the shape differs: which
-  status code a given failure earns is decided once, in
-  `readerboard/api/errors.py`, and both surfaces read that table. They answered
-  200 to everything up to and including 0.2.0; `CHANGELOG.md` has why that
-  changed.
+- **The paths carry no version prefix.** They read `/v2` until the second,
+  older surface beside them was removed. With one surface left, a prefix that
+  distinguishes it from nothing is a word every caller writes and no reader
+  learns anything from. `CHANGELOG.md` has the migration.
+- **A route body never decides a status code.** Every failure it can raise is
+  one of the service's own exceptions, and `readerboard/api/errors.py` maps each
+  to a code once. That table is what registers the handlers, so an exception it
+  does not name reaches no handler of ours and is a 500, which is the honest
+  answer for something the service never planned for. The failures decided
+  before a route body runs are not in it and do not belong there: the 401 and
+  the no-key 503 are raised by `require_api_key` in `deps.py`, and the 422 is
+  pydantic rejecting the body.
 - **`%` formatting throughout, not f-strings.** It matches the lazy `%` that
   logging takes, so one idiom covers a log line and the exception text beside
   it. `UP031` is disabled for this reason.
@@ -176,18 +181,16 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty endpoints, formats every
+it at a running service and it can call all fifteen endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are
 empty until a button is pressed, so the markup tokens a message field offers are
 the ones this service answered rather than a copy that went stale. And an error
-is not a 4xx. The simple surface answered 200 with the outcome in the body up to
-and including 0.2.0, and this client is pointed at Pis that have not been
-updated, so it still treats a `result` of `ERROR` as a failure exactly as it
-treats a 503. It treats a body that is not JSON as one too, because every
-formatter it has reads a missing value as a value and would state the absence as
-a fact. A tool that coloured by status code alone would show a failed write in
+is not only a 4xx: a body that is not JSON is one too, whatever the status above
+it, because every formatter it has reads a missing value as a value and would
+state the absence as a fact. That is what a proxy error page on the right port
+looks like, and a tool that coloured by status code alone would show it in
 green.
 
 It also asks each address for its own `/openapi.json` the first time that address
@@ -200,7 +203,11 @@ no Qt, and it needs no dependency the simulator does not already have because it
 HTTP client is `QtNetwork`. `tools/apiclient/README.md` has the rest.
 
 With the simulator on one side and the client on the other, the whole loop runs
-with no sign in the room.
+with no sign in the room. `scripts/run_with_simulator.py --with-client` brings
+all three up from one command, and both editors have that as "readerboard, the
+sign simulator and the client". Closing the client leaves the other two running,
+which closing either of those does not: they are no use without each other,
+and the client is only a thing to poke the service with.
 
 ## Prose is part of the product
 

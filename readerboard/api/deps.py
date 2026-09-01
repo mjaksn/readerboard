@@ -14,7 +14,6 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
-from readerboard.config import Settings
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
 from readerboard.services.registry import MessageRegistry
@@ -30,9 +29,8 @@ API_KEY_HEADER = "X-API-Key"
 # `auto_error=False` is load bearing. Left at its default the scheme rejects a
 # missing key itself, with its own wording and with no way to tell "you sent no
 # key" apart from "this service has no key configured at all". Those are
-# different answers, 401 and 503, and the simple endpoints document the
-# difference, so the checking stays in `require_api_key` below and this declares
-# the scheme and nothing else.
+# different answers, 401 and 503, and both are documented, so the checking stays
+# in `require_api_key` below and this declares the scheme and nothing else.
 # The scheme name becomes a key under `components.securitySchemes`, and the
 # OpenAPI specification requires those to match `^[a-zA-Z0-9\.\-_]+$` (section
 # 4.8.7.1). So it cannot be the prettier "API key", however much better that
@@ -49,12 +47,6 @@ api_key_scheme = APIKeyHeader(
         "generates one."
     ),
 )
-
-
-def get_settings(request: Request) -> Settings:
-    """Return the service's configuration."""
-    settings: Settings = request.app.state.settings
-    return settings
 
 
 def get_controller(request: Request) -> SignController:
@@ -91,10 +83,9 @@ def require_api_key(
     narrowed down by timing. The key itself is never logged or echoed, here or
     anywhere else.
 
-    A 401 rather than a simple-surface ``ERROR`` body, on both surfaces. A
-    caller without the key is not a caller whose request failed; it is a caller
-    the service will not talk to, and it never reaches a route to be answered by
-    one.
+    A 401 rather than anything a route decides. A caller without the key is not
+    a caller whose request failed; it is a caller the service will not talk to,
+    and it never reaches a route to be answered by one.
     """
     expected: str = request.app.state.settings.api_key.get_secret_value()
 
@@ -115,7 +106,6 @@ def require_api_key(
         )
 
 
-SettingsDep = Annotated[Settings, Depends(get_settings)]
 ControllerDep = Annotated[SignController, Depends(get_controller)]
 RegistryDep = Annotated[MessageRegistry, Depends(get_registry)]
 AlertsDep = Annotated[AlertService, Depends(get_alerts)]
