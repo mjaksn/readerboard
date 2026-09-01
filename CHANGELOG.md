@@ -189,6 +189,16 @@ a second tool alongside the simulator for exercising the API by hand.
   lead with `readerboard` in the same way, and the files under
   `.idea/runConfigurations/` are renamed to match the configurations they hold.
 
+- **The loopback launch configuration says what it runs against.** It was
+  "readerboard against a fake sign" in both editors, sitting beside "readerboard
+  and the sign simulator", and the two names were the wrong way round: the
+  simulator is the thing that behaves like a fake sign, and `loop://` is not a
+  sign at all. It is pyserial's loopback, so nothing on the far end acts on a
+  byte, keeps a file table or objects to anything. Both editors now call it
+  "readerboard against the loopback", which is the word `README.md` already uses
+  for it, and the file under `.idea/runConfigurations/` is renamed to match the
+  configuration it holds.
+
 ### Fixed
 
 - **A state save could fail on Windows, and take the request down with it.** The

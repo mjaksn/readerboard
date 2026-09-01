@@ -9,7 +9,7 @@
     // matching PyCharm configuration in .idea/runConfigurations/, which carries
     // the same name.
     //
-    // "readerboard against a fake sign" needs no hardware either: loop:// is
+    // "readerboard against the loopback" needs no hardware either: loop:// is
     // pyserial's loopback, so the service starts, serves /docs, and accepts
     // writes that go nowhere. Use it when the API itself is the thing being
     // worked on and there is no reason to look at the bytes.
@@ -28,7 +28,7 @@
             "justMyCode": false
         },
         {
-            "name": "readerboard against a fake sign",
+            "name": "readerboard against the loopback",
             "type": "debugpy",
             "request": "launch",
             "module": "uvicorn",
