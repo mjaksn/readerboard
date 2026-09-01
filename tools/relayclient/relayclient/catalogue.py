@@ -418,11 +418,3 @@ def loaders_for(set_key: str) -> list[Operation]:
     return [op for op in OPERATIONS if op.loads is not None and op.loads.set_key == set_key]
 
 
-def fields_using(set_key: str) -> list[tuple[Operation, Input]]:
-    """Return every body field that draws on the given enumeration set."""
-    found: list[tuple[Operation, Input]] = []
-    for operation in OPERATIONS:
-        for item in operation.body:
-            if item.enum_set == set_key:
-                found.append((operation, item))
-    return found

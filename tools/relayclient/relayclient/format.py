@@ -148,11 +148,20 @@ def yes_no(value: object) -> str:
     return "yes" if value else "no"
 
 
-def headline_for(status: int, reason: str) -> str:
-    """Return the status line as it appears above the response."""
+def headline_for(status: int, reason: str, *, ok: bool = True) -> str:
+    """Return the status line as it appears above the response.
+
+    ``ok`` is not decoration. A simple-surface failure arrives as 200, and
+    ``STATUS_MEANING`` reads that as "the call succeeded", so a headline built
+    from the status alone would announce success at the top of a response this
+    module has just decided is a failure. That is precisely the mistake the
+    module exists to prevent, and it would be made in its own first line.
+    """
     if status == 0:
         return "No response: %s" % (reason or "the request did not complete")
     label = "%d %s" % (status, reason) if reason else str(status)
+    if not ok and status < 400:
+        return "%s, but the body reports a failure" % label
     meaning = STATUS_MEANING.get(status)
     return "%s, %s" % (label, meaning) if meaning else label
 
@@ -164,7 +173,7 @@ def headline_for(status: int, reason: str) -> str:
 
 def render_error(status: int, reason: str, payload: object | None, raw: str) -> Rendered:
     """Render a failure, whichever of the three shapes it arrived in."""
-    rendered = Rendered(headline=headline_for(status, reason), ok=False)
+    rendered = Rendered(headline=headline_for(status, reason, ok=False), ok=False)
 
     if isinstance(payload, dict) and "detail" in payload:
         detail = payload["detail"]

@@ -16,8 +16,6 @@ from datetime import datetime
 
 from relayclient import request as request_module
 
-REDACTED = "<redacted>"
-
 
 @dataclass(frozen=True, slots=True)
 class Record:

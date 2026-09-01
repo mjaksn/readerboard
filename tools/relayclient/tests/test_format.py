@@ -236,3 +236,35 @@ def test_markup_in_a_message_is_escaped_rather_than_rendered_as_html():
 def test_a_body_that_is_not_json_parses_as_nothing():
     assert parse_body("not json") is None
     assert parse_body("   ") is None
+
+
+def test_a_simple_surface_failure_is_not_headlined_as_a_success():
+    # The headline is built from the status code, and 200 means "the call
+    # succeeded". Saying that above a response this module has just decided is
+    # a failure would be the exact mistake the module exists to prevent, made
+    # in its own first line.
+    result, _text = rendered_text(
+        "simple_write_message",
+        200,
+        json.dumps({"result": "ERROR", "result_message": "the sign is unreachable"}),
+        reason="OK",
+    )
+    assert result.ok is False
+    assert "the call succeeded" not in result.headline
+    assert "the body reports a failure" in result.headline
+
+
+def test_a_real_success_still_says_so():
+    result, _text = rendered_text(
+        "simple_write_message",
+        200,
+        json.dumps({"result": "OK", "result_message": "Message displayed on sign"}),
+        reason="OK",
+    )
+    assert result.ok is True
+    assert "the call succeeded" in result.headline
+
+
+def test_a_four_hundred_keeps_the_meaning_it_had():
+    result, _text = rendered_text("get_message", 404, json.dumps({"detail": "nope"}))
+    assert "no slot by that name" in result.headline

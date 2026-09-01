@@ -61,8 +61,19 @@ jobs:
       # the release path used to rot: a thing exercised only by hand is a thing
       # nobody finds out about until they need it.
       #
-      # One install covers both. They pin the same two packages, in separate
-      # files so that either can move Qt without the other having to.
+      # The two lock files exist so that either tool can move Qt without the
+      # other having to. This job installs both into one environment, so for as
+      # long as that is true they have to agree: otherwise the second install
+      # replaces the first, and the checks below run against a Qt one of the
+      # tools never pinned, with a green tick either way. Diverging is allowed;
+      # doing it without splitting this job is not, and this is what says so.
+      - name: the tools pin the same Qt, which sharing one environment requires
+        run: |
+          strip() { grep -vE '^\s*(#|$)' "$1"; }
+          if ! diff <(strip tools/signsim/requirements.lock) <(strip tools/relayclient/requirements.lock); then
+            echo "::error::the tools' lock files have diverged, and this job installs both into one environment; give each its own before moving either"
+            exit 1
+          fi
       - name: install the tools' dependencies
         run: |
           pip install --require-hashes -r tools/signsim/requirements.lock

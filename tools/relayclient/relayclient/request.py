@@ -23,6 +23,11 @@ from relayclient.catalogue import Operation
 
 API_KEY_HEADER = "X-API-Key"
 
+# What stands in for the key wherever it would otherwise be written down. Here
+# rather than in history.py because this is where the substitution happens, and
+# two spellings of it in two modules is one more than can stay in step.
+REDACTED = "<redacted>"
+
 # What the curl command refers to rather than the key itself, everywhere the key
 # would otherwise be written down.
 API_KEY_VARIABLE = "READERBOARD_API_KEY"
@@ -52,7 +57,7 @@ class Prepared:
     def redacted_headers(self) -> dict[str, str]:
         """Return the headers with the API key replaced rather than carried around."""
         return {
-            name: ("<redacted>" if name.lower() == API_KEY_HEADER.lower() else value)
+            name: (REDACTED if name.lower() == API_KEY_HEADER.lower() else value)
             for name, value in self.headers.items()
         }
 

@@ -68,7 +68,6 @@ class Skew:
     """How the service's surface differs from the one this client was built for."""
 
     version: str
-    title: str
     uncallable: tuple[tuple[str, str], ...]
     unknown: tuple[tuple[str, str], ...]
 
@@ -122,14 +121,8 @@ def compare(document: object, operations: tuple[Operation, ...]) -> Skew:
     """Compare a service's own description against what this client can call."""
     described = paths_in(document)
     catalogued = {(operation.method, operation.path) for operation in operations}
-    title = ""
-    if isinstance(document, dict):
-        info = document.get("info")
-        if isinstance(info, dict):
-            title = str(info.get("title", ""))
     return Skew(
         version=version_in(document),
-        title=title,
         uncallable=tuple(sorted(described - catalogued)),
         unknown=tuple(sorted(catalogued - described)),
     )

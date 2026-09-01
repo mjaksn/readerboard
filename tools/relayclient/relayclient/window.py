@@ -451,6 +451,10 @@ class MainWindow(QMainWindow):
             str(self._settings.value("base_url", DEFAULT_BASE_URL))
         )
         self.base_url.setToolTip("where the service is listening")
+        # A verdict is about the address it was fetched from. Left standing when
+        # the address changes it becomes a claim about the new one, which it
+        # never was, and the next check may be thirty seconds away.
+        self.base_url.textChanged.connect(self._forget_surface)
 
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -724,6 +728,12 @@ class MainWindow(QMainWindow):
             return
         self._checked.add(address)
         self._describer.fetch(address)
+
+    def _forget_surface(self) -> None:
+        """Drop the surface verdict, which belonged to the address just replaced."""
+        self.surface.setText("")
+        self.surface.setToolTip("")
+        self.surface.setStyleSheet(MUTED)
 
     def _release(self, address: str) -> None:
         """Stop claiming an address was checked when its fetch was abandoned."""
