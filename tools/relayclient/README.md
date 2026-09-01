@@ -59,9 +59,11 @@ breaking the view. No raw JSON reaches the main panel.
 **An error is not the same as a 4xx.** The simple surface answers HTTP 200 to
 everything and reports the outcome in the body, on purpose, for clients that do
 not branch on status codes. A tool that coloured by status alone would show a
-failed write in green. This one treats a 4xx or 5xx *or* a simple-surface
-`result` of `ERROR` as a failure: the status strip turns red and the full
-response opens in a dialog.
+failed write in green. This one treats a 4xx or 5xx, *or* a simple-surface
+`result` of `ERROR`, *or* a body that is not JSON at all as a failure: the status
+strip turns red and the full response opens in a dialog. That last one is how
+being pointed at a proxy error page looks, and reading it as an absent value
+would let a formatter announce that the sign is idle on the strength of it.
 
 **It says when it is pointed at a different service than it was built for.**
 The catalogue below describes the surface in this checkout. A Pi that has not been

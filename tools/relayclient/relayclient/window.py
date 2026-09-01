@@ -40,13 +40,37 @@ from relayclient import catalogue, enums, skew
 from relayclient import format as fmt
 from relayclient import request as request_module
 from relayclient.catalogue import Input, Operation
-from relayclient.dialogs import CurlPreview, EntryPicker, ErrorDialog, HistoryDialog
+from relayclient.dialogs import (
+    NOTHING_ANSWERED,
+    SERVICE_PROBLEM,
+    CurlPreview,
+    EntryPicker,
+    ErrorDialog,
+    HistoryDialog,
+)
 from relayclient.history import History
 from relayclient.net import Caller, Completed, DescriptionFetcher
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 
-MUTED = "color:#7a746a"
+# What the surface label means, held here rather than set once in the
+# constructor. _show_verdict rewrites the tooltip on every keystroke, so a
+# sentence that existed only where the label was built would be gone after the
+# first one and nothing would ever put it back.
+SURFACE_TOOLTIP = (
+    "Whether the service's own description matches the surface this client was "
+    "built for. Checked once per address."
+)
+
+
+def _muted(theme: fmt.Theme) -> str:
+    """Return the stylesheet for text that should recede, in the theme in use.
+
+    A constant would be one theme's colour written down, and a stylesheet beats
+    the palette: the label would stay dark grey on a dark ground instead of
+    taking the light ink the palette had already chosen for it.
+    """
+    return "color:%s" % theme.muted
 
 
 class EnumerationPanel(QGroupBox):
@@ -72,7 +96,7 @@ class EnumerationPanel(QGroupBox):
             "available in the fields that use it."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet(MUTED)
+        intro.setStyleSheet(_muted(self._window.theme))
         layout.addWidget(intro)
 
         for set_key in catalogue.SET_ORDER:
@@ -113,7 +137,7 @@ class EnumerationPanel(QGroupBox):
         rows.addLayout(buttons)
 
         status = QLabel("not loaded")
-        status.setStyleSheet(MUTED)
+        status.setStyleSheet(_muted(self._window.theme))
         status.setWordWrap(True)
         self._status[set_key] = status
         rows.addWidget(status)
@@ -126,7 +150,7 @@ class EnumerationPanel(QGroupBox):
             loaded = self._window.store.get(set_key)
             if loaded is None:
                 label.setText("not loaded")
-                label.setStyleSheet(MUTED)
+                label.setStyleSheet(_muted(self._window.theme))
                 self._view[set_key].setEnabled(False)
             else:
                 label.setText(loaded.summary())
@@ -138,9 +162,15 @@ class EnumerationPanel(QGroupBox):
         loaded = self._window.store.get(set_key)
         if loaded is None:
             return
-        EntryPicker(
+        picker = EntryPicker(
             catalogue.SET_TITLES[set_key], loaded.entries, parent=self._window
-        ).exec()
+        )
+        picker.exec()
+        # Parented to the window, so nothing else will ever drop it. One per
+        # press would otherwise be held, with its whole table, until the run
+        # ended. EntryPicker cannot delete itself on close because the other
+        # call site reads its choice after exec returns.
+        picker.deleteLater()
 
 
 class OperationForm(QWidget):
@@ -165,12 +195,12 @@ class OperationForm(QWidget):
         if operation.note:
             note = QLabel(operation.note)
             note.setWordWrap(True)
-            note.setStyleSheet(MUTED)
+            note.setStyleSheet(_muted(self._window.theme))
             layout.addWidget(note)
 
         if operation.needs_key:
             key_note = QLabel("Sends the X-API-Key header.")
-            key_note.setStyleSheet(MUTED)
+            key_note.setStyleSheet(_muted(self._window.theme))
             layout.addWidget(key_note)
 
         form = QFormLayout()
@@ -185,7 +215,7 @@ class OperationForm(QWidget):
 
         if not operation.path_inputs and not operation.body:
             empty = QLabel("This one takes nothing. Press Send.")
-            empty.setStyleSheet(MUTED)
+            empty.setStyleSheet(_muted(self._window.theme))
             layout.addWidget(empty)
 
         layout.addStretch(1)
@@ -317,10 +347,14 @@ class OperationForm(QWidget):
         picker = EntryPicker(
             "Markup tokens", loaded.entries, parent=self._window, insert=True
         )
-        if picker.exec() and picker.selected:
+        chosen = picker.selected if picker.exec() else None
+        # Read first, dropped second. The read is why this one cannot carry
+        # WA_DeleteOnClose the way the other dialogs do.
+        picker.deleteLater()
+        if chosen:
             widget = self._body[field_name]
             if isinstance(widget, QPlainTextEdit):
-                widget.insertPlainText(picker.selected)
+                widget.insertPlainText(chosen)
                 widget.setFocus()
 
     def refresh_enumerations(self) -> None:
@@ -481,11 +515,8 @@ class MainWindow(QMainWindow):
         )
 
         self.surface = QLabel("")
-        self.surface.setStyleSheet(MUTED)
-        self.surface.setToolTip(
-            "Whether the service's own description matches the surface this client "
-            "was built for. Checked once per address."
-        )
+        self.surface.setStyleSheet(_muted(self.theme))
+        self.surface.setToolTip(SURFACE_TOOLTIP)
         # Connected here rather than beside the box it watches, because the slot
         # touches the label above and a signal wired before its target exists is
         # a crash waiting for the first line of code that happens to fire it.
@@ -704,7 +735,14 @@ class MainWindow(QMainWindow):
             self._absorb(operation, payload)
         else:
             # Required: every failure opens with its full content, not just a colour.
-            ErrorDialog(rendered, parent=self, theme=self.theme).exec()
+            # The title distinguishes the one failure where no service reported
+            # anything, because nothing answered at all.
+            ErrorDialog(
+                rendered,
+                parent=self,
+                theme=self.theme,
+                title=NOTHING_ANSWERED if result.status == 0 else SERVICE_PROBLEM,
+            ).exec()
 
         if result.status:
             # Only once something has actually answered. A call that never
@@ -753,8 +791,10 @@ class MainWindow(QMainWindow):
 
     def _show_verdict(self) -> None:
         """Show whatever is known about the address currently in the box."""
+        # The tooltip is the label's own explanation, not a verdict, so the
+        # no-verdict case restores it rather than blanking it.
         text, tooltip, style = self._verdicts.get(
-            self._current_address(), ("", "", MUTED)
+            self._current_address(), ("", SURFACE_TOOLTIP, _muted(self.theme))
         )
         self.surface.setText(text)
         self.surface.setToolTip(tooltip)
@@ -784,7 +824,11 @@ class MainWindow(QMainWindow):
             self._not_described(address, str(err))
             return
 
-        style = MUTED if difference.matches else "color:%s;font-weight:600" % self.theme.bad
+        style = (
+            _muted(self.theme)
+            if difference.matches
+            else "color:%s;font-weight:600" % self.theme.bad
+        )
         self._remember_verdict(address, difference.summary(), difference.detail(), style)
         if difference.matches:
             return
@@ -793,6 +837,9 @@ class MainWindow(QMainWindow):
         # the box has moved on, and a dialog about neither would be worse than
         # no dialog at all.
         box = QMessageBox(self)
+        # Built rather than static, so it is parented and would otherwise be
+        # kept for the life of the window.
+        box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("This service is not the one this client was built for")
         box.setText(address)
@@ -819,7 +866,7 @@ class MainWindow(QMainWindow):
             "The service did not hand over %s, so this client cannot tell whether the "
             "surface it offers is the one the service has. Calls are unaffected."
             % skew.DESCRIPTION_PATH,
-            MUTED,
+            _muted(self.theme),
         )
 
     def _set_strip(self, text: str, ok: bool | None) -> None:

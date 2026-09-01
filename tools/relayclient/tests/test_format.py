@@ -5,7 +5,16 @@ from __future__ import annotations
 import json
 
 from relayclient import catalogue
-from relayclient.format import Note, Section, Table, as_html, is_error, parse_body, render
+from relayclient.format import (
+    UNREADABLE,
+    Note,
+    Section,
+    Table,
+    as_html,
+    is_error,
+    parse_body,
+    render,
+)
 
 
 def rendered_text(operation_id, status, body, reason=""):
@@ -233,9 +242,35 @@ def test_markup_in_a_message_is_escaped_rather_than_rendered_as_html():
     assert "&lt;red&gt;hot" in html
 
 
-def test_a_body_that_is_not_json_parses_as_nothing():
-    assert parse_body("not json") is None
+def test_the_two_ways_of_arriving_at_no_value_stay_apart():
+    # A body of "null" and a body that is not JSON both leave nothing to read,
+    # and they mean opposite things. The service really does answer null, so
+    # they cannot share a return value.
+    assert parse_body("not json") is UNREADABLE
+    assert parse_body("null") is None
     assert parse_body("   ") is None
+
+
+def test_a_body_that_is_not_json_is_a_failure_rather_than_a_quiet_success():
+    # Something answered on the address, but not this service: a proxy error
+    # page, a captive portal, the wrong application on the right port. Read as
+    # "no value", the alert formatter states that the sign is rotating normally,
+    # in green, on the strength of a response that said nothing of the kind.
+    result, text = rendered_text("get_alert", 200, "<html>x</html>", reason="OK")
+    assert result.ok is False
+    assert "No alert is holding the sign" not in text
+    assert "the call succeeded" not in result.headline
+    assert "not JSON" in result.headline
+
+
+def test_a_body_that_is_a_literal_null_still_means_what_it_says():
+    # GET /v2/alerts answers null when nothing is holding the sign, and its
+    # schema says so. Reading the unreadable body as null is the bug above;
+    # reading null as unreadable would break the endpoint's own answer, so this
+    # is the half of the pair that stops the fix overshooting.
+    result, text = rendered_text("get_alert", 200, "null", reason="OK")
+    assert result.ok is True
+    assert "No alert is holding the sign" in text
 
 
 def test_a_simple_surface_failure_is_not_headlined_as_a_success():
@@ -282,6 +317,39 @@ def test_the_rendered_html_takes_its_ink_from_the_theme():
     # is what produces grey on dark.
     assert DARK.ink not in light
     assert LIGHT.muted not in dark
+
+
+def test_no_colour_the_themes_carry_is_written_down_instead_of_themed():
+    # The test above renders a response whose only block is a Note, so it
+    # reaches neither table renderer and neither accent. Put the light border
+    # colours back into _table_html, or build the headline from a module
+    # constant, and it would still pass. This one renders a table and a failure
+    # too, so all six fields of the pair are exercised in both directions.
+    from relayclient.format import DARK, LIGHT
+
+    body = json.dumps(
+        [
+            {
+                "key": "k",
+                "label": "A",
+                "message": "hello",
+                "display_mode": "HOLD",
+                "position": "MIDDLE",
+                "order": 0,
+                "source": None,
+                "expires_at": None,
+                "updated_at": "2026-08-31T07:00:00+00:00",
+            }
+        ]
+    )
+    table = render(catalogue.BY_ID["list_messages"], 200, "OK", body)
+    failure = render(catalogue.BY_ID["list_messages"], 503, "Service Unavailable", "{}")
+
+    for theme, other in ((LIGHT, DARK), (DARK, LIGHT)):
+        html = as_html(table, theme) + as_html(failure, theme)
+        for name in ("ink", "muted", "rule", "faint_rule", "ok", "bad"):
+            assert getattr(theme, name) in html, name
+            assert getattr(other, name) not in html, name
 
 
 def test_an_enumeration_is_read_with_the_field_the_catalogue_names():

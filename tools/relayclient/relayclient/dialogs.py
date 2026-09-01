@@ -37,6 +37,12 @@ from relayclient.request import API_KEY_VARIABLE
 
 MONO = "font-family:Consolas,'DejaVu Sans Mono',monospace;font-size:12px"
 
+# The two things a failed call can mean, kept apart. A refused connection, an
+# address that will not resolve and a transfer that timed out are the one kind
+# of failure where no service reported anything, because none was reached.
+SERVICE_PROBLEM = "The service reported a problem"
+NOTHING_ANSWERED = "Nothing answered"
+
 
 class EntryPicker(QDialog):
     """Shows one enumeration, and optionally hands a name back to be inserted.
@@ -127,10 +133,21 @@ class ErrorDialog(QDialog):
         *,
         parent: QWidget | None = None,
         theme: fmt.Theme = fmt.LIGHT,
+        title: str = SERVICE_PROBLEM,
     ) -> None:
-        """Build the dialog around an already rendered failure."""
+        """Build the dialog around an already rendered failure.
+
+        ``title`` is a parameter because a call that never completed is the one
+        failure where no service reported anything. Everything else in the tool
+        keeps that apart: the headline reads "No response", the history record
+        says "failed" rather than a code, and the surface check is skipped
+        outright, because a call that never arrived says nothing about a service.
+        """
         super().__init__(parent)
-        self.setWindowTitle("The service reported a problem")
+        # Modal and read only. Without this it stays a hidden child of the
+        # window, holding the whole response, one per failed call.
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        self.setWindowTitle(title)
         self.resize(680, 480)
 
         layout = QVBoxLayout(self)
@@ -139,7 +156,13 @@ class ErrorDialog(QDialog):
         summary.setHtml(fmt.as_html(rendered, theme))
         layout.addWidget(summary, 1)
 
-        layout.addWidget(QLabel("The response exactly as it arrived:"))
+        layout.addWidget(
+            QLabel(
+                "The response exactly as it arrived:"
+                if rendered.detail
+                else "There was no response to show:"
+            )
+        )
         raw = QTextBrowser()
         raw.setStyleSheet(MONO)
         raw.setPlainText(rendered.detail or "(no body)")
@@ -155,16 +178,16 @@ class ErrorDialog(QDialog):
         layout.addWidget(buttons)
 
 
-def _headers_html(title: str, headers: dict[str, str]) -> str:
+def _headers_html(title: str, headers: dict[str, str], theme: fmt.Theme) -> str:
     """Render a header block the way a network tab lists them."""
     if not headers:
         return "<div style='margin:12px 0 4px;font-weight:600'>%s</div><div>none</div>" % escape(
             title
         )
     rows = "".join(
-        "<tr><td style='padding:2px 14px 2px 0;color:#7a746a;white-space:nowrap;"
+        "<tr><td style='padding:2px 14px 2px 0;color:%s;white-space:nowrap;"
         "vertical-align:top'>%s</td><td style='padding:2px 0'>%s</td></tr>"
-        % (escape(name), escape(value))
+        % (theme.muted, escape(name), escape(value))
         for name, value in headers.items()
     )
     return (
@@ -198,7 +221,8 @@ def record_html(record: Record, theme: fmt.Theme = fmt.LIGHT) -> str:
         "<div style='font-family:sans-serif;font-size:13px;color:%s'>" % theme.ink,
         "<div style='color:%s;font-weight:600;font-size:14px'>%s %s</div>"
         % (colour, escape(record.method), escape(record.path)),
-        "<div style='color:#7a746a;margin-bottom:6px'>%s</div>" % escape(record.summary),
+        "<div style='color:%s;margin-bottom:6px'>%s</div>"
+        % (theme.muted, escape(record.summary)),
         "<table style='border-collapse:collapse'>",
     ]
     for label, value in (
@@ -208,14 +232,15 @@ def record_html(record: Record, theme: fmt.Theme = fmt.LIGHT) -> str:
         ("took", "%d ms" % record.duration_ms),
     ):
         parts.append(
-            "<tr><td style='padding:2px 14px 2px 0;color:#7a746a;white-space:nowrap'>%s</td>"
-            "<td style='padding:2px 0'>%s</td></tr>" % (escape(label), escape(value))
+            "<tr><td style='padding:2px 14px 2px 0;color:%s;white-space:nowrap'>%s</td>"
+            "<td style='padding:2px 0'>%s</td></tr>"
+            % (theme.muted, escape(label), escape(value))
         )
     parts.append("</table>")
 
-    parts.append(_headers_html("Request headers", record.request_headers))
+    parts.append(_headers_html("Request headers", record.request_headers, theme))
     parts.append(_body_html("Request body", record.request_body))
-    parts.append(_headers_html("Response headers", record.response_headers))
+    parts.append(_headers_html("Response headers", record.response_headers, theme))
 
     if rendered is not None:
         parts.append("<div style='margin:12px 0 4px;font-weight:600'>Response, read back</div>")
@@ -238,6 +263,7 @@ class HistoryDialog(QDialog):
     ) -> None:
         """Build the dialog over the run's history."""
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self._theme = theme
         self.setWindowTitle("Calls made this run")
         self.resize(1000, 620)
@@ -275,7 +301,7 @@ class HistoryDialog(QDialog):
         curl = buttons.addButton("Copy as curl", QDialogButtonBox.ButtonRole.ActionRole)
         curl.clicked.connect(self._copy_curl)
         self._curl_note = QLabel("")
-        self._curl_note.setStyleSheet("color:#7a746a")
+        self._curl_note.setStyleSheet("color:%s" % theme.muted)
 
         footer = QHBoxLayout()
         footer.addWidget(self._curl_note, 1)
@@ -324,6 +350,7 @@ class CurlPreview(QDialog):
     def __init__(self, command: str, *, parent: QWidget | None = None) -> None:
         """Build the preview around a rendered command."""
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle("The same call as curl")
         self.resize(720, 320)
 

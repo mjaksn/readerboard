@@ -122,8 +122,8 @@ def main() -> int:
     for lock_file in LOCK_FILES:
         current = lock_file.read_text(encoding="utf-8")
         updated = rewrite(current)
-        # Two of these are called requirements.lock, so the bare name would
-        # not say which one is stale.
+        # More than one of these is called requirements.lock, so the bare
+        # name would not say which one is stale.
         name = lock_file.relative_to(_ROOT).as_posix()
 
         if current == updated:

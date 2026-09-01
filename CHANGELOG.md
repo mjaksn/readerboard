@@ -38,8 +38,9 @@ second tool alongside the simulator for exercising the API by hand.
   tokens a message field offers are the ones this service answered rather than a
   copy that went stale in the client. And an error is not a 4xx: the simple
   surface answers 200 with the outcome in the body, so a `result` of `ERROR` is
-  treated as the failure it is. A client that coloured by status code alone
-  would show a failed write in green.
+  treated as the failure it is, and so is a body that is not JSON at all, which
+  is what being pointed at a proxy error page looks like. A client that coloured
+  by status code alone would show a failed write in green.
 
   It is a tool, not part of the service. Qt stays out of `pyproject.toml`,
   `tools/` stays in `.dockerignore`, and the client has its own hash-pinned lock

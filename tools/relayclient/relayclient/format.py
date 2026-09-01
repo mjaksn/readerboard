@@ -86,27 +86,60 @@ STATUS_MEANING = {
 }
 
 
+class Unreadable:
+    """A body that is not JSON at all, which is not the same as a body of null.
+
+    ``GET /v2/alerts`` answers a literal ``null`` when nothing is holding the
+    sign, and :func:`_alert` turns that into a sentence saying so. Collapsing
+    both onto ``None`` would print that sentence, in green, over a proxy error
+    page or a captive portal: the same mistake as colouring by status code,
+    moved one layer down. So the unreadable body is this instead.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        """Name it, since it would otherwise appear as an anonymous object."""
+        return "<unreadable body>"
+
+
+UNREADABLE = Unreadable()
+
+
 def parse_body(text: str) -> object | None:
-    """Return the body as parsed JSON, or None when it is not JSON at all."""
+    """Return the body as parsed JSON.
+
+    ``None`` for an empty body and for a literal ``null``, which the service
+    does send. :data:`UNREADABLE` for anything that is not JSON at all, which it
+    never sends.
+    """
     stripped = text.strip()
     if not stripped:
         return None
     try:
         parsed: object = json.loads(stripped)
     except ValueError:
-        return None
+        return UNREADABLE
     return parsed
 
 
 def is_error(status: int, payload: object | None) -> bool:
     """Whether this response should be read as a failure.
 
-    Two ways to fail. The usual one is a status code of 400 or above. The other
-    is the simple surface answering 200 with ``result`` set to ``ERROR``, which
-    it does for every failure it has, because it was built for clients that do
-    not read status codes.
+    Three ways to fail. The usual one is a status code of 400 or above. The
+    second is the simple surface answering 200 with ``result`` set to ``ERROR``,
+    which it does for every failure it has, because it was built for clients
+    that do not read status codes. The third is a body that is not JSON at all:
+    something answered, but every formatter below reads a missing value as a
+    value and would state the absence as a fact.
+
+    All three are decided here rather than in :func:`render`, because the window
+    asks this question separately to colour its status strip. A rule that lived
+    in the renderer would turn the panel red and leave the strip green.
     """
     if status == 0 or status >= 400:
+        return True
+    if payload is UNREADABLE:
         return True
     return isinstance(payload, dict) and str(payload.get("result", "")).upper() == "ERROR"
 
@@ -148,7 +181,7 @@ def yes_no(value: object) -> str:
     return "yes" if value else "no"
 
 
-def headline_for(status: int, reason: str, *, ok: bool = True) -> str:
+def headline_for(status: int, reason: str, *, ok: bool = True, readable: bool = True) -> str:
     """Return the status line as it appears above the response.
 
     ``ok`` is not decoration. A simple-surface failure arrives as 200, and
@@ -156,11 +189,17 @@ def headline_for(status: int, reason: str, *, ok: bool = True) -> str:
     from the status alone would announce success at the top of a response this
     module has just decided is a failure. That is precisely the mistake the
     module exists to prevent, and it would be made in its own first line.
+
+    ``readable`` separates the two ways a 200 can be a failure. A body that
+    would not parse reports nothing at all, so saying that it reports a failure
+    would put words in its mouth.
     """
     if status == 0:
         return "No response: %s" % (reason or "the request did not complete")
     label = "%d %s" % (status, reason) if reason else str(status)
     if not ok and status < 400:
+        if not readable:
+            return "%s, but the body is not JSON and cannot be read" % label
         return "%s, but the body reports a failure" % label
     meaning = STATUS_MEANING.get(status)
     return "%s, %s" % (label, meaning) if meaning else label
@@ -172,8 +211,27 @@ def headline_for(status: int, reason: str, *, ok: bool = True) -> str:
 
 
 def render_error(status: int, reason: str, payload: object | None, raw: str) -> Rendered:
-    """Render a failure, whichever of the three shapes it arrived in."""
-    rendered = Rendered(headline=headline_for(status, reason, ok=False), ok=False)
+    """Render a failure, whichever of the four shapes it arrived in."""
+    rendered = Rendered(
+        headline=headline_for(
+            status, reason, ok=False, readable=payload is not UNREADABLE
+        ),
+        ok=False,
+    )
+
+    if payload is UNREADABLE:
+        # Said on a 4xx as well as on a 200, deliberately. This service reports
+        # its own failures as JSON, so a body that is not JSON says the same
+        # thing whatever the code above it: the answer came from somewhere else.
+        rendered.blocks.append(
+            Note(
+                "The body is not JSON, so none of it has been read as a value. "
+                "Whatever answered on this address may not be this service."
+            )
+        )
+        rendered.blocks.append(Note(raw.strip()))
+        rendered.detail = raw
+        return rendered
 
     if isinstance(payload, dict) and "detail" in payload:
         detail = payload["detail"]

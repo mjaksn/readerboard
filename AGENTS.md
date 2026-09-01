@@ -136,8 +136,10 @@ Two things about it are load bearing rather than stylistic. The enumerations are
 empty until a button is pressed, so the markup tokens a message field offers are
 the ones this service answered rather than a copy that went stale. And an error
 is not a 4xx: the simple surface answers 200 with the outcome in the body, so the
-client treats a `result` of `ERROR` as a failure exactly as it treats a 503. A
-tool that coloured by status code alone would show a failed write in green.
+client treats a `result` of `ERROR` as a failure exactly as it treats a 503, and
+treats a body that is not JSON as one too, because every formatter it has reads
+a missing value as a value and would state the absence as a fact. A tool that
+coloured by status code alone would show a failed write in green.
 
 It also asks each address for its own `/openapi.json` the first time that address
 answers anything, and says when the surface it finds is not the one the client was
