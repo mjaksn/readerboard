@@ -4,8 +4,11 @@ import re
 from collections.abc import Iterator
 
 import pytest
+from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.testclient import TestClient
+from starlette.exceptions import HTTPException
 
+from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
 from readerboard.transport.fake import FakeTransport
@@ -483,9 +486,10 @@ class TestTheSimpleEndpoints:
         assert response.status_code == 200
         assert response.json()["result"] == "OK"
 
-    def test_the_two_surfaces_agree_about_what_a_failure_means(self, client, sign):
-        # One table, read twice. If the simple surface ever grew its own copy,
-        # this is what would catch the day the two drifted apart.
+    def test_the_two_surfaces_agree_about_an_unreachable_sign(self, client, sign):
+        # The one failure both surfaces can be made to produce on demand through
+        # HTTP. It pins that one, not the whole table; the test beside
+        # TestTheErrorTable covers the rest, which no request can trigger.
         sign.fail_with = "cable unplugged"
 
         simple = client.post(
@@ -551,6 +555,47 @@ class TestTheSimpleEndpoints:
             "<time>",
             "<week_day>",
         } <= names
+
+
+class TestTheErrorTable:
+    """The one table both surfaces read to decide what a failure was.
+
+    ``/v2`` lets its exceptions through to a handler; the simple routes catch
+    the same ones to answer in their own body shape. Only a table read by both
+    keeps them agreeing, and only these tests keep the table read by both.
+    """
+
+    def test_every_exception_in_the_table_is_registered_as_a_handler(self, settings, sign):
+        # The registration is a loop over the table today. Written out by hand
+        # again, this is what would notice the entry somebody forgot to add.
+        app = create_app(settings)
+
+        for kind, _code in errors.STATUS_FOR_ERROR:
+            assert kind in app.exception_handlers, (
+                "%s is in the table but no handler answers it" % kind.__name__
+            )
+
+    def test_no_handler_is_registered_that_the_table_does_not_name(self, settings, sign):
+        # The other direction. A handler added beside the loop rather than in
+        # the table would answer on /v2 and be invisible to the simple surface,
+        # which is exactly the drift the one table exists to prevent.
+        app = create_app(settings)
+        named = {kind for kind, _code in errors.STATUS_FOR_ERROR}
+
+        for registered in app.exception_handlers:
+            if registered in (HTTPException, RequestValidationError):
+                continue  # Starlette's and FastAPI's own, not this service's.
+            if registered is WebSocketRequestValidationError:
+                continue
+            assert registered in named, (
+                "%s has a handler but the simple surface cannot see it"
+                % getattr(registered, "__name__", registered)
+            )
+
+    def test_an_exception_the_table_does_not_name_is_a_500(self):
+        # The honest answer for something this service never planned for. It
+        # must not fall through to 400, which would blame the caller for it.
+        assert errors.status_for(RuntimeError("something nobody named")) == 500
 
 
 class TestNoApiKeyConfigured:
