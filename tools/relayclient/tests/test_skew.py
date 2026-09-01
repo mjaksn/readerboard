@@ -100,6 +100,24 @@ def test_the_version_is_read_from_wherever_it_is_and_nowhere_else():
     assert version_in("nonsense") == ""
 
 
+def test_a_path_item_s_own_keys_are_not_mistaken_for_methods():
+    # `parameters`, `summary`, `description`, `servers` and `$ref` are all legal
+    # beside the operations. FastAPI emits none of them, but this code exists to
+    # read other services' descriptions, and one that did would otherwise look
+    # like a service full of endpoints named PARAMETERS.
+    document = current()
+    document["paths"]["/v2/messages"]["parameters"] = []
+    document["paths"]["/v2/messages"]["summary"] = "the slots"
+    document["paths"]["/v2/messages"]["servers"] = []
+    difference = compare(document, catalogue.OPERATIONS)
+    assert difference.matches, difference.detail()
+
+
+def test_only_real_methods_are_counted():
+    found = paths_in({"paths": {"/x": {"get": {}, "patch": {}, "summary": "s"}}})
+    assert found == {("GET", "/x"), ("PATCH", "/x")}
+
+
 def test_the_description_path_is_not_in_the_catalogue():
     # It is not part of the described surface, so listing it as an operation
     # would break the endpoint diff in test_catalogue.py for a path the

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from conftest import REPO_ROOT
 
-from relayclient import catalogue
+from relayclient import catalogue, skew
 
 OPENAPI = Path(REPO_ROOT) / "docs" / "openapi.json"
 
@@ -27,6 +27,10 @@ def described() -> set[tuple[str, str]]:
         (method.upper(), path)
         for path, operations in document["paths"].items()
         for method in operations
+        # A path item may carry keys that are not operations. This document has
+        # none today, and the filter is here so that it staying true is not an
+        # assumption this test quietly depends on.
+        if method.lower() in skew.HTTP_METHODS
     }
 
 

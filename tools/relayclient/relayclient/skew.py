@@ -21,6 +21,14 @@ from relayclient.catalogue import Operation
 
 DESCRIPTION_PATH = "/openapi.json"
 
+# A path item may carry `parameters`, `summary`, `description`, `servers` and
+# `$ref` beside its operations. FastAPI emits none of them today, but this code
+# exists to read other services' descriptions, and one that did would otherwise
+# come back as a surface full of endpoints named PARAMETERS.
+HTTP_METHODS = frozenset(
+    {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+)
+
 
 class UnreadableDescription(Exception):
     """Raised when what came back is not an OpenAPI description."""
@@ -41,7 +49,8 @@ def paths_in(document: object) -> set[tuple[str, str]]:
         if not isinstance(operations, dict):
             continue
         for method in operations:
-            found.add((str(method).upper(), str(path)))
+            if str(method).lower() in HTTP_METHODS:
+                found.add((str(method).upper(), str(path)))
     return found
 
 

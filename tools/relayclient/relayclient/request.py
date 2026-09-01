@@ -44,6 +44,11 @@ class Prepared:
     body: str | None
 
     @property
+    def origin(self) -> str:
+        """Return the base URL this went to, which is not always the one on screen now."""
+        return self.url[: len(self.url) - len(self.path)]
+
+    @property
     def redacted_headers(self) -> dict[str, str]:
         """Return the headers with the API key replaced rather than carried around."""
         return {
@@ -117,12 +122,12 @@ def build_body(operation: Operation, values: dict[str, str]) -> dict[str, object
         raw = values.get(item.name)
         text = "" if raw is None else str(raw)
         if not text.strip():
-            if item.required and item.prefill is None:
-                # Still sent, so the service can answer for it rather than the
-                # client deciding what an empty required field means.
+            if item.required:
+                # Sent empty, so the service answers for it rather than the
+                # client deciding what an empty required field means. The
+                # prefill's job is to start a field off, not to put back a value
+                # somebody cleared on purpose to see what would happen.
                 body[item.name] = ""
-            elif item.required and item.prefill is not None:
-                body[item.name] = item.prefill
             continue
         body[item.name] = coerce(item.kind, text)
     return body

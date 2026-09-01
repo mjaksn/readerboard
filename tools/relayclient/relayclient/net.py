@@ -141,22 +141,30 @@ class DescriptionFetcher(QObject):
     actually asked for.
     """
 
-    fetched = Signal(object)
-    failed = Signal(str, bool)
+    fetched = Signal(str, object)
+    failed = Signal(str, str, bool)
 
     def __init__(self, parent: QObject | None = None) -> None:
         """Build the fetcher with its own network manager."""
         super().__init__(parent)
         self._manager = QNetworkAccessManager(self)
         self._reply: QNetworkReply | None = None
+        # Carried through rather than re-read on the way out: by the time this
+        # answers, the address on screen may be a different one.
+        self._address = ""
 
     def fetch(self, base_url: str) -> None:
         """Fetch the description from a base URL, replacing any fetch in progress."""
-        if self._reply is not None:
-            self._reply.abort()
-            self._reply = None
+        # Cleared before the abort, not after. Aborting drives `finished`, and
+        # with the old reply still in place that would report a cancellation
+        # nobody asked about and release an address that was never checked.
+        stale, self._reply = self._reply, None
+        if stale is not None:
+            stale.abort()
+            stale.deleteLater()
 
-        request = QNetworkRequest(QUrl(base_url.rstrip("/") + DESCRIPTION_PATH))
+        self._address = base_url.rstrip("/")
+        request = QNetworkRequest(QUrl(self._address + DESCRIPTION_PATH))
         request.setTransferTimeout(TRANSFER_TIMEOUT_MS)
         request.setRawHeader(b"Accept", b"application/json")
         reply = self._manager.get(request)
@@ -169,6 +177,7 @@ class DescriptionFetcher(QObject):
         self._reply = None
         if reply is None:
             return
+        address = self._address
 
         body = bytes(reply.readAll().data()).decode("utf-8", "replace")
         status = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
@@ -178,16 +187,21 @@ class DescriptionFetcher(QObject):
         if status is None:
             # Nothing arrived. Worth trying again once something does, so this
             # says so: the address may simply not have been up yet.
-            self.failed.emit(error, True)
+            self.failed.emit(address, error, True)
             return
         if int(status) != 200:
             # It answered, and has no description to give. Asking again on every
             # later call would be noise, so this one is final.
             self.failed.emit(
-                "the service answered %d for %s" % (int(status), DESCRIPTION_PATH), False
+                address, "the service answered %d for %s" % (int(status), DESCRIPTION_PATH), False
             )
             return
         try:
-            self.fetched.emit(json.loads(body))
+            document = json.loads(body)
         except ValueError as err:
-            self.failed.emit("the description did not parse: %s" % err, False)
+            self.failed.emit(address, "the description did not parse: %s" % err, False)
+            return
+        # Outside the try. A direct connection runs the slot synchronously, so a
+        # ValueError raised anywhere downstream would otherwise be caught here
+        # and reported as a parse failure it had nothing to do with.
+        self.fetched.emit(address, document)

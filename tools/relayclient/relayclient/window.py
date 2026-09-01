@@ -12,7 +12,6 @@ a claim about the window.
 
 from __future__ import annotations
 
-import contextlib
 from datetime import datetime
 
 from PySide6.QtCore import QSettings, Qt
@@ -266,12 +265,27 @@ class OperationForm(QWidget):
         return line
 
     def _fill_combo(self, item: Input, combo: QComboBox) -> None:
-        """Offer whatever has been loaded for this field's set, and say so if nothing has."""
+        """Offer whatever has been loaded for this field's set, and say so if nothing has.
+
+        Loading a set must not answer the question for the caller. ``addItems``
+        selects the first entry, so without the restore below, loading the
+        control commands would leave the command box holding the first one and
+        Send would fire a command nobody picked.
+        """
         current = combo.currentText()
         combo.clear()
         names = self._window.store.names(item.enum_set or "")
         if names:
             combo.addItems(list(names))
+
+        if current:
+            combo.setCurrentText(current)
+        elif item.prefill is not None:
+            combo.setCurrentText(str(item.prefill))
+        else:
+            combo.setCurrentIndex(-1)
+
+        if names:
             _placeholder(combo, item.description)
         else:
             _placeholder(
@@ -279,10 +293,6 @@ class OperationForm(QWidget):
                 "load %s on the left to choose from a list"
                 % catalogue.SET_TITLES.get(item.enum_set or "", "the set").lower(),
             )
-        if current:
-            combo.setCurrentText(current)
-        elif item.prefill is not None:
-            combo.setCurrentText(str(item.prefill))
 
     def _refresh_token_button(self, button: QPushButton) -> None:
         """Enable the token inserter only once the tokens are actually loaded."""
@@ -322,10 +332,15 @@ class OperationForm(QWidget):
         for item in self.operation.path_inputs:
             widget = self._path.get(item.name)
             if item.slot_keys and isinstance(widget, QComboBox):
+                # Offered, never chosen. Leaving the first key selected would
+                # make Load followed by Send delete a message at random.
                 current = widget.currentText()
                 widget.clear()
                 widget.addItems(keys)
-                widget.setCurrentText(current)
+                if current:
+                    widget.setCurrentText(current)
+                else:
+                    widget.setCurrentIndex(-1)
 
     def path_values(self) -> dict[str, str]:
         """Return what has been typed into the path parameters."""
@@ -661,8 +676,9 @@ class MainWindow(QMainWindow):
         if result.status:
             # Only once something has actually answered. A call that never
             # completed says nothing about the surface, and complaining twice
-            # about one unreachable service helps nobody.
-            self._check_surface()
+            # about one unreachable service helps nobody. The address is the one
+            # this call went to, which is not always the one in the box now.
+            self._check_surface(result.prepared.origin)
 
         if self._pending_slot_keys and operation.id == "list_messages":
             self._pending_slot_keys = False
@@ -695,23 +711,19 @@ class MainWindow(QMainWindow):
         if self._form is not None:
             self._form.refresh_enumerations()
 
-    def _check_surface(self) -> None:
-        """Ask this address to describe itself, the first time it answers anything."""
-        try:
-            address = request_module.normalise_base_url(self.base_url.text())
-        except request_module.InvalidRequest:
-            return
-        if address in self._checked:
+    def _check_surface(self, address: str) -> None:
+        """Ask an address to describe itself, the first time it answers anything."""
+        if not address or address in self._checked:
             return
         self._checked.add(address)
         self._describer.fetch(address)
 
-    def _described(self, document: object) -> None:
+    def _described(self, address: str, document: object) -> None:
         """Say whether the service's surface is the one this client was built for."""
         try:
             difference = skew.compare(document, catalogue.OPERATIONS)
         except skew.UnreadableDescription as err:
-            self._not_described(str(err))
+            self._not_described(address, str(err))
             return
 
         self.surface.setText(difference.summary())
@@ -727,7 +739,7 @@ class MainWindow(QMainWindow):
             difference.detail(),
         )
 
-    def _not_described(self, reason: str, retryable: bool = False) -> None:
+    def _not_described(self, address: str, reason: str, retryable: bool = False) -> None:
         """Say that the surface could not be checked, without making a fuss of it.
 
         A service that could not be reached is not a service that has been
@@ -736,8 +748,7 @@ class MainWindow(QMainWindow):
         left alone, because asking it again on every call would be noise.
         """
         if retryable:
-            with contextlib.suppress(request_module.InvalidRequest):
-                self._checked.discard(request_module.normalise_base_url(self.base_url.text()))
+            self._checked.discard(address)
         self.surface.setText("surface not checked: %s" % reason)
         self.surface.setToolTip(
             "The service did not hand over %s, so this client cannot tell whether the "

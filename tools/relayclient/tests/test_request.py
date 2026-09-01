@@ -90,6 +90,29 @@ def test_an_empty_optional_field_is_left_out_rather_than_sent_as_null():
     assert body["message"] == "hello"
 
 
+def test_an_emptied_required_field_goes_out_empty_so_the_service_answers_for_it():
+    # Clearing a required box is how you ask what the service does with an empty
+    # one. Substituting the prefill would answer the question the client was
+    # asked to put to the service.
+    operation = catalogue.BY_ID["simple_write_message"]
+    body = build_body(operation, {"message": "hello", "display_mode": ""})
+    assert body == {"message": "hello", "display_mode": ""}
+
+
+def test_a_required_field_left_alone_still_sends_what_is_in_it():
+    operation = catalogue.BY_ID["simple_write_message"]
+    body = build_body(operation, {"message": "hello", "display_mode": "ROTATE"})
+    assert body == {"message": "hello", "display_mode": "ROTATE"}
+
+
+def test_the_origin_is_the_address_a_request_actually_went_to():
+    prepared = build(
+        catalogue.BY_ID["get_message"], "http://pi.local:5001", path_values={"key": "k"}
+    )
+    assert prepared.origin == "http://pi.local:5001"
+    assert prepared.url == "http://pi.local:5001/v2/messages/k"
+
+
 def test_an_operation_with_no_body_sends_none():
     assert build_body(catalogue.BY_ID["list_messages"], {}) is None
 
