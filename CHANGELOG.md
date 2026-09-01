@@ -13,11 +13,11 @@ library, and the names inside it may move without that being a breaking change.
 ## [Unreleased]
 
 No path, request body, response body or setting name changes, and no byte this
-service sends to a sign changes either. Two status codes do change: a failed
-write to the simple surface now says so in the status as well as in the body.
-Otherwise, what changes is where the protocol constants come from, how the state
-file is written on Windows, and a second tool alongside the simulator for
-exercising the API by hand.
+service sends to a sign changes either. The two `/Write` posts do change what
+status they answer with: a failed write to the simple surface now says so in the
+status as well as in the body. Otherwise, what changes is where the protocol
+constants come from, how the state file is written on Windows, and a second tool
+alongside the simulator for exercising the API by hand.
 
 ### Added
 
@@ -59,8 +59,10 @@ exercising the API by hand.
   everything and report the outcome in the body alone. **The body is unchanged**:
   `result` and `result_message` say exactly what they said before, so anything
   reading them keeps working. What is added is a status code that agrees with
-  them, 400 for a mode or a command the sign does not have, 503 when the sign is
-  unreachable, taking the same meanings `/v2` already gives them.
+  them: 400 for a mode or a command the sign does not have, a parameter it will
+  not accept or a message too long for its slot, 409 when every message slot is
+  in use, 503 when the sign is unreachable, and 500 for anything the service has
+  no code for, all taking the same meanings `/v2` already gives them.
 
   The old behaviour existed for a Home Assistant `rest_command` and a shell
   one-liner in cron, on the reasoning that neither branches on a status code.

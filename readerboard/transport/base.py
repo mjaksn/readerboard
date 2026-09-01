@@ -8,10 +8,10 @@ from typing import Protocol, runtime_checkable
 class TransportError(RuntimeError):
     """The bytes did not reach the sign.
 
-    This is the one failure the ``/v2`` API turns into a 503. Reporting it any
-    other way, in particular as a 200 with an error string in the body, makes a
-    dead serial link indistinguishable from success to anything that reads the
-    status code.
+    This is the one failure the HTTP surface turns into a 503, on ``/v2`` and on
+    the simple routes alike. Reporting it any other way, in particular as a 200
+    with an error string in the body, makes a dead serial link indistinguishable
+    from success to anything that reads the status code.
     """
 
 

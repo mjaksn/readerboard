@@ -50,12 +50,14 @@ page, put the key in once with the **Authorize** button and every write below
 carries it.
 
 The `/Write` and `/Enumerations` paths are a smaller surface for callers that
-post a fixed body to a fixed path: one message, no slot to name, and a
-`result` of `OK` or `ERROR` in the body. The status code says the same thing the
-body does, and means what it means everywhere else here: 400 for a message the
-sign cannot render, 401 for a missing or wrong `X-API-Key`, 503 when the sign is
-unreachable or no API key is configured at all, and 422 for a body that is not
-the shape the endpoint declares.
+post a fixed body to a fixed path: one message, no slot to name, and a `result`
+of `OK` or `ERROR` in the body. The status code says the same thing the body
+does, and means what it means everywhere else here: 400 for a mode or a command
+the sign does not have, a parameter it will not accept or a message too long for
+its slot, 401 for a missing or wrong `X-API-Key`, 409 when every message slot is
+already in use, 503 when the sign is unreachable or no API key is configured at
+all, 500 for something the service has no code for, and 422 for a body that is
+not the shape the endpoint declares.
 """
 
 

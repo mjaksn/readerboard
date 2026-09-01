@@ -188,10 +188,12 @@ That suits a caller posting a fixed body to a fixed path, such as a Home Assista
 `rest_command` or a shell one-liner in a cron job, neither of which wants to name a slot or
 read a slot table back.
 
-The status code says the same thing the body does, and means what it means on `/v2`: 400
-for a mode or a command the sign does not have, 401 for a missing or wrong API key, 503
-when the sign is unreachable or no API key is configured at all, and FastAPI's own 422 for
-a body that is not the shape the endpoint declares.
+The status code says the same thing the body does, and means what it means on `/v2`: 400 for
+a mode or a command the sign does not have, a parameter it will not accept or a message too
+long for its slot, 401 for a missing or wrong API key, 409 when every message slot is
+already in use, 503 when the sign is unreachable or no API key is configured at all, 500 for
+something the service has no code for, and FastAPI's own 422 for a body that is not the
+shape the endpoint declares.
 
 Up to and including 0.2.0 every response here was a 200 whatever happened, on the reasoning
 that those two callers do not branch on status codes. They do not, but neither do they read

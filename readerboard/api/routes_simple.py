@@ -55,15 +55,23 @@ router = APIRouter()
 write = APIRouter(prefix="/Write", tags=["Write (simple)"])
 enumerations = APIRouter(prefix="/Enumerations", tags=["Enumerations (simple)"])
 
-# What the two writes can answer with when they fail, declared so the page shows
+# What both writes can answer with when they fail, declared so the page shows
 # what is true of all of them: the body is the same shape whatever the status,
 # and a caller that only reads ``result`` need not care which code it got. Which
 # code any given failure earns is decided in readerboard.api.errors, not here.
-# A 401 and a 422 are not listed because neither reaches these routes.
+#
+# The rule for what belongs here is whether a caller can actually be answered
+# with it from these routes. A 401 and a 422 are absent by that rule, because
+# both are answered before the route body runs. Nothing renders strictly here,
+# so the 400 is never a character the sign has no glyph for; that is a ``?`` and
+# a 200, as it has always been.
 SIMPLE_FAILURES: dict[int | str, dict[str, Any]] = {
     status.HTTP_400_BAD_REQUEST: {
         "model": SimpleResult,
-        "description": "The sign cannot render it, or the mode or command is not one it has",
+        "description": (
+            "The mode or command is not one the sign has, the parameter is "
+            "not one it will accept, or the message is too long for its slot"
+        ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: {
         "model": SimpleResult,
@@ -75,12 +83,23 @@ SIMPLE_FAILURES: dict[int | str, dict[str, Any]] = {
     },
 }
 
+# By that same rule one code belongs to one route rather than to both. Only
+# ``/Write/Message`` takes a slot, so only it can find the file pool full and
+# answer the 409 that readerboard.api.errors gives a LayoutFull.
+SIMPLE_MESSAGE_FAILURES: dict[int | str, dict[str, Any]] = {
+    **SIMPLE_FAILURES,
+    status.HTTP_409_CONFLICT: {
+        "model": SimpleResult,
+        "description": "Every message slot is already in use",
+    },
+}
+
 
 @write.post(
     "/Message",
     summary="Write a message to the sign",
     dependencies=[RequireApiKey],
-    responses=SIMPLE_FAILURES,
+    responses=SIMPLE_MESSAGE_FAILURES,
 )
 async def write_message(
     body: SimpleMessageRequest,

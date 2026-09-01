@@ -474,6 +474,23 @@ class TestTheSimpleEndpoints:
         assert response.status_code == 503
         assert response.json()["result"] == "ERROR"
 
+    def test_a_full_pool_is_a_409_and_keeps_the_body_shape(self, client):
+        # The one failure this write can produce that the other cannot: only a
+        # message takes a slot. It reaches the caller through the same table as
+        # the rest, so it has to be declared alongside them.
+        for key in ("one", "two", "three"):
+            client.put("/v2/messages/%s" % key, json={"message": key}, headers=HEADERS)
+
+        response = client.post(
+            "/Write/Message",
+            json={"display_mode": "HOLD", "message": "HI"},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 409
+        assert response.json()["result"] == "ERROR"
+        assert "slots are in use" in response.json()["result_message"]
+
     def test_a_success_is_still_a_200(self, client):
         # Worth pinning on its own. A change that gave every simple response a
         # status code could as easily have got the successful one wrong.
@@ -504,6 +521,29 @@ class TestTheSimpleEndpoints:
         )
 
         assert simple.status_code == v2.status_code == 503
+
+    def test_each_write_declares_every_status_it_can_answer(self, settings, sign):
+        # Spelled out rather than read back off the routes, because read off the
+        # routes it would agree with them however wrong both were. The 409 is on
+        # the message write alone: a control command takes no slot, so it can
+        # never find the pool full.
+        paths = create_app(settings, transport=sign).openapi()["paths"]
+
+        assert set(paths["/Write/Message"]["post"]["responses"]) == {
+            "200",
+            "400",
+            "409",
+            "422",
+            "500",
+            "503",
+        }
+        assert set(paths["/Write/ControlCommand"]["post"]["responses"]) == {
+            "200",
+            "400",
+            "422",
+            "500",
+            "503",
+        }
 
     def test_an_unknown_markup_token_is_passed_through_rather_than_rejected(self, client):
         # Lenient rendering, so a message written against a newer token set

@@ -140,10 +140,10 @@ the ones this service answered rather than a copy that went stale. And an error
 is not a 4xx. The simple surface answered 200 with the outcome in the body up to
 and including 0.2.0, and this client is pointed at Pis that have not been
 updated, so it still treats a `result` of `ERROR` as a failure exactly as it
-treats a 503. It treats a
-body that is not JSON as one too, because every formatter it has reads a missing
-value as a value and would state the absence as a fact. A tool that coloured by
-status code alone would show a failed write in green.
+treats a 503. It treats a body that is not JSON as one too, because every
+formatter it has reads a missing value as a value and would state the absence as
+a fact. A tool that coloured by status code alone would show a failed write in
+green.
 
 It also asks each address for its own `/openapi.json` the first time that address
 answers anything, and says when the surface it finds is not the one the client was

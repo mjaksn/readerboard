@@ -58,14 +58,14 @@ breaking the view. No raw JSON reaches the main panel.
 
 **An error is not the same as a 4xx.** The simple surface answered HTTP 200 to
 everything and reported the outcome in the body up to and including 0.2.0, and
-this client is
-built to be pointed at a Pi that has not been updated, so it still cannot trust a
-status code on its own. A tool that coloured by status alone would show one of
-those failed writes in green. This one treats a 4xx or 5xx, *or* a `result` of
-`ERROR` in the body, *or* a body that is not JSON at all as a failure: the status
-strip turns red and the full response opens in a dialog. That last one is how
-being pointed at a proxy error page looks, and reading it as an absent value
-would let a formatter announce that the sign is idle on the strength of it.
+this client is built to be pointed at a Pi that has not been updated, so it
+still cannot trust a status code on its own. A tool that coloured by status
+alone would show one of those failed writes in green. This one treats a 4xx or
+5xx, *or* a `result` of `ERROR` in the body, *or* a body that is not JSON at
+all as a failure: the status strip turns red and the full response opens in a
+dialog. That last one is how being pointed at a proxy error page looks, and
+reading it as an absent value would let a formatter announce that the sign is
+idle on the strength of it.
 
 **It says when it is pointed at a different service than it was built for.**
 The catalogue below describes the surface in this checkout. A Pi that has not been
