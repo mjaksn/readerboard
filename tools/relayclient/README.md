@@ -1,0 +1,131 @@
+# relayclient
+
+A desktop client for exercising the readerboard service's HTTP surface. It calls
+every endpoint the service has, shows what came back as text rather than as
+JSON, and knows no vocabulary it was not told.
+
+Think of it as a friendlier Swagger page rather than as a Postman. It has almost
+no logic of its own: what it adds is the ability to load the service's own
+enumerations and then reuse them in the fields that take them.
+
+```
+python tools/relayclient/run.py
+python tools/relayclient/run.py --base-url http://192.168.2.40:8000
+```
+
+Qt is not a dependency of the service and must not become one. This tool has its
+own hash-pinned lock file, `tools/` is in `.dockerignore`, and nothing in
+`pyproject.toml` mentions either of them.
+
+```
+pip install --require-hashes -r tools/relayclient/requirements.lock
+```
+
+## What it does
+
+**Every endpoint, on one screen.** All twenty operations are listed at once,
+grouped by what they act on. Selecting one swaps the form beside it. There is no
+drill-down and no wizard: the things that would need a quarter of the window to
+show properly, a set of markup tokens or a call's full detail, open as dialogs
+instead.
+
+**Nothing is hardcoded.** The markup tokens, display modes, text positions and
+control commands all start empty. Press the button beside a set and the client
+calls the endpoint for it; the row then says how many arrived, from which
+endpoint and when, and a View button opens the list. Only then do the fields that
+use that set offer it: before that they are free text, and the button that
+inserts a markup token into a message is disabled and says which button to press
+first.
+
+That is the point of the design rather than an inconvenience. A client that ships
+its own copy of the vocabulary is a client that goes on offering a token for a
+year after the service stopped answering it.
+
+Two endpoint families answer the same four sets in two different shapes. `/v2`
+names each entry `name`; the simple endpoints use `token_text`, `display_mode` or
+`control_command` depending on which was asked. Both are offered, because the
+client has to be able to call either, and both normalise to the same store.
+Text positions are `/v2` only; the simple surface has no endpoint for them.
+
+**Responses are read, not dumped.** Every shape the service answers with has a
+formatter: the health breakdown, the slot table, the alert, the clock, both
+enumeration shapes, the simple surface's result, and a 204 rendered as the
+success it is rather than as an empty panel. Anything unrecognised falls back to
+a labelled walk, so a field added to the service shows up as a row instead of
+breaking the view. No raw JSON reaches the main panel.
+
+**An error is not the same as a 4xx.** The simple surface answers HTTP 200 to
+everything and reports the outcome in the body, on purpose, for clients that do
+not branch on status codes. A tool that coloured by status alone would show a
+failed write in green. This one treats a 4xx or 5xx *or* a simple-surface
+`result` of `ERROR` as a failure: the status strip turns red and the full
+response opens in a dialog.
+
+**History, in the shape a network tab has it.** Every call this run has made,
+with the request line, headers, body, status, timing and the response both read
+back and exactly as it arrived. Any of them can be copied as a curl command.
+
+The history lives for the run and goes when the window closes. That is a limit
+rather than an unfinished feature: nothing needs a file format and nothing
+anybody sent ends up on disk.
+
+## The API key
+
+The key is sent as `X-API-Key` on the writes that need it, and it is treated as a
+secret everywhere else:
+
+- It is not saved between runs. The base URL is; the key is not.
+- There is no command line option for it, because a key on a command line is a
+  key in the shell history.
+- It is redacted when a history record is made, not when one is displayed, so
+  there is no display path left to forget about.
+- The curl command therefore refers to `$READERBOARD_API_KEY` rather than
+  containing the key, which is what makes it safe to paste into a script, a
+  ticket or a message to somebody else.
+
+## How it is put together
+
+Everything except `net.py`, `dialogs.py`, `window.py` and `app.py` imports no Qt.
+That is not tidiness: it is what lets the half holding the logic be tested in CI,
+where Qt is not installed. The sign simulator splits the same way for the same
+reason.
+
+| module | Qt | what it is |
+| --- | --- | --- |
+| `catalogue.py` | no | every operation as data: method, path, fields, which enumeration each field draws on |
+| `request.py` | no | inputs to a request, and the curl equivalent |
+| `format.py` | no | responses to readable blocks, and those to HTML |
+| `enums.py` | no | the loaded sets, normalised from either shape |
+| `history.py` | no | the run's calls, with the key already gone |
+| `net.py` | yes | `QNetworkAccessManager`, one call in flight at a time |
+| `window.py` | yes | the one screen |
+| `dialogs.py` | yes | enumerations, errors, history |
+| `app.py` | yes | the command line and `main()` |
+
+The forms are generated from `catalogue.py` rather than written out one by one,
+which is what makes "it can call any endpoint" a property of a table rather than
+a claim about a window. Hand-written tables drift, so
+`tests/test_catalogue.py` diffs it against `docs/openapi.json` in both
+directions: a route added to the service fails this tool's tests in the same
+commit.
+
+The HTTP client is Qt's own `QtNetwork`, which is why this tool needs no
+dependency the simulator does not already have. There is no requests, no httpx
+and no certifi to pin.
+
+One call is in flight at a time. That is not worth engineering around: the thing
+on the other end drives a single sign down a 9600 baud line behind one lock, so
+overlapping calls would tell you less than they appear to.
+
+## Deliberately not here
+
+No saved collections, no environments, no scripting, no response assertions. Each
+of those would make this a worse Swagger page and a poor Postman.
+
+## Testing
+
+```
+pytest tools/relayclient/tests
+```
+
+Runs without Qt, and is collected by the repository's own `pytest` run.

@@ -37,13 +37,14 @@ _ROOT = Path(__file__).resolve().parent.parent
 
 # Every lock file in the tree. requirements.lock is what the service runs on;
 # requirements-build.lock is the one package needed to turn this source tree
-# into a wheel, pinned for the same reason and checked the same way; and the
-# simulator under tools/ has its own, which no installer of the service reads
-# but which is pinned here so that one command covers all three.
+# into a wheel, pinned for the same reason and checked the same way; and the two
+# tools under tools/ have one each, which no installer of the service reads but
+# which are pinned here so that one command covers all four.
 LOCK_FILES = (
     _ROOT / "requirements.lock",
     _ROOT / "requirements-build.lock",
     _ROOT / "tools" / "signsim" / "requirements.lock",
+    _ROOT / "tools" / "relayclient" / "requirements.lock",
 )
 
 # name==version, then an optional ; marker. Anything already carrying hashes is

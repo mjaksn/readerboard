@@ -80,11 +80,14 @@ it there too.
 `tests/test_frames.py` asserts whole transmissions literally. When one of those
 fails, the frame builder is wrong, not the test.
 
-`pytest` also collects `tools/signsim/tests`, the sign simulator's own suite.
-Those tests import only the simulator's pure half, never PySide6, so they run in
-CI where Qt is not installed. The one worth knowing about round trips the frame
-builders above through the simulator's decoder: whatever the service builds has
-to read back as the command that built it.
+`pytest` also collects `tools/signsim/tests` and `tools/relayclient/tests`, the
+two tools' own suites. Both import only the pure half of their tool, never
+PySide6, so they run in CI where Qt is not installed. The one worth knowing about
+in the simulator round trips the frame builders above through its decoder:
+whatever the service builds has to read back as the command that built it. The
+one worth knowing about in the client diffs its endpoint catalogue against
+`docs/openapi.json` in both directions, so a route added here fails that tool's
+tests in the same commit rather than leaving it quietly unable to call it.
 
 CI also builds the container image for amd64 and starts it against `loop://`,
 for the reason it diffs the checked-in OpenAPI description: a thing exercised
@@ -117,6 +120,27 @@ Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in
 `pyproject.toml` mentions it. The image builds for `linux/arm/v7` under
 emulation, which is reason enough. `tools/signsim/README.md` has the rest.
+
+## Exercising the API by hand
+
+`tools/relayclient/` is the other end of the same idea: a PySide6 client that
+calls the service rather than standing in for the sign. Point it at a running
+service and it can call all twenty endpoints, formats every response as text
+rather than JSON, and knows no vocabulary it was not told.
+
+Two things about it are load bearing rather than stylistic. The enumerations are
+empty until a button is pressed, so the markup tokens a message field offers are
+the ones this service answered rather than a copy that went stale. And an error
+is not a 4xx: the simple surface answers 200 with the outcome in the body, so the
+client treats a `result` of `ERROR` as a failure exactly as it treats a 503. A
+tool that coloured by status code alone would show a failed write in green.
+
+It splits the same way the simulator does, with the logic in modules that import
+no Qt, and it needs no dependency the simulator does not already have because its
+HTTP client is `QtNetwork`. `tools/relayclient/README.md` has the rest.
+
+With the simulator on one side and the client on the other, the whole loop runs
+with no sign in the room.
 
 ## Prose is part of the product
 
@@ -180,9 +204,11 @@ to turn this tree into a wheel, so that both installers can build with
 `pyproject.toml` stays a floor: it is what a third party building from source
 sees, and only the two installers here are pinned.
 
-The simulator under `tools/signsim/` has a third lock file of its own. Nothing
-that installs the service reads it, and nothing should: it pins Qt.
+The two tools under `tools/` have a lock file each, the third and fourth in the
+tree. Nothing that installs the service reads either, and nothing should: they
+pin Qt. They pin the same two packages today, and are still separate files, so
+that one tool can move Qt without obliging the other to move on the same day.
 
 When moving a version, edit the pin and then run `scripts/lock_hashes.py`, which
-brings the hashes with it from the index's own digests and covers all three
+brings the hashes with it from the index's own digests and covers all four
 files. `--check` fails if any of them has drifted.
