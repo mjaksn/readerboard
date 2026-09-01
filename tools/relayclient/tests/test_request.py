@@ -177,3 +177,20 @@ def test_curl_reads_as_one_command():
     command = as_curl("GET", "http://host/health", {"Accept": "application/json"}, None)
     assert command.startswith("curl -X GET 'http://host/health'")
     assert "-d " not in command
+
+
+def test_a_field_holding_only_a_space_is_sent_as_typed():
+    # Typed on purpose, to see what the service makes of it. Rewriting it to ""
+    # or dropping it answers a different question.
+    operation = catalogue.BY_ID["put_message"]
+    body = build_body(operation, {"message": " ", "source": " "})
+    assert body is not None
+    assert body["message"] == " "
+    assert body["source"] == " "
+
+
+def test_a_field_nobody_touched_is_still_left_out():
+    operation = catalogue.BY_ID["put_message"]
+    body = build_body(operation, {"message": "hello", "source": ""})
+    assert body is not None
+    assert "source" not in body

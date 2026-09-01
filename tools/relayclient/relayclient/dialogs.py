@@ -309,7 +309,11 @@ class HistoryDialog(QDialog):
 
 
 class CurlPreview(QDialog):
-    """Shows the curl equivalent of a call before it is copied."""
+    """Shows the curl command that has just been put on the clipboard.
+
+    The Copy button is for putting it back after copying something else, not for
+    the first copy: by the time this opens, the caller has already done that.
+    """
 
     def __init__(self, command: str, *, parent: QWidget | None = None) -> None:
         """Build the preview around a rendered command."""

@@ -126,7 +126,10 @@ def build_body(operation: Operation, values: dict[str, str]) -> dict[str, object
     for item in operation.body:
         raw = values.get(item.name)
         text = "" if raw is None else str(raw)
-        if not text.strip():
+        # Empty, not blank. A field holding a single space was typed that way on
+        # purpose, and rewriting it to "" or dropping it answers a question the
+        # caller did not ask. Only a field nobody touched is left out.
+        if not text:
             if item.required:
                 # Sent empty, so the service answers for it rather than the
                 # client deciding what an empty required field means. The

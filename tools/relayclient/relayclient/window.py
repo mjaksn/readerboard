@@ -398,6 +398,11 @@ class MainWindow(QMainWindow):
         self._describer.superseded.connect(self._release)
         self._settings = QSettings()
         self._form: OperationForm | None = None
+        # What was found at each address, so that editing the box shows the
+        # verdict for whatever is in it rather than losing the last one. A
+        # checked address is never fetched twice, so a verdict thrown away on a
+        # keystroke would not come back at all.
+        self._verdicts: dict[str, tuple[str, str, str]] = {}
         self._pending_slot_keys = False
         self._started_at = datetime.now()
 
@@ -451,10 +456,6 @@ class MainWindow(QMainWindow):
             str(self._settings.value("base_url", DEFAULT_BASE_URL))
         )
         self.base_url.setToolTip("where the service is listening")
-        # A verdict is about the address it was fetched from. Left standing when
-        # the address changes it becomes a claim about the new one, which it
-        # never was, and the next check may be thirty seconds away.
-        self.base_url.textChanged.connect(self._forget_surface)
 
         self.api_key = QLineEdit()
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
@@ -477,6 +478,10 @@ class MainWindow(QMainWindow):
             "Whether the service's own description matches the surface this client "
             "was built for. Checked once per address."
         )
+        # Connected here rather than beside the box it watches, because the slot
+        # touches the label above and a signal wired before its target exists is
+        # a crash waiting for the first line of code that happens to fire it.
+        self.base_url.textChanged.connect(self._show_verdict)
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Base URL"))
@@ -729,11 +734,19 @@ class MainWindow(QMainWindow):
         self._checked.add(address)
         self._describer.fetch(address)
 
-    def _forget_surface(self) -> None:
-        """Drop the surface verdict, which belonged to the address just replaced."""
-        self.surface.setText("")
-        self.surface.setToolTip("")
-        self.surface.setStyleSheet(MUTED)
+    def _show_verdict(self) -> None:
+        """Show whatever is known about the address currently in the box."""
+        text, tooltip, style = self._verdicts.get(
+            self._current_address(), ("", "", MUTED)
+        )
+        self.surface.setText(text)
+        self.surface.setToolTip(tooltip)
+        self.surface.setStyleSheet(style)
+
+    def _remember_verdict(self, address: str, text: str, tooltip: str, style: str) -> None:
+        """Record what was found at an address, and show it if that is where we are."""
+        self._verdicts[address] = (text, tooltip, style)
+        self._show_verdict()
 
     def _release(self, address: str) -> None:
         """Stop claiming an address was checked when its fetch was abandoned."""
@@ -746,10 +759,6 @@ class MainWindow(QMainWindow):
         except request_module.InvalidRequest:
             return ""
 
-    def _label_for(self, address: str, text: str) -> str:
-        """Name the address when the verdict is not about the one on screen now."""
-        return text if address == self._current_address() else "%s: %s" % (address, text)
-
     def _described(self, address: str, document: object) -> None:
         """Say whether the service's surface is the one this client was built for."""
         try:
@@ -758,13 +767,11 @@ class MainWindow(QMainWindow):
             self._not_described(address, str(err))
             return
 
-        self.surface.setText(self._label_for(address, difference.summary()))
-        self.surface.setToolTip(difference.detail())
+        style = MUTED if difference.matches else "color:%s;font-weight:600" % fmt.BAD_COLOUR
+        self._remember_verdict(address, difference.summary(), difference.detail(), style)
         if difference.matches:
-            self.surface.setStyleSheet(MUTED)
             return
 
-        self.surface.setStyleSheet("color:%s;font-weight:600" % fmt.BAD_COLOUR)
         # Named rather than implied. A verdict can arrive after the address in
         # the box has moved on, and a dialog about neither would be worse than
         # no dialog at all.
@@ -785,13 +792,18 @@ class MainWindow(QMainWindow):
         """
         if retryable:
             self._checked.discard(address)
-        self.surface.setText(self._label_for(address, "surface not checked: %s" % reason))
-        self.surface.setToolTip(
+            # Nothing is known about it now, so nothing should be shown for it.
+            self._verdicts.pop(address, None)
+            self._show_verdict()
+            return
+        self._remember_verdict(
+            address,
+            "surface not checked: %s" % reason,
             "The service did not hand over %s, so this client cannot tell whether the "
             "surface it offers is the one the service has. Calls are unaffected."
-            % skew.DESCRIPTION_PATH
+            % skew.DESCRIPTION_PATH,
+            MUTED,
         )
-        self.surface.setStyleSheet(MUTED)
 
     def _set_strip(self, text: str, ok: bool | None) -> None:
         """Colour the status strip by outcome, or neutrally while in flight."""
