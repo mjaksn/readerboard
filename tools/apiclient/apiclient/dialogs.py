@@ -29,11 +29,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from relayclient import catalogue
-from relayclient import format as fmt
-from relayclient.enums import Entry
-from relayclient.history import History, Record
-from relayclient.request import API_KEY_VARIABLE
+from apiclient import catalogue
+from apiclient import format as fmt
+from apiclient.enums import Entry
+from apiclient.history import History, Record
+from apiclient.request import API_KEY_VARIABLE
 
 MONO = "font-family:Consolas,'DejaVu Sans Mono',monospace;font-size:12px"
 

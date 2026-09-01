@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from html import escape
 
-from relayclient.catalogue import Operation
+from apiclient.catalogue import Operation
 
 
 @dataclass(frozen=True, slots=True)
@@ -444,7 +444,7 @@ def _tokens(payload: object, name_field: str = "name") -> list[Block]:
     """Render an enumeration, reading the names the way the catalogue says to.
 
     ``name_field`` is not guessed. Guessing it lets this render a healthy table
-    from a payload that :func:`relayclient.enums.parse` is about to reject,
+    from a payload that :func:`apiclient.enums.parse` is about to reject,
     which would put a green table and a "that did not look like an enumeration"
     warning on screen for one response. Reading the same field both places means
     the panel and the store always agree.

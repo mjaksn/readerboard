@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from readerboard.protocol import constants as c
+from signsim import names
 from signsim.decode import (
     DAY_NAMES,
     FILE_TYPE_NAMES,
@@ -119,7 +120,7 @@ class MainWindow(QMainWindow):
         self._note_colours = _DARK_NOTES if dark else _LIGHT_NOTES
         self._mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
 
-        self.setWindowTitle("BetaBrite sign simulator")
+        self.setWindowTitle(names.DISPLAY_NAME)
         self.resize(1400, 860)
         self._build()
 

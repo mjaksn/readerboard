@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from relayclient import request as request_module
+from apiclient import request as request_module
 
 
 @dataclass(frozen=True, slots=True)

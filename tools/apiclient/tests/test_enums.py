@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from relayclient import catalogue
-from relayclient.enums import EnumStore, MalformedEnumeration, parse
+from apiclient import catalogue
+from apiclient.enums import EnumStore, MalformedEnumeration, parse
 
 
 def test_the_v2_shape_parses():

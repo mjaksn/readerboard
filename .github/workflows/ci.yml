@@ -70,7 +70,7 @@ jobs:
       - name: the tools pin the same Qt, which sharing one environment requires
         run: |
           strip() { grep -vE '^\s*(#|$)' "$1"; }
-          if ! diff <(strip tools/signsim/requirements.lock) <(strip tools/relayclient/requirements.lock); then
+          if ! diff <(strip tools/signsim/requirements.lock) <(strip tools/apiclient/requirements.lock); then
             echo "::error::the tools' lock files have diverged, and this job installs both into one environment; give each its own before moving either"
             exit 1
           fi
@@ -82,10 +82,10 @@ jobs:
         run: mypy tools/signsim/signsim
         env:
           MYPYPATH: tools/signsim
-      - name: mypy the relay client
-        run: mypy tools/relayclient/relayclient
+      - name: mypy the client
+        run: mypy tools/apiclient/apiclient
         env:
-          MYPYPATH: tools/relayclient
+          MYPYPATH: tools/apiclient
 
       # The tools' own test suites run without Qt, deliberately, so nothing in
       # them ever builds a window. That leaves a gap exactly the width of a
@@ -100,7 +100,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libxkbcommon0 libfontconfig1
       - name: build the tools' windows once
         run: |
-          python -c "import sys; sys.path.insert(0, 'tools/relayclient'); from PySide6.QtWidgets import QApplication; from relayclient.window import MainWindow; app = QApplication([]); MainWindow()"
+          python -c "import sys; sys.path.insert(0, 'tools/apiclient'); from PySide6.QtWidgets import QApplication; from apiclient.window import MainWindow; app = QApplication([]); MainWindow()"
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
         env:
           QT_QPA_PLATFORM: offscreen

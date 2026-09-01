@@ -16,6 +16,7 @@ import sys
 
 from PySide6.QtWidgets import QApplication
 
+from signsim import names
 from signsim.model import SignState
 from signsim.server import SignEndpoint
 from signsim.window import MainWindow
@@ -27,7 +28,7 @@ DEFAULT_PORT = 4001
 def build_parser() -> argparse.ArgumentParser:
     """Build the command line, which is small on purpose."""
     parser = argparse.ArgumentParser(
-        prog="signsim",
+        prog=names.IDENTIFIER,
         description=(
             "A stand-in for a BetaBrite Classic. Listens on a TCP port, decodes "
             "everything the readerboard service writes to it, and shows both what "
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     app = QApplication(sys.argv[:1])
-    app.setApplicationName("readerboard sign simulator")
+    app.setApplicationName(names.IDENTIFIER)
 
     endpoint = SignEndpoint()
     try:

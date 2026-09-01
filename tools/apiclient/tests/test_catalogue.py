@@ -14,13 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from relayclient import catalogue, skew
+from apiclient import catalogue, skew
 
 # Worked out here rather than imported from conftest. Both tools have a
 # conftest.py, pytest imports each by its basename, and whichever lands in
 # sys.modules first wins: importing a name from "conftest" resolves to the
 # other tool's file and fails collection depending on the order the paths are
-# given. tests / relayclient / tools / the repository.
+# given. tests / apiclient / tools / the repository.
 OPENAPI = Path(__file__).resolve().parents[3] / "docs" / "openapi.json"
 
 

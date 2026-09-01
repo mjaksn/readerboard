@@ -23,6 +23,51 @@ its state file, and reconfigures only when the plan itself changes. Changing
 is done deliberately, it is logged at WARNING, and it must never become
 something an ordinary message update can trigger.
 
+## What each thing is called
+
+Three things here can be run, and each answers to a name in three tiers. Use the
+tier that fits the surface, and coin nothing new.
+
+| | Identifier | Display name | Prose name |
+|---|---|---|---|
+| the service | `readerboard` | readerboard | the service |
+| the sign simulator | `signsim` | readerboard sign simulator | the sign simulator |
+| the client | `apiclient` | readerboard client | the client |
+
+- The **identifier** is for code: directories, Python packages, `prog=`,
+  `setApplicationName`, lock file paths, `testpaths`, CI job ids. It is the
+  expensive one. Renaming it moves directories, imports, and for the client the
+  QSettings location that holds the remembered base URL.
+- The **display name** is for what a person reads on a window title, a launch
+  configuration or a unit file. It leads with `readerboard` so that a window in
+  a taskbar says which project it belongs to before it says which part.
+- The **prose name** is for sentences: README, this file, CI step names, log
+  lines, `--help`. Use the display name on first mention in a document, then the
+  prose name. Shortening it further once the document has established which
+  thing is meant is fine and often reads better: "the simulator" after "the sign
+  simulator" is a short form, not a fourth name. Coining a different word for it
+  is what the rule is against.
+
+Each component reads its own three names off a `names.py` beside its code, which
+is what stops one component's surfaces disagreeing with each other. They had:
+the simulator's directory, application name and window title were three
+different strings at once, and the client's identifier was built on a word that
+appeared nowhere else in the tree.
+
+`tests/test_component_names.py` pins the table above, and separately fails if a
+retired name reappears anywhere in the tree. That second half is the one that
+matters, because a constant catches an edit to the constant and does nothing
+about an old name creeping back into a README or a CI step.
+
+One ambiguity is worth naming rather than fixing. `readerboard` is the project,
+the repository, the PyPI distribution and the service inside it. Where the
+difference matters, write the service.
+
+"The API" is not a fourth name for the service, and the places that say it are
+right as they stand. It is the HTTP surface the service exposes, which is what
+"the API key" and "exercising the API by hand" are about. The service is the
+process; the API is what it answers on.
+
 ## How it works, in one pass
 
 A **slot** is a named place on the sign that a source owns. Each slot lives in
@@ -82,7 +127,7 @@ it there too.
 `tests/test_frames.py` asserts whole transmissions literally. When one of those
 fails, the frame builder is wrong, not the test.
 
-`pytest` also collects `tools/signsim/tests` and `tools/relayclient/tests`, the
+`pytest` also collects `tools/signsim/tests` and `tools/apiclient/tests`, the
 two tools' own suites. Both import only the pure half of their tool, never
 PySide6, so they run in CI where Qt is not installed. That leaves one gap, which
 CI covers separately: nothing in either suite ever builds a window, so a signal
@@ -102,10 +147,10 @@ release.
 
 ## Watching what goes to the sign
 
-`tools/signsim/` is a PySide6 application that stands in for the sign. It listens
-on a TCP port, and because `serial_url` already takes any pyserial URL, pointing
-the service at `socket://127.0.0.1:4001` is the whole integration. Nothing in the
-service knows it exists.
+`tools/signsim/` is the sign simulator, a PySide6 application that stands in for
+the sign. It listens on a TCP port, and because `serial_url` already takes any
+pyserial URL, pointing the service at `socket://127.0.0.1:4001` is the whole
+integration. Nothing in the service knows it exists.
 
 It shows each transmission byte by byte, coloured by what each span is and
 annotated with the protocol's own meaning, and it keeps the sign's state: the
@@ -129,10 +174,10 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 ## Exercising the API by hand
 
-`tools/relayclient/` is the other end of the same idea: a PySide6 client that
-calls the service rather than standing in for the sign. Point it at a running
-service and it can call all twenty endpoints, formats every response as text
-rather than JSON, and knows no vocabulary it was not told.
+`tools/apiclient/` is the client, the other end of the same idea: a PySide6
+application that calls the service rather than standing in for the sign. Point
+it at a running service and it can call all twenty endpoints, formats every
+response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are
 empty until a button is pressed, so the markup tokens a message field offers are
@@ -152,7 +197,7 @@ check it looks like a bug in the client instead.
 
 It splits the same way the simulator does, with the logic in modules that import
 no Qt, and it needs no dependency the simulator does not already have because its
-HTTP client is `QtNetwork`. `tools/relayclient/README.md` has the rest.
+HTTP client is `QtNetwork`. `tools/apiclient/README.md` has the rest.
 
 With the simulator on one side and the client on the other, the whole loop runs
 with no sign in the room.

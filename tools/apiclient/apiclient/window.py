@@ -5,7 +5,7 @@ operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
 
-The forms are built from :mod:`relayclient.catalogue` rather than written out
+The forms are built from :mod:`apiclient.catalogue` rather than written out
 one by one, so "it can call any endpoint" is a property of the table rather than
 a claim about the window.
 """
@@ -36,11 +36,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from relayclient import catalogue, enums, skew
-from relayclient import format as fmt
-from relayclient import request as request_module
-from relayclient.catalogue import Input, Operation
-from relayclient.dialogs import (
+from apiclient import catalogue, enums, names, skew
+from apiclient import format as fmt
+from apiclient import request as request_module
+from apiclient.catalogue import Input, Operation
+from apiclient.dialogs import (
     NOTHING_ANSWERED,
     SERVICE_PROBLEM,
     CurlPreview,
@@ -48,8 +48,8 @@ from relayclient.dialogs import (
     ErrorDialog,
     HistoryDialog,
 )
-from relayclient.history import History
-from relayclient.net import Caller, Completed, DescriptionFetcher
+from apiclient.history import History
+from apiclient.net import Caller, Completed, DescriptionFetcher
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 
@@ -414,7 +414,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         """Build the screen and restore the base URL from last time."""
         super().__init__()
-        self.setWindowTitle("readerboard client")
+        self.setWindowTitle(names.DISPLAY_NAME)
         self.resize(1280, 840)
 
         # QTextBrowser and the labels paint on the palette's own ground, so the

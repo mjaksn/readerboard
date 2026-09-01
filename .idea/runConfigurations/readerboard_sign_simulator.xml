@@ -1,16 +1,14 @@
 <component name="ProjectRunConfigurationManager">
   <!--
-    Both halves at once, already wired together: the simulator is started first
-    and the service is pointed at it. This is the one to use day to day.
+    The sign simulator on its own, listening on 127.0.0.1:4001. Useful when the
+    service is already running elsewhere, or when pointing something that is not
+    this service at it.
 
-    Everything it needs is set by scripts/run_with_simulator.py rather than
-    here, so there is one place to change it and the command line and this
-    configuration cannot drift apart. Run that script with its help flag to see
-    what it sets and why; its docstring explains the one default worth knowing,
-    which is that the service starts from a clean state file because the
-    simulator starts empty.
+    It needs PySide6, which the service does not and must not depend on.
+    Install it from tools/signsim/requirements.lock, hash checked, the way
+    tools/signsim/README.md spells out.
   -->
-  <configuration default="false" name="API and simulator" type="PythonConfigurationType" factoryName="Python">
+  <configuration default="false" name="readerboard sign simulator" type="PythonConfigurationType" factoryName="Python">
     <module name="readerboard" />
     <option name="ENV_FILES" value="" />
     <option name="INTERPRETER_OPTIONS" value="" />
@@ -23,10 +21,10 @@
     <option name="IS_MODULE_SDK" value="true" />
     <option name="ADD_CONTENT_ROOTS" value="true" />
     <option name="ADD_SOURCE_ROOTS" value="true" />
-    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/run_with_simulator.py" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/tools/signsim/run.py" />
     <option name="PARAMETERS" value="" />
     <option name="SHOW_COMMAND_LINE" value="false" />
-    <option name="EMULATE_TERMINAL" value="true" />
+    <option name="EMULATE_TERMINAL" value="false" />
     <option name="MODULE_MODE" value="false" />
     <option name="REDIRECT_INPUT" value="false" />
     <option name="INPUT_FILE" value="" />

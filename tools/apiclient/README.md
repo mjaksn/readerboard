@@ -1,4 +1,4 @@
-# relayclient
+# readerboard client
 
 A desktop client for exercising the readerboard service's HTTP surface. It calls
 every endpoint the service has, shows what came back as text rather than as
@@ -9,8 +9,8 @@ no logic of its own: what it adds is the ability to load the service's own
 enumerations and then reuse them in the fields that take them.
 
 ```
-python tools/relayclient/run.py
-python tools/relayclient/run.py --base-url http://192.168.2.40:8000
+python tools/apiclient/run.py
+python tools/apiclient/run.py --base-url http://192.168.2.40:8000
 ```
 
 Qt is not a dependency of the service and must not become one. This tool has its
@@ -20,7 +20,7 @@ per-file lint ignores and the import-sorting list, none of which installs
 anything.
 
 ```
-pip install --require-hashes -r tools/relayclient/requirements.lock
+pip install --require-hashes -r tools/apiclient/requirements.lock
 ```
 
 ## What it does
@@ -170,7 +170,7 @@ of those would make this a worse Swagger page and a poor Postman.
 ## Testing
 
 ```
-pytest tools/relayclient/tests
+pytest tools/apiclient/tests
 ```
 
 Runs without Qt, and is collected by the repository's own `pytest` run. Because

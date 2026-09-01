@@ -11,14 +11,14 @@ import argparse
 
 import uvicorn
 
-from readerboard import __version__, logging_setup
+from readerboard import __version__, logging_setup, names
 from readerboard.config import Settings
 
 
 def main() -> int:
     """Start the HTTP server."""
     parser = argparse.ArgumentParser(
-        prog="readerboard",
+        prog=names.IDENTIFIER,
         description=(
             "Serve the readerboard API, which drives a BetaBrite Classic sign. "
             "Settings come from the config file "
@@ -26,7 +26,7 @@ def main() -> int:
             "and from environment variables prefixed READERBOARD_."
         ),
     )
-    parser.add_argument("--version", action="version", version="readerboard %s" % __version__)
+    parser.add_argument("--version", action="version", version="%s %s" % (names.IDENTIFIER, __version__))
     parser.add_argument("--host", help="override the configured listen address")
     parser.add_argument("--port", type=int, help="override the configured port")
     parser.add_argument(
