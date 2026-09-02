@@ -6,10 +6,10 @@ either through a serial cable or through an Ethernet to RS-232 adapter.
 ## Read this first
 
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
-actually says about the memory configuration, the run sequence, the priority
-file and the character set, with the quotation behind each claim. Read it before
-changing anything under `readerboard/protocol/`. It also lists the four
-questions the document cannot answer, which need the sign to settle.
+actually says about the memory configuration, the run sequence and the priority
+file, with the quotation behind each claim. Read it before changing anything
+under `readerboard/protocol/`. It also lists the four questions the document
+cannot answer, which need the sign to settle.
 
 ## The one dangerous operation
 
@@ -89,7 +89,8 @@ declines to write them again.
 - **Run sequence writes are held back while an alert is up.** The document says
   a write to the run time or run day table cancels a running priority message,
   and says nothing either way about the run sequence. Until the spike settles
-  it, the safe reading is that it might. See `MessageRegistry._apply_run_sequence`.
+  it, the safe reading is that it might. See
+  `MessageRegistry._apply_run_sequence`.
 - **Everything is re-pushed on a timer.** The sign and the adapter are
   separately powered, so the sign can be power cycled with the TCP link still
   up. Nothing fires, the write cache stays warm, and suppression would then skip
@@ -138,12 +139,13 @@ PySide6, so they run in CI where Qt is not installed. That leaves one gap, which
 CI covers separately: nothing in either suite ever builds a window, so a signal
 wired to an attribute that does not exist yet would raise only on construction
 and no test would see it. The lint job already installs Qt to type-check the
-tools, so it builds each window once offscreen as well. The one worth knowing about
-in the simulator round trips the frame builders above through its decoder:
-whatever the service builds has to read back as the command that built it. The
-one worth knowing about in the client diffs its endpoint catalogue against
-`docs/openapi.json` in both directions, so a route added here fails that tool's
-tests in the same commit rather than leaving it quietly unable to call it.
+tools, so it builds each window once offscreen as well. The one worth knowing
+about in the simulator round trips the frame builders above through its
+decoder: whatever the service builds has to read back as the command that built
+it. The one worth knowing about in the client diffs its endpoint catalogue
+against `docs/openapi.json` in both directions, so a route added here fails
+that tool's tests in the same commit rather than leaving it quietly unable to
+call it.
 
 CI also builds the container image for amd64 and starts it against `loop://`,
 for the reason it diffs the checked-in OpenAPI description: a thing exercised
@@ -213,10 +215,10 @@ Each tool has an icon of its own, an `icon.svg` beside its code and the
 `icon.ico` rendered from it by `scripts/render_icons.py`. They are deliberately
 nothing alike, so that they are told apart at a glance on a taskbar: the
 simulator's is the sign itself, amber dots on black, and the client's is a
-paper plane on a blue tile. Edit the SVG and rerun the script; CI runs its `--check` so
-that one cannot land without the other. On Windows each `app.py` also names
-its process to the taskbar as `readerboard.<identifier>`, which is what makes
-the taskbar show the window's icon rather than Python's.
+paper plane on a blue tile. Edit the SVG and rerun the script; CI runs its
+`--check` so that one cannot land without the other. On Windows each `app.py`
+also names its process to the taskbar as `readerboard.<identifier>`, which is
+what makes the taskbar show the window's icon rather than Python's.
 
 ## Prose is part of the product
 
