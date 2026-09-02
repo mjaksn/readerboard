@@ -209,6 +209,15 @@ sign simulator and the client". Closing the client leaves the other two running,
 which closing either of those does not: they are no use without each other,
 and the client is only a thing to poke the service with.
 
+Each tool has an icon of its own, an `icon.svg` beside its code and the
+`icon.ico` rendered from it by `scripts/render_icons.py`. They are deliberately
+nothing alike, so that they are told apart at a glance on a taskbar: the
+simulator's is the sign itself, amber dots on black, and the client's is a
+paper plane on a blue tile. Edit the SVG and rerun the script; CI runs its `--check` so
+that one cannot land without the other. On Windows each `app.py` also names
+its process to the taskbar as `readerboard.<identifier>`, which is what makes
+the taskbar show the window's icon rather than Python's.
+
 ## Prose is part of the product
 
 Log lines, exception text, `--help` output and the OpenAPI descriptions are read

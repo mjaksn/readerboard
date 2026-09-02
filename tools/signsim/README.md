@@ -155,6 +155,24 @@ a widget cannot go in `tools/signsim/tests`, because that suite runs where Qt is
 absent. `FrameScanner.reset` is tested there; that pausing the capture calls it
 is not.
 
+Beside the modules are `icon.svg` and `icon.ico`. The first is the drawing, a
+sign showing a message in amber dots, and the one to edit; the second is what
+the window loads, holding the drawing at each size Windows draws an icon at.
+`scripts/render_icons.py` makes the second from the first, and its `--check`
+runs in CI so that an edited drawing cannot be committed without its rendering.
+The client's icon is deliberately nothing like it, a paper plane on a blue
+tile, so that the two are told apart at a glance on a taskbar.
+
+On Windows the icon would reach the title bar and not the taskbar without one
+more step, because the taskbar files a window under its process's executable,
+which for a Python program is `python.exe`. `app.py` names the process to the
+taskbar before it has a window, as `readerboard.signsim`, which is what puts
+the same icon in both places and gives the simulator and the client a taskbar
+button each when they are run together. One thing to know when the drawing changes: the taskbar keeps the last icon
+it showed for that name for a while after the window closes, so a relaunch
+within a minute or so can show the old icon on the taskbar and the new one
+in the title bar. Waiting, or signing out and back in, clears it.
+
 ## The limit worth knowing
 
 The decoder reads `readerboard.protocol`'s own tables. That keeps it in step

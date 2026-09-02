@@ -127,11 +127,13 @@ def test_the_client_names() -> None:
     assert client_names.PROSE_NAME == "the client"
 
 
-def test_the_client_settings_live_under_the_services_identifier() -> None:
-    # QSettings builds its storage location out of both names. The organisation
-    # is the project, not the tool, so the client and anything added later share
-    # one place rather than each inventing their own.
-    assert client_names.ORGANISATION == service_names.IDENTIFIER
+@pytest.mark.parametrize("module", (simulator_names, client_names), ids=lambda module: module.IDENTIFIER)
+def test_a_tools_settings_live_under_the_services_identifier(module: object) -> None:
+    # QSettings builds its storage location out of both names, and on Windows
+    # each tool names its process to the taskbar as organisation.identifier. The
+    # organisation is the project, not the tool, so the two tools and anything
+    # added later share one place rather than each inventing their own.
+    assert module.ORGANISATION == service_names.IDENTIFIER  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize("module", ALL_NAMES, ids=lambda module: module.IDENTIFIER)

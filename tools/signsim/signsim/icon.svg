@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The sign simulator's icon.
+
+  The sign itself, which is what the simulator stands in for: a dark housing
+  and a bezel around an 11 by 7 grid of dots on a 4.5 unit pitch, the lit ones
+  amber with a faint glow behind each and the rest a dim warm grey, which is
+  what a BetaBrite looks like with the room lights on. It is showing a message,
+  because that is what a sign does and what the simulator shows you.
+
+  The client's icon is deliberately nothing like this one, a paper plane on a
+  blue tile, so that the two are told apart at a glance on a taskbar.
+
+  scripts/render_icons.py turns this into the icon.ico beside it. Edit this,
+  run that, commit both.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect x="2" y="9" width="60" height="46" rx="7" fill="#1e2127"/>
+  <rect x="3.25" y="10.25" width="57.5" height="43.5" rx="6" fill="none" stroke="#4a4f5a" stroke-width="1.5"/>
+  <rect x="5" y="13" width="54" height="35" rx="2" fill="#0b0c0f"/>
+  <g fill="#2b2722">
+    <circle cx="9.5" cy="17" r="1.7"/>
+    <circle cx="14" cy="17" r="1.7"/>
+    <circle cx="18.5" cy="17" r="1.7"/>
+    <circle cx="23" cy="17" r="1.7"/>
+    <circle cx="27.5" cy="17" r="1.7"/>
+    <circle cx="32" cy="17" r="1.7"/>
+    <circle cx="36.5" cy="17" r="1.7"/>
+    <circle cx="41" cy="17" r="1.7"/>
+    <circle cx="45.5" cy="17" r="1.7"/>
+    <circle cx="50" cy="17" r="1.7"/>
+    <circle cx="54.5" cy="17" r="1.7"/>
+    <circle cx="9.5" cy="21.5" r="1.7"/>
+    <circle cx="18.5" cy="21.5" r="1.7"/>
+    <circle cx="27.5" cy="21.5" r="1.7"/>
+    <circle cx="45.5" cy="21.5" r="1.7"/>
+    <circle cx="54.5" cy="21.5" r="1.7"/>
+    <circle cx="9.5" cy="26" r="1.7"/>
+    <circle cx="18.5" cy="26" r="1.7"/>
+    <circle cx="27.5" cy="26" r="1.7"/>
+    <circle cx="32" cy="26" r="1.7"/>
+    <circle cx="41" cy="26" r="1.7"/>
+    <circle cx="45.5" cy="26" r="1.7"/>
+    <circle cx="54.5" cy="26" r="1.7"/>
+    <circle cx="9.5" cy="30.5" r="1.7"/>
+    <circle cx="27.5" cy="30.5" r="1.7"/>
+    <circle cx="32" cy="30.5" r="1.7"/>
+    <circle cx="41" cy="30.5" r="1.7"/>
+    <circle cx="45.5" cy="30.5" r="1.7"/>
+    <circle cx="54.5" cy="30.5" r="1.7"/>
+    <circle cx="9.5" cy="35" r="1.7"/>
+    <circle cx="18.5" cy="35" r="1.7"/>
+    <circle cx="27.5" cy="35" r="1.7"/>
+    <circle cx="32" cy="35" r="1.7"/>
+    <circle cx="41" cy="35" r="1.7"/>
+    <circle cx="45.5" cy="35" r="1.7"/>
+    <circle cx="50" cy="35" r="1.7"/>
+    <circle cx="54.5" cy="35" r="1.7"/>
+    <circle cx="9.5" cy="39.5" r="1.7"/>
+    <circle cx="18.5" cy="39.5" r="1.7"/>
+    <circle cx="27.5" cy="39.5" r="1.7"/>
+    <circle cx="45.5" cy="39.5" r="1.7"/>
+    <circle cx="54.5" cy="39.5" r="1.7"/>
+    <circle cx="9.5" cy="44" r="1.7"/>
+    <circle cx="14" cy="44" r="1.7"/>
+    <circle cx="18.5" cy="44" r="1.7"/>
+    <circle cx="23" cy="44" r="1.7"/>
+    <circle cx="27.5" cy="44" r="1.7"/>
+    <circle cx="32" cy="44" r="1.7"/>
+    <circle cx="36.5" cy="44" r="1.7"/>
+    <circle cx="41" cy="44" r="1.7"/>
+    <circle cx="45.5" cy="44" r="1.7"/>
+    <circle cx="50" cy="44" r="1.7"/>
+    <circle cx="54.5" cy="44" r="1.7"/>
+  </g>
+  <g fill="#ff9d00" opacity="0.35">
+    <circle cx="14" cy="21.5" r="2.8"/>
+    <circle cx="14" cy="26" r="2.8"/>
+    <circle cx="14" cy="30.5" r="2.8"/>
+    <circle cx="14" cy="35" r="2.8"/>
+    <circle cx="14" cy="39.5" r="2.8"/>
+    <circle cx="18.5" cy="30.5" r="2.8"/>
+    <circle cx="23" cy="21.5" r="2.8"/>
+    <circle cx="23" cy="26" r="2.8"/>
+    <circle cx="23" cy="30.5" r="2.8"/>
+    <circle cx="23" cy="35" r="2.8"/>
+    <circle cx="23" cy="39.5" r="2.8"/>
+    <circle cx="32" cy="21.5" r="2.8"/>
+    <circle cx="32" cy="39.5" r="2.8"/>
+    <circle cx="36.5" cy="21.5" r="2.8"/>
+    <circle cx="36.5" cy="26" r="2.8"/>
+    <circle cx="36.5" cy="30.5" r="2.8"/>
+    <circle cx="36.5" cy="35" r="2.8"/>
+    <circle cx="36.5" cy="39.5" r="2.8"/>
+    <circle cx="41" cy="21.5" r="2.8"/>
+    <circle cx="41" cy="39.5" r="2.8"/>
+    <circle cx="50" cy="21.5" r="2.8"/>
+    <circle cx="50" cy="26" r="2.8"/>
+    <circle cx="50" cy="30.5" r="2.8"/>
+    <circle cx="50" cy="39.5" r="2.8"/>
+  </g>
+  <g fill="#ffb52e">
+    <circle cx="14" cy="21.5" r="1.8"/>
+    <circle cx="14" cy="26" r="1.8"/>
+    <circle cx="14" cy="30.5" r="1.8"/>
+    <circle cx="14" cy="35" r="1.8"/>
+    <circle cx="14" cy="39.5" r="1.8"/>
+    <circle cx="18.5" cy="30.5" r="1.8"/>
+    <circle cx="23" cy="21.5" r="1.8"/>
+    <circle cx="23" cy="26" r="1.8"/>
+    <circle cx="23" cy="30.5" r="1.8"/>
+    <circle cx="23" cy="35" r="1.8"/>
+    <circle cx="23" cy="39.5" r="1.8"/>
+    <circle cx="32" cy="21.5" r="1.8"/>
+    <circle cx="32" cy="39.5" r="1.8"/>
+    <circle cx="36.5" cy="21.5" r="1.8"/>
+    <circle cx="36.5" cy="26" r="1.8"/>
+    <circle cx="36.5" cy="30.5" r="1.8"/>
+    <circle cx="36.5" cy="35" r="1.8"/>
+    <circle cx="36.5" cy="39.5" r="1.8"/>
+    <circle cx="41" cy="21.5" r="1.8"/>
+    <circle cx="41" cy="39.5" r="1.8"/>
+    <circle cx="50" cy="21.5" r="1.8"/>
+    <circle cx="50" cy="26" r="1.8"/>
+    <circle cx="50" cy="30.5" r="1.8"/>
+    <circle cx="50" cy="39.5" r="1.8"/>
+  </g>
+</svg>

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from signsim import names
@@ -23,6 +25,29 @@ from signsim.window import MainWindow
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 4001
+
+# Drawn as the icon.svg beside it and rendered by scripts/render_icons.py.
+ICON = Path(__file__).with_name("icon.ico")
+
+
+def take_own_taskbar_button() -> None:
+    """Give this process a taskbar button of its own on Windows.
+
+    Windows files a window on the taskbar under its process's application user
+    model id, which defaults to the path of the executable. For a Python
+    program that is ``python.exe``, so left alone this window is grouped with
+    every other Python window on the machine under Python's own icon, and the
+    icon set on the application reaches the title bar and nothing else. Naming
+    the process here, before it has a window, is what lets the taskbar show
+    the same icon as the title bar, and what gives the simulator and the client
+    a button each when they are run together. Elsewhere there is nothing to do:
+    the other platforms take the icon from the window.
+    """
+    if sys.platform == "win32":
+        import ctypes
+
+        app_id = "%s.%s" % (names.ORGANISATION, names.IDENTIFIER)
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,8 +87,12 @@ def main(argv: list[str] | None = None) -> int:
     """Run the simulator. Returns the exit code Qt hands back."""
     args = build_parser().parse_args(argv)
 
+    take_own_taskbar_button()
     app = QApplication(sys.argv[:1])
     app.setApplicationName(names.IDENTIFIER)
+    # On the application rather than the window, so that it reaches every
+    # dialog as well.
+    app.setWindowIcon(QIcon(str(ICON)))
 
     endpoint = SignEndpoint()
     try:

@@ -13,10 +13,15 @@ components, and ``tests/test_component_names.py`` pins this module against it.
 
 from __future__ import annotations
 
-__all__ = ["DISPLAY_NAME", "IDENTIFIER", "PROSE_NAME"]
+__all__ = ["DISPLAY_NAME", "IDENTIFIER", "ORGANISATION", "PROSE_NAME"]
 
 # Also the QSettings application name if this tool ever saves anything, which
 # is why it stays a bare identifier rather than becoming the display name.
 IDENTIFIER = "signsim"
 DISPLAY_NAME = "readerboard sign simulator"
 PROSE_NAME = "the sign simulator"
+
+# The other half of that QSettings location, and the front half of the name
+# this process gives the Windows taskbar. The service's identifier rather than
+# this tool's, the same as the client.
+ORGANISATION = "readerboard"
