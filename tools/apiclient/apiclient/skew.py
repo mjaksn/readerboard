@@ -10,7 +10,8 @@ So the client asks the service to describe itself, once per address, and says
 plainly when the two disagree. This is not a call the user made, so it stays out
 of the history and out of the catalogue: ``/openapi.json`` is not part of the
 described surface, and adding it to the table would make the endpoint diff in
-``tests/test_catalogue.py`` fail for a path the document never lists.
+``tools/apiclient/tests/test_catalogue.py`` fail for a path the document never
+lists.
 """
 
 from __future__ import annotations

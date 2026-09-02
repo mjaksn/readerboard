@@ -1,7 +1,7 @@
 """Starting the client.
 
     python tools/apiclient/run.py
-    python tools/apiclient/run.py --base-url http://192.168.2.40:8000
+    python tools/apiclient/run.py --base-url http://192.168.2.40:5001
 
 The base URL is remembered between runs. The API key is not, and there is no
 option to pass one on the command line: a key on a command line is a key in the

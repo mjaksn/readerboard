@@ -130,11 +130,12 @@ The modules split on one line, and the line is load bearing:
 | `spans.py` | no | splits a body into runs of text, glyphs and control codes |
 | `decode.py` | no | reads a payload as the command it spells |
 | `model.py` | no | applies a command the way the sign would, and says what it did |
+| `names.py` | no | the three names this tool answers to, and the name it gives the taskbar |
 | `server.py` | yes | the TCP listener |
 | `window.py` | yes | the window |
 | `app.py` | yes | the command line |
 
-The four pure modules import nothing from PySide6, which is why their tests run
+The five pure modules import nothing from PySide6, which is why their tests run
 in CI where Qt is not installed. They are collected by the root `pytest`, so
 `pytest` at the top of the repository runs them along with everything else.
 
@@ -168,10 +169,11 @@ more step, because the taskbar files a window under its process's executable,
 which for a Python program is `python.exe`. `app.py` names the process to the
 taskbar before it has a window, as `readerboard.signsim`, which is what puts
 the same icon in both places and gives the simulator and the client a taskbar
-button each when they are run together. One thing to know when the drawing changes: the taskbar keeps the last icon
-it showed for that name for a while after the window closes, so a relaunch
-within a minute or so can show the old icon on the taskbar and the new one
-in the title bar. Waiting, or signing out and back in, clears it.
+button each when they are run together. One thing to know when the drawing
+changes: the taskbar keeps the last icon it showed for that name for a while
+after the window closes, so a relaunch within a minute or so can show the old
+icon on the taskbar and the new one in the title bar. Waiting, or signing out
+and back in, clears it.
 
 ## The limit worth knowing
 
@@ -191,7 +193,7 @@ evidence that a protocol constant is right.
 package also pulls in Addons, which is a large download for modules this never
 imports. Both it and `shiboken6` are pinned by version and hash in
 `requirements.lock`, refreshed by `scripts/lock_hashes.py` along with the
-service's two.
+service's two and the client's.
 
 None of this reaches the service. The wheel, `scripts/install.sh` and the
 container image all ignore this directory, and `tools/` is in `.dockerignore` so

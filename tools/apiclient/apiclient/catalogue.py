@@ -9,9 +9,9 @@ The table is hand-written on purpose. Generating the forms from
 ``docs/openapi.json`` at run time would put more logic in this tool, not less,
 and it would lose the thing the description cannot carry: which enumeration a
 field draws from, and which formatter reads the response back. Hand-written
-tables drift, so ``tests/test_catalogue.py`` diffs this one against the checked-in
-OpenAPI description in both directions. A route added to the service fails this
-tool's tests in the same commit.
+tables drift, so ``tools/apiclient/tests/test_catalogue.py`` diffs this one
+against the checked-in OpenAPI description in both directions. A route added to
+the service fails this tool's tests in the same commit.
 """
 
 from __future__ import annotations
@@ -43,10 +43,10 @@ class Input:
 
     ``prefill`` is what the field starts out holding, which is not the same as
     the schema's default and is deliberately named so it cannot be mistaken for
-    it. Usually the two agree, and ``tests/test_catalogue.py`` insists on that
-    wherever the schema declares a default. Where it declares none the prefill
-    is a convenience of this client's own, offered without the service having
-    promised it.
+    it. Usually the two agree, and ``tools/apiclient/tests/test_catalogue.py``
+    insists on that wherever the schema declares a default. Where it declares
+    none the prefill is a convenience of this client's own, offered without the
+    service having promised it.
     """
 
     name: str

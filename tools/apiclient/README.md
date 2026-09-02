@@ -10,7 +10,7 @@ enumerations and then reuse them in the fields that take them.
 
 ```
 python tools/apiclient/run.py
-python tools/apiclient/run.py --base-url http://192.168.2.40:8000
+python tools/apiclient/run.py --base-url http://192.168.2.40:5001
 ```
 
 Qt is not a dependency of the service and must not become one. This tool has its
@@ -52,9 +52,9 @@ a set of empty names, which on screen looks exactly like a healthy one.
 **Responses are read, not dumped.** Every shape the service answers with has a
 formatter: the health breakdown, the slot table, the alert, the clock, the
 enumerations, and a 204 rendered as the success it is rather than as an empty
-panel. Anything unrecognised falls back to
-a labelled walk, so a field added to the service shows up as a row instead of
-breaking the view. No raw JSON reaches the main panel.
+panel. Anything unrecognised falls back to a labelled walk, so a field added to
+the service shows up as a row instead of breaking the view. No raw JSON reaches
+the main panel.
 
 **An error is not only a 4xx.** A body that is not JSON at all is one too,
 whatever the status above it, and the client treats it as a failure: the status
@@ -124,6 +124,7 @@ reason.
 | `format.py` | no | responses to readable blocks, and those to HTML |
 | `enums.py` | no | the loaded sets, normalised from either shape |
 | `history.py` | no | the run's calls, with the key already gone |
+| `names.py` | no | the three names this tool answers to, and the QSettings location they build |
 | `net.py` | yes | `QNetworkAccessManager`, one call in flight at a time |
 | `window.py` | yes | the one screen |
 | `dialogs.py` | yes | enumerations, errors, history |
@@ -132,10 +133,10 @@ reason.
 The forms are generated from `catalogue.py` rather than written out one by one,
 which is what makes "it can call any endpoint" a property of a table rather than
 a claim about a window. Hand-written tables drift, so
-`tests/test_catalogue.py` diffs it against `docs/openapi.json`: every endpoint in
-both directions, and for each one the body field names, which of them are
-required, and which operations carry a body at all. A route or a field added to
-the service fails this tool's tests in the same commit.
+`tools/apiclient/tests/test_catalogue.py` diffs it against `docs/openapi.json`:
+every endpoint in both directions, and for each one the body field names, which
+of them are required, and which operations carry a body at all. A route or a
+field added to the service fails this tool's tests in the same commit.
 
 What the description cannot supply is the reason the table is written by hand
 rather than generated. It declares no enumerations at all: `display_mode` is a
@@ -168,10 +169,11 @@ more step, because the taskbar files a window under its process's executable,
 which for a Python program is `python.exe`. `app.py` names the process to the
 taskbar before it has a window, as `readerboard.apiclient`, which is what puts
 the same icon in both places and gives the client and the simulator a taskbar
-button each when they are run together. One thing to know when the drawing changes: the taskbar keeps the last icon
-it showed for that name for a while after the window closes, so a relaunch
-within a minute or so can show the old icon on the taskbar and the new one
-in the title bar. Waiting, or signing out and back in, clears it.
+button each when they are run together. One thing to know when the drawing
+changes: the taskbar keeps the last icon it showed for that name for a while
+after the window closes, so a relaunch within a minute or so can show the old
+icon on the taskbar and the new one in the title bar. Waiting, or signing out
+and back in, clears it.
 
 One call is in flight at a time. That is not worth engineering around: the thing
 on the other end drives a single sign down a 9600 baud line behind one lock, so
