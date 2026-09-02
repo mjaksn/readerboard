@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Home Automation",
     "Topic :: System :: Hardware",
     "Typing :: Typed",
@@ -36,7 +37,8 @@ classifiers = [
 #
 # The ceilings sit at the next major for the settled packages, and at the next
 # minor for the two still on 0.x, where a minor bump is where a breaking change
-# is allowed to live.
+# is allowed to live. tzdata is the exception and takes a floor only: it is a
+# calendar-versioned data package with no API to break.
 dependencies = [
     "fastapi>=0.141.1,<0.142",
     # Plain uvicorn, not the "standard" extra. That extra exists to make a busy
@@ -69,8 +71,9 @@ dev = [
 ]
 
 [project.scripts]
-# The whole command line. `python -m readerboard` runs the same thing out of a
-# checkout, which is what the systemd unit and the editor launch config use.
+# The whole command line, and what the systemd unit and the container image run.
+# `python -m readerboard` runs the same thing out of a checkout, which is what
+# the editor launch configurations use.
 readerboard = "readerboard.__main__:main"
 
 [project.urls]
@@ -80,8 +83,8 @@ Issues = "https://github.com/mjaksn/readerboard/issues"
 Changelog = "https://github.com/mjaksn/readerboard/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
-# Named explicitly rather than auto-discovered: the flat layout puts `tests`
-# beside the package and it has an __init__.py, so discovery would ship it.
+# Named explicitly rather than auto-discovered: `tests`, `tools` and `scripts`
+# all sit beside the package in a flat layout, so what ships is decided here.
 packages = [
     "readerboard",
     "readerboard.api",
