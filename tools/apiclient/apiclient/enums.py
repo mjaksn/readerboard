@@ -43,12 +43,27 @@ class LoadedSet:
         return tuple(entry.name for entry in self.entries)
 
     def summary(self) -> str:
-        """Return the one-line provenance the panel shows under the set's title."""
-        return "%d from %s at %s" % (
-            len(self.entries),
+        """Return the one line the panel shows under the set's title.
+
+        The count and the time, and nothing more: it has to fit the panel at its
+        default width without wrapping, for a reason the panel explains where it
+        builds the label. The endpoint is what pushed it past one line, and it
+        is in :meth:`provenance`, which the panel shows on hover.
+        """
+        return "%s, loaded at %s" % (self._count(), self.loaded_at.strftime("%H:%M:%S"))
+
+    def provenance(self) -> str:
+        """Return where the set came from, in full, for the status line's tooltip."""
+        return "%s from %s at %s" % (
+            self._count(),
             self.endpoint,
             self.loaded_at.strftime("%H:%M:%S"),
         )
+
+    def _count(self) -> str:
+        """Return the number of entries, with the noun that agrees with it."""
+        count = len(self.entries)
+        return "%d %s" % (count, "entry" if count == 1 else "entries")
 
 
 def parse(payload: object) -> tuple[Entry, ...]:

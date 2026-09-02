@@ -20,7 +20,7 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QDateTime, Qt, Slot
+from PySide6.QtCore import QDateTime, QMargins, Qt, Slot
 from PySide6.QtGui import QAction, QCloseEvent, QColor, QFontDatabase, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -102,6 +102,41 @@ class LogEntry:
     notes: list[Note] = field(default_factory=list)
 
 
+# How much of the screen to leave clear around a window when it first appears,
+# in logical pixels. Enough to say that it is a window and not a maximised one,
+# and no more, because on a small desktop every pixel comes out of the panes.
+SCREEN_MARGIN = 24
+
+
+def fit_to_screen(window: QWidget, margin: int = SCREEN_MARGIN) -> None:
+    """Shrink the window to fit its screen with a margin all round, then centre it.
+
+    The size set before this is called is the one the window would like, and it
+    keeps it when the screen has room. A scaled desktop often has not: a 3840
+    by 2400 panel at 300% is 1280 by 800 logical pixels, less the taskbar, and
+    a window built to a fixed size on it comes up with its bottom edge behind
+    the taskbar, looking right only once it is maximised.
+
+    The frame counts towards what has to fit, and Qt does not know how tall the
+    title bar is until the native window exists, so this creates it first.
+    ``move`` places the frame's corner while ``resize`` sets the client area,
+    which is why the two are worked out separately.
+
+    The client carries the same function, for the reason it carries its own lock
+    file: the two tools share nothing, so that one can move without the other.
+    """
+    edge = QMargins(margin, margin, margin, margin)
+    room = window.screen().availableGeometry().marginsRemoved(edge)
+    window.winId()
+    frame = window.windowHandle().frameMargins()
+    window.resize(window.size().boundedTo(room.marginsRemoved(frame).size()))
+    outer = window.size().grownBy(frame)
+    window.move(
+        room.left() + (room.width() - outer.width()) // 2,
+        room.top() + (room.height() - outer.height()) // 2,
+    )
+
+
 class MainWindow(QMainWindow):
     """The whole application window."""
 
@@ -122,6 +157,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(names.DISPLAY_NAME)
         self.resize(1400, 860)
+        fit_to_screen(self)
         self._build()
 
         endpoint.transmission.connect(self.on_transmission)
