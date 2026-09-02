@@ -1,10 +1,19 @@
 """The window: a log of what arrived, and a view of what the sign now holds.
 
-Three things are on screen at once, because in practice all three are wanted
-together. The log says what was sent. The detail pane underneath it says what
-those bytes mean, one span at a time, in the protocol's own words. The tabs on
-the right say what the sign is holding as a result, which is the part no amount
-of staring at a packet will tell you.
+Four things are on screen at once, because in practice all four are wanted
+together. The band across the top says what the sign would be showing this
+second, which is the one fact worth never having to look for. The log under it,
+the full width of the window, says what was sent. The detail pane below left
+says what those bytes mean, one span at a time, in the protocol's own words. The
+column beside it says what the sign is holding as a result, which is the part no
+amount of staring at a packet will tell you.
+
+That last column is a stack of collapsible sections rather than a set of tabs,
+and the difference is the point of it. A run sequence write that lands in a tab
+nobody has open changes nothing a person can see, which is the opposite of what
+this tool is for. The sections that have nothing in them yet stay shut and open
+themselves when they first hold a row, so the column grows as the sign is
+configured instead of standing there as headings over four empty tables.
 
 The colouring is the small thing that makes the rest readable. Framing bytes,
 the command and its file label, control sequences, literal text, glyphs and
@@ -20,8 +29,15 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QDateTime, QMargins, Qt, Slot
-from PySide6.QtGui import QAction, QCloseEvent, QColor, QFontDatabase, QPalette
+from PySide6.QtCore import QDateTime, QMargins, QModelIndex, Qt, Slot
+from PySide6.QtGui import (
+    QAction,
+    QCloseEvent,
+    QColor,
+    QFontDatabase,
+    QPalette,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -29,11 +45,12 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QTextBrowser,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -57,6 +74,18 @@ from signsim.spans import Span, SpanKind, annotate, readable
 # Enough history to cover an afternoon of debugging without letting a window
 # left open over a weekend eat the machine.
 MAX_LOG_ROWS = 5000
+
+# How many rows of a table in the state column are given room before it starts
+# scrolling inside its own section. A scrolling region inside a scrolling column
+# is worth avoiding, and this is the compromise: a full pool of eight files fits
+# without one, and anything longer costs a scrollbar rather than the whole
+# column's height.
+MAX_SECTION_ROWS = 8
+
+# The tallest the Sign section is allowed to be. It is a handful of name and
+# value rows whose height depends on how much of each one wraps, so it is fitted
+# to its content and capped rather than fixed.
+MAX_SIGN_HEIGHT = 220
 
 # Number, time, level, command, summary.
 _LOG_COLUMNS = 5
@@ -137,6 +166,65 @@ def fit_to_screen(window: QWidget, margin: int = SCREEN_MARGIN) -> None:
     )
 
 
+class _Section(QWidget):
+    """One titled, collapsible block of the state column.
+
+    The header doubles as the count, so a shut section still says whether it has
+    anything in it. That is what makes shutting one safe: a person who collapses
+    Files to get at Run sequence can still see that Files gained a row.
+
+    ``opened_itself`` is why the auto-open only ever fires once. A section that
+    opens the first time it holds a row is helpful; one that springs open again
+    every time a row arrives, after it has been deliberately shut, is not.
+    """
+
+    def __init__(self, title: str, content: QWidget, *, expanded: bool) -> None:
+        """Wrap a widget in a header that hides and shows it."""
+        super().__init__()
+        self._title = title
+        self._content = content
+        self.opened_itself = expanded
+
+        self._header = QToolButton()
+        self._header.setCheckable(True)
+        self._header.setChecked(expanded)
+        self._header.setAutoRaise(True)
+        self._header.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self._header.setStyleSheet("font-weight:600")
+        self._header.setText(title)
+        self._header.toggled.connect(self._on_toggled)
+        self._set_arrow(expanded)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 8)
+        layout.setSpacing(2)
+        layout.addWidget(self._header)
+        layout.addWidget(content)
+        content.setVisible(expanded)
+
+    def set_count(self, count: int) -> None:
+        """Say how many rows the section holds, and open it the first time it has any."""
+        self._header.setText("%s (%d)" % (self._title, count) if count else self._title)
+        if count and not self.opened_itself:
+            self.opened_itself = True
+            self._header.setChecked(True)
+
+    @Slot(bool)
+    def _on_toggled(self, open_now: bool) -> None:
+        """Show or hide the content, and turn the arrow to match."""
+        self._content.setVisible(open_now)
+        self._set_arrow(open_now)
+        # Collapsing by hand counts as having made a decision about this
+        # section, so nothing later opens it again.
+        self.opened_itself = True
+
+    def _set_arrow(self, open_now: bool) -> None:
+        """Point the arrow down when open and right when shut."""
+        self._header.setArrowType(
+            Qt.ArrowType.DownArrow if open_now else Qt.ArrowType.RightArrow
+        )
+
+
 class MainWindow(QMainWindow):
     """The whole application window."""
 
@@ -171,15 +259,36 @@ class MainWindow(QMainWindow):
     # == building ==========================================================
 
     def _build(self) -> None:
-        """Lay the window out."""
+        """Lay the window out.
+
+        The showing band is fixed above the splitters rather than inside one,
+        because it is the only thing here that must never be dragged away.
+        Neither splitter lets a child collapse to nothing for the same reason:
+        a pane at zero width looks like a bug and has no obvious way back.
+        """
         self._build_toolbar()
 
-        outer = QSplitter(Qt.Orientation.Horizontal, self)
-        outer.addWidget(self._build_log_side())
-        outer.addWidget(self._build_state_side())
-        outer.setStretchFactor(0, 3)
-        outer.setStretchFactor(1, 2)
-        self.setCentralWidget(outer)
+        lower = QSplitter(Qt.Orientation.Horizontal)
+        lower.addWidget(self._build_detail_side())
+        lower.addWidget(self._build_state_side())
+        lower.setStretchFactor(0, 3)
+        lower.setStretchFactor(1, 2)
+        lower.setChildrenCollapsible(False)
+
+        outer = QSplitter(Qt.Orientation.Vertical)
+        outer.addWidget(self._build_log())
+        outer.addWidget(lower)
+        outer.setStretchFactor(0, 2)
+        outer.setStretchFactor(1, 3)
+        outer.setChildrenCollapsible(False)
+
+        holder = QWidget()
+        layout = QVBoxLayout(holder)
+        layout.setContentsMargins(6, 6, 6, 0)
+        layout.setSpacing(6)
+        layout.addWidget(self._build_showing())
+        layout.addWidget(outer, 1)
+        self.setCentralWidget(holder)
 
         self._where = QLabel()
         self._client = QLabel()
@@ -189,7 +298,7 @@ class MainWindow(QMainWindow):
             widget.setContentsMargins(0, 0, 16, 0)
 
     def _build_toolbar(self) -> None:
-        """Add the four things worth a button."""
+        """Add the five things worth a button."""
         bar = self.addToolBar("Controls")
         bar.setMovable(False)
 
@@ -222,8 +331,40 @@ class MainWindow(QMainWindow):
         save.triggered.connect(self.on_save_transcript)
         bar.addAction(save)
 
-    def _build_log_side(self) -> QWidget:
-        """Build the transmission list, with the detail pane under it."""
+        bar.addSeparator()
+
+        self._only_notes = QAction("Only rows with notes", self)
+        self._only_notes.setCheckable(True)
+        self._only_notes.setToolTip(
+            "Hide every transmission the sign had nothing to say about, leaving "
+            "the writes it discarded, the messages it truncated and the files it "
+            "was asked to play but does not have. Nothing is thrown away: "
+            "clearing this shows them again, and a saved transcript holds every "
+            "transmission either way."
+        )
+        self._only_notes.toggled.connect(self.on_only_notes_toggled)
+        bar.addAction(self._only_notes)
+
+    def _build_showing(self) -> QWidget:
+        """Build the band that says what the sign would be showing right now.
+
+        This is the tool's headline fact and it used to be the first row of a
+        panel behind a tab, which meant the window could be open and busy and
+        never say what was on the sign.
+        """
+        self._showing = QLabel()
+        self._showing.setWordWrap(True)
+        self._showing.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        self._showing.setToolTip(
+            "What the sign would be displaying at this moment: the files it is "
+            "cycling, or the priority message suppressing them."
+        )
+        return self._showing
+
+    def _build_log(self) -> QWidget:
+        """Build the transmission list, which spans the window."""
         self._log = QTreeWidget()
         self._log.setHeaderLabels(["#", "Time", "Level", "Command", "What it says"])
         self._log.setRootIsDecorated(False)
@@ -235,44 +376,59 @@ class MainWindow(QMainWindow):
         for column in range(_LOG_COLUMNS - 1):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(_LOG_COLUMNS - 1, QHeaderView.ResizeMode.Stretch)
+        # Roughly six rows. The window is three bands tall now, and on a scaled
+        # desktop, where the whole thing is 800 logical pixels, the splitter
+        # would otherwise be free to leave the log showing one.
+        self._log.setMinimumHeight(140)
+        return self._log
 
+    def _build_detail_side(self) -> QWidget:
+        """Build the pane that reads the selected transmission byte by byte."""
         # The widget font is left alone deliberately. Setting it to the fixed
         # width face wins over the inline sans-serif on the prose blocks, and
         # the blocks that need alignment name the fixed width family themselves.
         self._detail = QTextBrowser()
         self._detail.setHtml(self._empty_detail())
-
-        split = QSplitter(Qt.Orientation.Vertical)
-        split.addWidget(self._log)
-        split.addWidget(self._detail)
-        split.setStretchFactor(0, 2)
-        split.setStretchFactor(1, 3)
-        return split
+        return self._detail
 
     def _build_state_side(self) -> QWidget:
-        """Build the tabs describing what the sign is holding."""
-        self._tabs = QTabWidget()
+        """Build the column of sections describing what the sign is holding.
 
-        self._sign_view = QTextBrowser()
-        self._tabs.addTab(self._sign_view, "Sign")
+        Only Sign starts open. The other three are empty until a command
+        arrives, and a heading over an empty table says less than a shut section
+        that will open itself the moment it has a row.
+        """
+        self._sign_view = _FittedBrowser(MAX_SIGN_HEIGHT)
+        self._files = _FittedTable(["File", "Bytes", "Size", "Mode", "Position", "Message"])
+        self._memory = _FittedTable(["File", "Type", "Size", "Keyboard", "Schedule"])
+        self._sequence = _FittedTable(["Order", "File", "Allocated", "Holds a message"])
 
-        self._files = _table(["File", "Bytes", "Size", "Mode", "Position", "Message"])
-        self._tabs.addTab(self._files, "Files")
+        self._sign_section = _Section("Sign", self._sign_view, expanded=True)
+        self._files_section = _Section("Files", self._files, expanded=False)
+        self._memory_section = _Section("Memory", self._memory, expanded=False)
+        self._sequence_section = _Section("Run sequence", self._sequence, expanded=False)
 
-        self._memory = _table(["File", "Type", "Size", "Keyboard", "Schedule"])
-        self._tabs.addTab(self._memory, "Memory")
+        stack = QWidget()
+        layout = QVBoxLayout(stack)
+        layout.setContentsMargins(4, 0, 4, 4)
+        layout.setSpacing(0)
+        for section in (
+            self._sign_section,
+            self._files_section,
+            self._memory_section,
+            self._sequence_section,
+        ):
+            layout.addWidget(section)
+        layout.addStretch(1)
 
-        self._sequence = _table(["Order", "File", "Allocated", "Holds a message"])
-        self._tabs.addTab(self._sequence, "Run sequence")
-
-        self._notes = QTextBrowser()
-        self._tabs.addTab(self._notes, "Notes")
-
-        holder = QWidget()
-        layout = QVBoxLayout(holder)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._tabs)
-        return holder
+        column = QScrollArea()
+        column.setWidgetResizable(True)
+        column.setWidget(stack)
+        column.setFrameShape(QScrollArea.Shape.NoFrame)
+        # Narrower than this and the Files table's message column has nothing
+        # left after the five that size themselves to their contents.
+        column.setMinimumWidth(320)
+        return column
 
     # == events ============================================================
 
@@ -314,17 +470,24 @@ class MainWindow(QMainWindow):
             for column in range(_LOG_COLUMNS):
                 item.setForeground(column, colour)
         self._log.addTopLevelItem(item)
+        item.setHidden(self._only_notes.isChecked() and worst is None)
 
         while self._log.topLevelItemCount() > MAX_LOG_ROWS:
             self._log.takeTopLevelItem(0)
             self._entries.pop(0)
 
-        # The newest transmission is always selected, because the usual reason
+        # The newest transmission is normally selected, because the usual reason
         # this window is open is to see what just happened. Studying an older
         # row while traffic continues is what the pause button is for; its
         # tooltip says so.
-        self._log.setCurrentItem(item)
-        self._log.scrollToItem(item)
+        #
+        # A row the filter is hiding is the exception. Selecting it would empty
+        # the detail pane of the row being read and put a reading of something
+        # invisible in its place, which is the opposite of what the filter was
+        # turned on for.
+        if not item.isHidden():
+            self._log.setCurrentItem(item)
+            self._log.scrollToItem(item)
 
         self._refresh_state()
         self._update_status()
@@ -346,17 +509,18 @@ class MainWindow(QMainWindow):
         self._pause.setText("Resume capture" if paused else "Pause capture")
         self._update_status()
 
+    @Slot(bool)
+    def on_only_notes_toggled(self, _only: bool) -> None:
+        """Hide or show the transmissions the sign had nothing to say about."""
+        self._apply_filter()
+        self._update_status()
+
     @Slot()
     def on_clear_log(self) -> None:
         """Empty the log, leaving the sign's state as it is."""
         self._entries.clear()
         self._log.clear()
         self._detail.setHtml(self._empty_detail())
-        # The notes tab is drawn from the entries, so it has to be redrawn here
-        # or it keeps listing notes against transmissions that are gone. Nothing
-        # else would redraw it until the next one arrives, and traffic having
-        # stopped is the usual reason for clearing in the first place.
-        self._refresh_notes()
         self._update_status()
 
     @Slot()
@@ -397,6 +561,44 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     # == rendering =========================================================
+
+    def _apply_filter(self) -> None:
+        """Hide or show every row to match the filter, and keep a visible selection.
+
+        The current row is left alone when it survives the filter, because
+        turning the filter on to look at a note should not move a person off the
+        row they were reading. When it does not survive, the newest row that
+        does takes its place: leaving a hidden row current shows a reading of
+        something that is not on screen.
+        """
+        only = self._only_notes.isChecked()
+        last_shown: QTreeWidgetItem | None = None
+        for index, entry in enumerate(self._entries):
+            item = self._log.topLevelItem(index)
+            if item is None:
+                continue
+            item.setHidden(only and _worst_level(entry) is None)
+            if not item.isHidden():
+                last_shown = item
+
+        current = self._log.currentItem()
+        if current is not None and not current.isHidden():
+            return
+        if last_shown is None:
+            # An invalid index is how the current item is cleared. Leaving a
+            # hidden row current would keep its reading in the detail pane with
+            # nothing on screen to say which row it belongs to.
+            self._log.setCurrentIndex(QModelIndex())
+            self._detail.setHtml(self._empty_detail())
+            return
+        self._log.setCurrentItem(last_shown)
+        self._log.scrollToItem(last_shown)
+
+    def _hidden_rows(self) -> int:
+        """How many rows the filter is holding back."""
+        if not self._only_notes.isChecked():
+            return 0
+        return sum(1 for entry in self._entries if _worst_level(entry) is None)
 
     def _empty_detail(self) -> str:
         """Say what the detail pane shows before anything has arrived."""
@@ -532,33 +734,59 @@ class MainWindow(QMainWindow):
             "<ul style='font-family:sans-serif;font-size:small'>%s</ul>" % items
         )
 
-    # == the state tabs ====================================================
+    # == the state column ==================================================
 
     def _refresh_state(self) -> None:
         """Redraw every panel from the sign state."""
+        self._refresh_showing()
         self._refresh_sign_view()
         self._refresh_files()
         self._refresh_memory()
         self._refresh_sequence()
-        self._refresh_notes()
 
-    def _refresh_sign_view(self) -> None:
-        """Summarise what the sign would be doing right now."""
+    def _refresh_showing(self) -> None:
+        """Say what the sign would be displaying, in the band across the top.
+
+        An alert is coloured as a violation is, not because anything is wrong
+        with it but because it is the state that hides everything else, and the
+        band is the only thing on screen that says so.
+        """
         state = self._state
-        rows: list[tuple[str, str]] = []
-
         if state.priority_active:
-            showing = "the priority file, which suppresses everything else"
+            colour = self._note_colours[NoteLevel.VIOLATION]
+            text = "Showing the priority message, which suppresses every other file: %s" % (
+                _rendered(state.priority)
+            )
         elif state.playing:
-            showing = "cycling %s by itself, with no traffic per rotation" % ", ".join(
-                label.decode("latin-1") for label in state.playing
+            colour = self._note_colours[NoteLevel.INFO]
+            text = "Showing %s, cycled by the sign itself with no traffic per rotation" % (
+                ", ".join(label.decode("latin-1") for label in state.playing)
             )
         else:
-            showing = "nothing"
-        rows.append(("Showing", showing))
+            colour = self._note_colours[NoteLevel.INFO]
+            # Two different reasons, and saying which is the whole value of the
+            # line. ``playing`` skips a label that is not an allocated TEXT
+            # file, so an empty list means either that nothing was asked for or
+            # that everything asked for was skipped.
+            text = "Showing nothing. %s" % (
+                "No run sequence has been set."
+                if not state.run_sequence
+                else "The sign skips every file the run sequence names, because "
+                "none of them is an allocated TEXT file."
+            )
+        self._showing.setStyleSheet(
+            "padding:6px 9px;border-radius:4px;font-weight:600;color:%s" % colour
+        )
+        self._showing.setText(text)
 
-        if state.priority_active:
-            rows.append(("Priority message", _rendered(state.priority)))
+    def _refresh_sign_view(self) -> None:
+        """Summarise what the sign is set up to do.
+
+        What it is showing this second is not here. That went to the band across
+        the top of the window, where it is read without opening anything.
+        """
+        state = self._state
+        rows: list[tuple[str, str]] = []
 
         if state.memory_config is None:
             rows.append(
@@ -662,12 +890,17 @@ class MainWindow(QMainWindow):
             )
             row += 1
 
+        self._files_section.set_count(self._files.rowCount())
+        self._files.fit()
+
     def _refresh_memory(self) -> None:
         """Show the file table as the sign holds it."""
         config = self._state.memory_config
         order = self._state.memory_order
         self._memory.setRowCount(0 if config is None else len(order))
+        self._memory_section.set_count(self._memory.rowCount())
         if config is None:
+            self._memory.fit()
             return
         for row, label in enumerate(order):
             entry = config[label]
@@ -682,11 +915,13 @@ class MainWindow(QMainWindow):
                     "always" if entry.always_eligible else entry.schedule.decode("latin-1"),
                 ],
             )
+        self._memory.fit()
 
     def _refresh_sequence(self) -> None:
         """Show the run sequence, and whether each label in it is worth anything."""
         state = self._state
         self._sequence.setRowCount(len(state.run_sequence))
+        self._sequence_section.set_count(self._sequence.rowCount())
         for row, label in enumerate(state.run_sequence):
             allocated = state.capacity_of(label) is not None
             stored = state.files.get(label)
@@ -700,34 +935,7 @@ class MainWindow(QMainWindow):
                     "yes" if stored and stored.body else "no",
                 ],
             )
-
-    def _refresh_notes(self) -> None:
-        """Every note so far, newest last."""
-        rows = []
-        for entry in self._entries:
-            for note in entry.notes:
-                rows.append(
-                    "<li style='color:%s'><b>#%d %s</b> %s</li>"
-                    % (
-                        self._note_colours[note.level],
-                        entry.number,
-                        note.level.value,
-                        html.escape(note.text),
-                    )
-                )
-        if not rows:
-            self._notes.setHtml(
-                "<p style='font-family:sans-serif;font-size:small'>Nothing to report yet. "
-                "This tab collects everything the sign would have done quietly: writes it "
-                "discards, messages it truncates, and files it is asked to play but does "
-                "not have.</p>"
-            )
-            return
-        self._notes.setHtml(
-            "<ul style='font-family:sans-serif;font-size:small'>%s</ul>" % "".join(rows)
-        )
-        bar = self._notes.verticalScrollBar()
-        bar.setValue(bar.maximum())
+        self._sequence.fit()
 
     # == status bar ========================================================
 
@@ -744,6 +952,12 @@ class MainWindow(QMainWindow):
             parts.append("%d byte(s) of a transmission still buffered" % self._pending)
         if self._pause.isChecked():
             parts.append("capture paused")
+        # Said here rather than left to the toolbar's pressed button, because a
+        # filtered log and a quiet one look identical and only one of them means
+        # the service has stopped writing.
+        hidden = self._hidden_rows()
+        if hidden:
+            parts.append("%d row(s) hidden by the filter" % hidden)
         self._counts.setText("  |  ".join(parts))
 
     def _transcript(self) -> str:
@@ -783,19 +997,106 @@ class MainWindow(QMainWindow):
 # ===========================================================================
 
 
-def _table(headers: list[str]) -> QTableWidget:
-    """Make a read-only table set up the way every panel here wants one."""
-    table = QTableWidget(0, len(headers))
-    table.setHorizontalHeaderLabels(headers)
-    table.verticalHeader().setVisible(False)
-    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-    table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-    table.setAlternatingRowColors(True)
-    header = table.horizontalHeader()
-    for column in range(len(headers) - 1):
-        header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-    header.setSectionResizeMode(len(headers) - 1, QHeaderView.ResizeMode.Stretch)
-    return table
+class _FittedTable(QTableWidget):
+    """A read-only table exactly as tall as its rows, up to a limit.
+
+    A table left to its own devices in a scrolling column asks for a size that
+    has nothing to do with what is in it, and scrolls inside itself while the
+    column scrolls around it. Sizing each one to its contents is what keeps the
+    column a single list rather than a set of little windows onto other lists.
+
+    The horizontal scrollbar is the awkward part. Most of these columns size
+    themselves to their contents, so in a column this narrow one often appears,
+    and a height that does not allow for it hides the last row behind it. Which
+    way it will go cannot be worked out in advance: the width the table will be
+    given is not known while the section holding it is still being opened, and
+    guessing from the column widths is wrong in both directions.
+
+    So it does not guess. It asks whether the scrollbar is there, and re-fits on
+    every resize, which is what the scrollbar appearing or disappearing causes.
+    The first height may be off by the depth of a scrollbar; the one after it,
+    which is the one anybody sees, is right.
+    """
+
+    def __init__(self, headers: list[str], limit: int = MAX_SECTION_ROWS) -> None:
+        """Build the table set up the way every section here wants one."""
+        super().__init__(0, len(headers))
+        self._limit = limit
+        self.setHorizontalHeaderLabels(headers)
+        self.verticalHeader().setVisible(False)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.setAlternatingRowColors(True)
+        header = self.horizontalHeader()
+        for column in range(len(headers) - 1):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(len(headers) - 1, QHeaderView.ResizeMode.Stretch)
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Re-fit, because a scrollbar coming or going changes the height needed."""
+        super().resizeEvent(event)
+        self.fit()
+
+    def fit(self) -> None:
+        """Take the height these rows need. Call it after filling them, not before."""
+        # One row's worth when empty, so a section opened on an empty table
+        # shows its headings rather than a sliver.
+        rows = min(self.rowCount(), self._limit) or 1
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+            if self.rowCount() > self._limit
+            else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        gutter = (
+            self.horizontalScrollBar().sizeHint().height()
+            if self.horizontalScrollBar().isVisible()
+            else 0
+        )
+        wanted = (
+            self.horizontalHeader().height()
+            + rows * self.verticalHeader().defaultSectionSize()
+            + gutter
+            + 2 * self.frameWidth()
+            + 2
+        )
+        if wanted != self.height():
+            self.setFixedHeight(wanted)
+
+
+class _FittedBrowser(QTextBrowser):
+    """A text pane exactly as tall as its document, up to a limit.
+
+    Fitting on every resize as well as on every ``setHtml`` is what makes this
+    right rather than nearly right. The height a document needs depends on the
+    width it is given, and the width is not known until the column has been laid
+    out, so a height worked out once when the widget was built is a height for a
+    width the widget never had.
+    """
+
+    def __init__(self, limit: int) -> None:
+        """Build a pane that will keep itself no taller than ``limit``."""
+        super().__init__()
+        self._limit = limit
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def setHtml(self, text: str) -> None:
+        """Set the content, then take the height it turned out to need."""
+        super().setHtml(text)
+        self.fit()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Re-fit, because a new width means a new height."""
+        super().resizeEvent(event)
+        self.fit()
+
+    def fit(self) -> None:
+        """Take the height this document needs at the current width."""
+        document = self.document()
+        document.setTextWidth(self.viewport().width())
+        height = int(document.size().height()) + 2 * self.frameWidth() + 4
+        wanted = min(height, self._limit)
+        if wanted != self.height():
+            self.setFixedHeight(wanted)
 
 
 def _fill(table: QTableWidget, row: int, values: list[str]) -> None:
