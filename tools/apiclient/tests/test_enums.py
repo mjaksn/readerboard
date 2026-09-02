@@ -63,7 +63,26 @@ def test_the_provenance_says_which_endpoint_answered():
         "GET /enumerations/markup-tokens",
         parse([{"name": "<red>", "description": "red"}]),
     )
-    assert "1 from GET /enumerations/markup-tokens" in loaded.summary()
+    assert "1 entry from GET /enumerations/markup-tokens at " in loaded.provenance()
+
+
+def test_the_summary_keeps_the_endpoint_off_the_panel():
+    # The summary has to fit the panel at its default width without wrapping. A
+    # test with no Qt cannot measure that, so this pins the thing that pushed it
+    # past one line: the endpoint, which belongs on the tooltip instead.
+    store = EnumStore()
+    loaded = store.load(
+        catalogue.MARKUP_TOKENS,
+        "GET /enumerations/markup-tokens",
+        parse(
+            [
+                {"name": "<red>", "description": "red"},
+                {"name": "<green>", "description": "green"},
+            ]
+        ),
+    )
+    assert loaded.summary().startswith("2 entries, loaded at ")
+    assert "/enumerations" not in loaded.summary()
 
 
 def test_loading_the_same_set_twice_replaces_it_rather_than_appending():

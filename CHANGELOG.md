@@ -248,6 +248,20 @@ a second tool alongside the simulator for exercising the API by hand.
   open file is legal, so the second attempt is never reached and nothing there
   changes.
 
+- **The sign simulator and the client open inside the screen.** Each asked for
+  a fixed size and never looked at the desktop it was opening on. A scaled
+  desktop has fewer logical pixels than its panel suggests, and on one at 300%
+  both came up with their bottom edge behind the taskbar, looking right only
+  once maximised. Each now shrinks to fit the screen's working area with a
+  small margin all round, counting the title bar, and centres itself. On a
+  desktop with room for it, nothing changes.
+
+  The client could not shrink far enough on its own: its enumerations panel
+  set a minimum height that a 1080p desktop at 150% does not have above the
+  taskbar. The panel now scrolls when it is shorter than its rows need, with
+  the bar appearing only then, so the window can be as short as such a desktop
+  requires.
+
 ### Documentation
 
 - **The package description no longer promises scheduling.** It read "several

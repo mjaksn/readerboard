@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QMargins, QSettings, Qt
 from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QComboBox,
@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTextBrowser,
     QTreeWidget,
@@ -63,6 +64,41 @@ SURFACE_TOOLTIP = (
 )
 
 
+# How much of the screen to leave clear around a window when it first appears,
+# in logical pixels. Enough to say that it is a window and not a maximised one,
+# and no more, because on a small desktop every pixel comes out of the panes.
+SCREEN_MARGIN = 24
+
+
+def fit_to_screen(window: QWidget, margin: int = SCREEN_MARGIN) -> None:
+    """Shrink the window to fit its screen with a margin all round, then centre it.
+
+    The size set before this is called is the one the window would like, and it
+    keeps it when the screen has room. A scaled desktop often has not: a 3840
+    by 2400 panel at 300% is 1280 by 800 logical pixels, less the taskbar, and
+    a window built to a fixed size on it comes up with its bottom edge behind
+    the taskbar, looking right only once it is maximised.
+
+    The frame counts towards what has to fit, and Qt does not know how tall the
+    title bar is until the native window exists, so this creates it first.
+    ``move`` places the frame's corner while ``resize`` sets the client area,
+    which is why the two are worked out separately.
+
+    The sign simulator carries the same function, for the reason it carries its own lock
+    file: the two tools share nothing, so that one can move without the other.
+    """
+    edge = QMargins(margin, margin, margin, margin)
+    room = window.screen().availableGeometry().marginsRemoved(edge)
+    window.winId()
+    frame = window.windowHandle().frameMargins()
+    window.resize(window.size().boundedTo(room.marginsRemoved(frame).size()))
+    outer = window.size().grownBy(frame)
+    window.move(
+        room.left() + (room.width() - outer.width()) // 2,
+        room.top() + (room.height() - outer.height()) // 2,
+    )
+
+
 def _muted(theme: fmt.Theme) -> str:
     """Return the stylesheet for text that should recede, in the theme in use.
 
@@ -88,8 +124,16 @@ class EnumerationPanel(QGroupBox):
         self._status: dict[str, QLabel] = {}
         self._view: dict[str, QPushButton] = {}
 
-        layout = QVBoxLayout(self)
+        # The rows sit in a scroll area so that this panel's height is not the
+        # window's minimum. The four rows and the intro need about 435 pixels,
+        # and with the response pane and the connection strip that put the
+        # window's minimum past what a 1080p desktop at 150% has above the
+        # taskbar. The bar appears only when the panel is squeezed below what
+        # the rows need, so on a desktop with room this looks as it did.
+        rows = QWidget()
+        layout = QVBoxLayout(rows)
         layout.setSpacing(10)
+        layout.setContentsMargins(0, 0, 0, 0)
 
         intro = QLabel(
             "Nothing is loaded until you ask for it. Load a set and it becomes "
@@ -103,6 +147,17 @@ class EnumerationPanel(QGroupBox):
             layout.addWidget(self._build_row(set_key))
 
         layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        # A scroll area paints its viewport on the base colour, which would put
+        # a white sheet behind the rows on a light desktop and a black one on a
+        # dark desktop. The panel's own ground is the right one.
+        scroll.viewport().setBackgroundRole(QPalette.ColorRole.Window)
+        scroll.setWidget(rows)
+        outer = QVBoxLayout(self)
+        outer.addWidget(scroll)
 
     def _build_row(self, set_key: str) -> QWidget:
         """Build the title, buttons and status line for one set."""
@@ -133,9 +188,12 @@ class EnumerationPanel(QGroupBox):
         buttons.addStretch(1)
         rows.addLayout(buttons)
 
+        # No word wrap, on purpose. A wrapping label reports a one-line minimum
+        # height, so when the top pane is shorter than this panel wants, the
+        # layout shrinks a wrapped status to one line and clips it. The text is
+        # kept short enough to fit instead, with the endpoint on the tooltip.
         status = QLabel("not loaded")
         status.setStyleSheet(_muted(self._window.theme))
-        status.setWordWrap(True)
         self._status[set_key] = status
         rows.addWidget(status)
 
@@ -147,10 +205,12 @@ class EnumerationPanel(QGroupBox):
             loaded = self._window.store.get(set_key)
             if loaded is None:
                 label.setText("not loaded")
+                label.setToolTip("")
                 label.setStyleSheet(_muted(self._window.theme))
                 self._view[set_key].setEnabled(False)
             else:
                 label.setText(loaded.summary())
+                label.setToolTip(loaded.provenance())
                 label.setStyleSheet("color:%s" % self._window.theme.ok)
                 self._view[set_key].setEnabled(True)
 
@@ -413,6 +473,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(names.DISPLAY_NAME)
         self.resize(1280, 840)
+        fit_to_screen(self)
 
         # QTextBrowser and the labels paint on the palette's own ground, so the
         # ink has to come from the same place or a dark desktop reads grey on
