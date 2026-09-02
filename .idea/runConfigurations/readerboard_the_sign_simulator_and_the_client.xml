@@ -3,8 +3,13 @@
     All three at once: the simulator standing in for the sign, the service
     driving it, and the client calling the service. It is the same
     scripts/run_with_simulator.py as "readerboard and the sign simulator" with
-    --with-client added, so there is still one place that decides what any of
-    them is given. Run that script with its help flag to see the rest.
+    the with-client flag added, so there is still one place that decides what
+    any of them is given. Run that script with its help flag to see the rest.
+
+    The flag is spelled out in the parameters below and only there. Two
+    hyphens in a row are not allowed inside an XML comment, and PyCharm drops
+    a configuration it cannot parse without saying so; that is how this one
+    went missing from the run list once.
 
     Two things about it are worth knowing here. The client asks for the API key
     itself rather than taking one from a command line, so the key in use is

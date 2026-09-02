@@ -139,6 +139,13 @@ a second tool alongside the simulator for exercising the API by hand.
   the client this way writes the base URL into the settings it remembers
   between runs, replacing an address left in it from last time.
 
+  The PyCharm half of it parses now. Its comment spelled the flag out, and
+  two hyphens in a row are not allowed inside an XML comment, so PyCharm
+  logged an error and left the configuration out of its run list without
+  saying so on screen. `tests/test_launch_configurations.py` now parses every
+  file under `.idea/runConfigurations/`, so the next one fails the suite
+  rather than a person's afternoon.
+
 ### Changed
 
 - **Which exception means which status code lives in one table**,
