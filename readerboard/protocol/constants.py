@@ -181,7 +181,7 @@ MODE_CMPRSROT = b"t"
 # consistent; the specifiers of Table 67 are plainly characters rather than a
 # continued hex run; and the colour list on page 82 makes the same jump from "9"
 # (39H) to "A" (41H) with no such contradiction. The reading is that whoever set
-# Tables 66 continued the 30H to 39H run by hand for two rows.
+# Table 66 continued the 30H to 39H run by hand for two rows.
 #
 # The sign's own names for two of these differ from the generic ones. Table 67
 # lists 57H as "RUNNING ANIMAL or FISH ANIMATION" and 59H as "TURBO CAR or

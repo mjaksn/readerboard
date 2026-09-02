@@ -78,9 +78,9 @@ class SignController:
     def on_reconnect(self, hook: ReconnectHook) -> None:
         """Register something to run each time the link comes back up.
 
-        The clock sync uses this. A sign that lost power has a wrong clock, and
-        the link coming back is the closest signal the service gets to that
-        having happened.
+        The clock sync uses this, and so does the registry's refresh. A sign
+        that lost power has a wrong clock, and the link coming back is the
+        closest signal the service gets to that having happened.
         """
         self._reconnect_hooks.append(hook)
 

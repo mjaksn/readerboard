@@ -1,8 +1,10 @@
 """Deciding which sign file each message lives in.
 
-The sign stores up to 26 TEXT files, labelled ``A`` through ``Z``, plus the
-priority file ``0``. This service allocates a fixed pool of those TEXT files
-once and then hands them out to registered messages, one file each.
+The sign accepts any printable file label, so the real ceiling on how many
+messages can share it is the memory pool in bytes rather than a count of files.
+This service hands out ``A`` through ``Z`` only, 26 in all, beside the priority
+file ``0`` the sign allocates itself. It allocates a fixed pool of those TEXT
+files once and then hands them out to registered messages, one file each.
 
 The pool is fixed rather than grown on demand for one reason: allocating files
 erases the sign. Growing the pool when a fourth source turned up would blank the
@@ -91,8 +93,10 @@ class Layout:
         """Re-establish an assignment read back from the state file.
 
         A pool that shrank between runs can leave a key pointing at a file that
-        no longer exists. That key is dropped rather than silently moved, since
-        moving it would mean writing to a file the sign has not allocated.
+        no longer exists. Such a key is refused here with a :class:`ValueError`
+        rather than silently moved to a free file, since moving it would mean
+        writing to a file the sign has not allocated.
+        ``MessageRegistry._reattach_labels`` catches that and drops the slot.
         """
         if label not in self.labels:
             raise ValueError(

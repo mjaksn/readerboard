@@ -39,6 +39,11 @@ page 80 of revision E and page 81 of revision F, while Table 15 is on page 21 of
 both. So where a page number here and one there disagree about the same table,
 that is the revision and not a mistake in either.
 
+The table numbers shift the same way. The Standard Modes table is Table 64 here
+and Table 65 in ``constants.py``, and the two special mode tables are 65 and 66
+here against 66 and 67 there, so a table number that disagrees between the two
+files is the revision rather than a mistake in either.
+
 What this file does NOT establish
 =================================
 
@@ -566,8 +571,8 @@ def test_the_two_halves_of_the_extended_table_agree_exactly():
 
     This is what pins the values. A mistranscribed byte in either half breaks
     the correspondence and fails here, which is the check this table went
-    without for a long time. It covers all sixty-six characters, including the twenty-six
-    ``markup.py`` maps accented text onto.
+    without for a long time. It covers all sixty-six characters, including the
+    twenty-six lowercase accented ones ``markup.py`` maps text onto.
     """
     two_byte, single = _extended_constants()
 
