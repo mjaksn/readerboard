@@ -273,6 +273,12 @@ the sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`,
 configurations for running the pieces separately. Both carry the three way one as
 "readerboard, the sign simulator and the client" as well.
 
+Every one of those that starts the service sets `READERBOARD_OPEN_DOCS`, so `/docs`
+opens in a browser once the port answers. The service does the waiting and the
+opening, which is why it lands on the port actually bound rather than one repeated in
+a launch file. The setting is off unless asked for, so an installed service opens
+nothing.
+
 ## Licence
 
 MIT. See [LICENSE](https://github.com/mjaksn/readerboard/blob/main/LICENSE).

@@ -122,6 +122,15 @@ class Settings(BaseSettings):
             " first writes the config file"
         ),
     )
+    open_docs: bool = Field(
+        default=False,
+        description=(
+            "open the documentation page in a browser once the service is "
+            "listening. For running from an editor; an installed service has "
+            "nobody at the machine to show it to, which is why it is off unless "
+            "asked for"
+        ),
+    )
 
     # == where state and logs go ===========================================
 

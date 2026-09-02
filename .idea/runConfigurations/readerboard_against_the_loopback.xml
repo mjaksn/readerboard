@@ -22,6 +22,7 @@
       <env name="READERBOARD_STATE_PATH" value="$PROJECT_DIR$/.local-state.json" />
       <env name="READERBOARD_LOG_LEVEL" value="DEBUG" />
       <env name="READERBOARD_CLOCK_SYNC_ENABLED" value="false" />
+      <env name="READERBOARD_OPEN_DOCS" value="1" />
     </envs>
     <option name="SDK_HOME" value="" />
     <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />

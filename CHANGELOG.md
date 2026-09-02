@@ -11,6 +11,43 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Added
+
+- **The documentation page opens itself when the service is started from an
+  editor.** A new setting, `open_docs`, waits for the port to answer and then
+  shows `/docs` in a browser. Every launch configuration that starts the
+  service sets it, in both `.vscode/launch.json` and
+  `.idea/runConfigurations/`, and nothing else does: it is off by default, so
+  an installed service on a machine with nobody in front of it opens nothing.
+
+  The service does the waiting and the opening rather than the editor, which is
+  what makes it land on the address actually bound. That matters for the
+  configuration that runs against a real sign, whose port comes from a config
+  file no launch file knows anything about. Waiting for the port rather than
+  sleeping a fixed time is what makes it right on a slow start, when the link
+  to the sign is opened before the socket is. A browser that cannot be
+  launched, a machine with no browser, or a port that never answers is a log
+  line and nothing else; the service drives a sign whether or not anybody is
+  looking at a page.
+
+- **`readerboard --reload` restarts the service when the source changes.** It
+  is what the "readerboard against the loopback" configuration in VSCode used
+  to get by invoking uvicorn directly. That configuration now runs the
+  service's own entry point, as the PyCharm one of the same name always has, so
+  both read settings the same way. Started by hand, uvicorn reads none of them,
+  which is why the setting above could not have reached it.
+
+### Changed
+
+- **`tests/test_launch_configurations.py` now covers both editors.** It checked
+  that PyCharm could parse its files; it also checks that `.vscode/launch.json`
+  loads, that every configuration in either editor which starts the service
+  asks for the documentation page, and that the ones which start no service do
+  not. A configuration that quietly lost the setting would still run perfectly
+  and simply stop opening a tab, which is not the sort of thing anybody reports.
+
 ## [0.3.0] - 2026-09-02
 
 **Every path changes, and three settings are removed.** The second, older HTTP

@@ -20,11 +20,23 @@
     // "readerboard against the loopback" needs no hardware either: loop:// is
     // pyserial's loopback, so the service starts, serves /docs, and accepts
     // writes that go nowhere. Use it when the API itself is the thing being
-    // worked on and there is no reason to look at the bytes.
+    // worked on and there is no reason to look at the bytes. It restarts on a
+    // source change. It runs the service's own entry point rather than uvicorn
+    // directly, which is what the PyCharm configuration of the same name does,
+    // so both read the settings the same way and both honour the variable
+    // below; uvicorn started by hand reads none of them.
     //
     // "readerboard against the real sign" reads the config file like the
     // installed service does. Point READERBOARD_CONFIG_FILE at a copy you keep
     // locally.
+    //
+    // Every configuration that starts the service sets READERBOARD_OPEN_DOCS,
+    // which opens the documentation page once the port answers. The service
+    // does the waiting and the opening, so it uses the address it actually
+    // bound rather than one repeated here, which matters for the real sign
+    // below: its port comes from a config file this knows nothing about. It is
+    // off by default, so an installed service on a Pi opens nothing. Drop the
+    // variable from a configuration to stop it, or set it to 0.
     "version": "0.2.0",
     "configurations": [
         {
@@ -33,6 +45,9 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/run_with_simulator.py",
             "console": "integratedTerminal",
+            "env": {
+                "READERBOARD_OPEN_DOCS": "1"
+            },
             "justMyCode": false
         },
         {
@@ -44,15 +59,17 @@
                 "--with-client"
             ],
             "console": "integratedTerminal",
+            "env": {
+                "READERBOARD_OPEN_DOCS": "1"
+            },
             "justMyCode": false
         },
         {
             "name": "readerboard against the loopback",
             "type": "debugpy",
             "request": "launch",
-            "module": "uvicorn",
+            "module": "readerboard",
             "args": [
-                "readerboard.api.app:app",
                 "--reload",
                 "--port",
                 "5001"
@@ -62,7 +79,8 @@
                 "READERBOARD_API_KEY": "local-development-key",
                 "READERBOARD_STATE_PATH": "${workspaceFolder}/.local-state.json",
                 "READERBOARD_LOG_LEVEL": "DEBUG",
-                "READERBOARD_CLOCK_SYNC_ENABLED": "false"
+                "READERBOARD_CLOCK_SYNC_ENABLED": "false",
+                "READERBOARD_OPEN_DOCS": "1"
             },
             "justMyCode": false
         },
@@ -73,7 +91,8 @@
             "module": "readerboard",
             "env": {
                 "READERBOARD_CONFIG_FILE": "${workspaceFolder}/config.local.toml",
-                "READERBOARD_LOG_LEVEL": "DEBUG"
+                "READERBOARD_LOG_LEVEL": "DEBUG",
+                "READERBOARD_OPEN_DOCS": "1"
             },
             "justMyCode": false
         },
