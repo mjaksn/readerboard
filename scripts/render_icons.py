@@ -202,7 +202,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    QGuiApplication([])
+    _application = QGuiApplication([])
     out_of_date = []
     for svg in ICONS:
         images = [render(svg, size) for size in SIZES]
