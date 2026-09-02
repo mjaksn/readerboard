@@ -455,7 +455,7 @@
   "info": {
     "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header. Reads and `GET /health` do not. On this\npage, put the key in once with the **Authorize** button and every write below\ncarries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage too long for its slot or markup the sign cannot render, 401 for a\nmissing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when\nevery message slot is already in use, 503 when the sign is unreachable or no\nAPI key is configured at all, 500 for something the service has no code for,\nand 422 for a body that is not the shape the endpoint declares, which includes\na display mode or a text position the sign does not have.\n",
     "title": "readerboard",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "openapi": "3.1.0",
   "paths": {

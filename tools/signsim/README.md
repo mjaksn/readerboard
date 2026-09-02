@@ -60,13 +60,23 @@ asks for it.
 
 ## What is on screen
 
-**The log**, top left, is one row per transmission, with the command and a
-one line reading of it. A write comes back as the markup that produced it, so
-`1C 31 48 49` reads as `<red>HI` rather than as hex. Rows are coloured when
-something is wrong with them.
+**The band across the top** says what the sign would be displaying this second:
+the files it is cycling, or the priority message suppressing them, rendered as
+the markup that produced it. It is the one thing here that is never behind
+anything else, because it is the question the tool exists to answer.
 
-**The detail pane**, under it, is the selected transmission byte by byte. Every
-span is coloured by what it is, with the protocol's own meaning beside it:
+**The log**, under it and the full width of the window, is one row per
+transmission, with the command and a one line reading of it. A write comes back
+as the markup that produced it, so `1C 31 48 49` reads as `<red>HI` rather than
+as hex. Rows are coloured when something is wrong with them, and the toolbar's
+**Only rows with notes** hides every row the sign had nothing to say about,
+which is the fastest way through a long capture. Nothing is discarded by it: a
+saved transcript holds every transmission either way, and the status bar says
+how many rows are being held back, since a filtered log and a log that has
+stopped arriving look identical.
+
+**The detail pane**, below left, is the selected transmission byte by byte.
+Every span is coloured by what it is, with the protocol's own meaning beside it:
 
 | Colour | What it marks |
 | --- | --- |
@@ -77,15 +87,24 @@ span is coloured by what it is, with the protocol's own meaning beside it:
 | glyph | a byte that draws one character ASCII has no room for |
 | unknown | a byte in none of the protocol's tables |
 
-**The tabs**, on the right, are the sign itself: what it would be showing now,
-the contents of each file, the memory configuration, the run sequence, and every
-note the model has raised.
+**The state column**, beside the detail pane, is the sign itself: a section each
+for how it is set up, the contents of each file, the memory configuration and
+the run sequence. They are sections rather than tabs on purpose. A write that
+changes something nobody has open changes nothing a person can see, which is the
+opposite of what this tool is for, so all four are on one scrolling column and a
+write to any of them is visible where it lands. Each header carries its own row
+count, so a section shut to make room still says that it gained a row, and the
+three that are empty until a command arrives start shut and open themselves the
+first time they hold something.
 
 The notes are the part worth having. A real sign accepts a write to an
 unconfigured file, or a message longer than the file it goes in, and shows you
 the consequence rather than the cause: a blank panel, or a sentence with its end
-missing. The simulator says which rule was broken, in the protocol's words. It
-catches, among others:
+missing. The simulator says which rule was broken, in the protocol's words. Each
+note belongs to the transmission that caused it: it colours that row in the log,
+spelling the level out in a column of its own rather than leaving it to colour
+alone, and it is written out at the foot of that row's reading. It catches,
+among others:
 
 - a write to a file no memory configuration has allocated, which the sign
   discards, since only the priority file and the default file `A` may be written
@@ -111,9 +130,11 @@ catches, among others:
 There is no simulated display and no animation. Rendering the message is a
 larger job than reading it, and animating the thirty-odd display modes is larger
 again; a mode is shown as its name, which is what a person debugging actually
-needs. The one thing that would be worth adding is a display panel, and the
-thing standing in the way is that the Classic's pixel geometry is not recorded
-anywhere in this repository.
+needs. The band across the top says what is showing in words, which is not the
+same thing: it names the files being cycled and renders an alert as its markup,
+and it draws no pixels. A display panel is still the one thing that would be
+worth adding, and the thing standing in the way is that the Classic's pixel
+geometry is not recorded anywhere in this repository.
 
 It is also one way. Read commands are decoded and shown, and nothing is sent
 back. Answering them would make this a rehearsal target for the reads in

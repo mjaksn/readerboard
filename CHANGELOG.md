@@ -11,7 +11,7 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.3.0] - 2026-09-02
 
 **Every path changes, and three settings are removed.** The second, older HTTP
 surface is gone, and with nothing left for a version prefix to distinguish, the
@@ -156,6 +156,31 @@ a second tool alongside the simulator for exercising the API by hand.
   rather than a person's afternoon.
 
 ### Changed
+
+- **The sign simulator's window is rearranged, and its state is no longer behind
+  tabs.** What the sign would be showing is now a band across the top of the
+  window, always visible, naming the files being cycled or rendering the
+  priority message that is suppressing them. It was the first row of a panel
+  behind a tab, which meant the window could be open and busy and never answer
+  the question the tool exists for.
+
+  The log spans the full width underneath it, and the byte by byte reading and
+  the sign's state sit side by side below that. The five tabs are gone: the four
+  that describe the sign are now collapsible sections on one scrolling column,
+  each header carrying its own row count, so a write that changes the run
+  sequence is visible where it lands instead of waiting for somebody to open the
+  right tab. The three that are empty until a command arrives start shut and
+  open themselves the first time they hold a row.
+
+  The Notes tab is gone as a pane, because it was a filtered view of the log
+  rather than anything the sign holds. The toolbar has **Only rows with notes**
+  in its place, which hides every transmission the sign had nothing to say
+  about. Nothing is discarded: clearing the filter brings the rows back, a saved
+  transcript holds every transmission either way, and the status bar says how
+  many rows are being held back, because a filtered log and a log that has
+  stopped arriving look the same.
+
+  Nothing about what the simulator decodes, keeps or complains about changes.
 
 - **Which exception means which status code lives in one table**,
   `readerboard/api/errors.py`. Every entry in it registers the handler that
@@ -621,6 +646,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.3.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.2.0
 [0.1.4]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.4
 [0.1.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.3
