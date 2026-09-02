@@ -130,7 +130,7 @@ The modules split on one line, and the line is load bearing:
 | `spans.py` | no | splits a body into runs of text, glyphs and control codes |
 | `decode.py` | no | reads a payload as the command it spells |
 | `model.py` | no | applies a command the way the sign would, and says what it did |
-| `names.py` | no | the three names this tool answers to, and the name it gives the taskbar |
+| `names.py` | no | the three names this tool answers to, and the taskbar name |
 | `server.py` | yes | the TCP listener |
 | `window.py` | yes | the window |
 | `app.py` | yes | the command line |

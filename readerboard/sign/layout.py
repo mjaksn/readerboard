@@ -2,9 +2,9 @@
 
 The sign accepts any printable file label, so the real ceiling on how many
 messages can share it is the memory pool in bytes rather than a count of files.
-This service hands out ``A`` through ``Z`` only, 26 in all, beside the priority
-file ``0`` the sign allocates itself. It allocates a fixed pool of those TEXT
-files once and then hands them out to registered messages, one file each.
+This service allocates a fixed pool of ``A`` through ``Z`` only, 26 in all,
+beside the priority file ``0`` the sign allocates itself, and hands them out to
+registered messages, one file each.
 
 The pool is fixed rather than grown on demand for one reason: allocating files
 erases the sign. Growing the pool when a fourth source turned up would blank the
