@@ -137,7 +137,8 @@ else
 
     GENERATED_KEY="$("$INSTALL_DIR/venv/bin/python" -c \
         'import secrets; print(secrets.token_urlsafe(32))')"
-    # The key can contain / and & so use a delimiter that cannot appear in it.
+    # token_urlsafe emits only letters, digits, '-' and '_', so '|' is a
+    # delimiter the key cannot contain.
     sed -i "s|^api_key = \"\"|api_key = \"$GENERATED_KEY\"|" "$CONFIG_FILE"
 
     if [ -n "$SERIAL_URL" ]; then

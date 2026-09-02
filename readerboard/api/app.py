@@ -50,12 +50,13 @@ page, put the key in once with the **Authorize** button and every write below
 carries it.
 
 A failure is reported by the status code, with the reason in a `detail` field:
-400 for a mode or a command the sign does not have, a parameter it will not
-accept, a message too long for its slot or markup the sign cannot render, 401
-for a missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409
-when every message slot is already in use, 503 when the sign is unreachable or
-no API key is configured at all, 500 for something the service has no code for,
-and 422 for a body that is not the shape the endpoint declares.
+400 for a command the sign does not have, a parameter it will not accept, a
+message too long for its slot or markup the sign cannot render, 401 for a
+missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when
+every message slot is already in use, 503 when the sign is unreachable or no
+API key is configured at all, 500 for something the service has no code for,
+and 422 for a body that is not the shape the endpoint declares, which includes
+a display mode or a text position the sign does not have.
 """
 
 

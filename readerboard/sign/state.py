@@ -143,10 +143,10 @@ class StateStore:
         """Try again to remove the temporary files earlier saves gave up on.
 
         Without this, a state directory something else holds open would collect
-        one file per failed save, and since everything is re-pushed on a timer
-        that is one per cycle for as long as the lock lasts. Only files this
-        store has already finished with are touched, so a save in flight
-        elsewhere is never disturbed.
+        one file per failed save, and since every upsert saves, a source
+        re-sending on a schedule is one file per send for as long as the lock
+        lasts. Only files this store has already finished with are touched, so
+        a save in flight elsewhere is never disturbed.
 
         This runs ahead of the identical-payload check in :meth:`save`, so a
         save that writes nothing still tidies up after one that failed.
@@ -230,9 +230,9 @@ class StateStore:
 
         A save whose content is identical to the last one written is skipped.
         This runs on a Raspberry Pi with an SD card underneath it, and the
-        service saves on every operation whether or not the operation changed
-        anything: sweeps that expire nothing, restores, releases with no alert
-        to release.
+        service saves after operations that changed nothing: a restore that put
+        back exactly what was already there, a release with no alert to
+        release, a clear with nothing registered.
 
         An upsert that genuinely re-sends the same temperature is not one of
         those, because ``updated_at`` moves. That is deliberate. Knowing when a

@@ -1,9 +1,10 @@
 # readerboard configuration.
 #
-# scripts/install.sh copies this to /etc/readerboard/config.toml, mode 0640, owned
-# by the service user, and fills in a generated API key. Every setting here can
-# also be given as an environment variable with a READERBOARD_ prefix, which wins
-# over the file: READERBOARD_SERIAL_URL, READERBOARD_API_KEY, and so on.
+# scripts/install.sh copies this to /etc/readerboard/config.toml, mode 0640,
+# owned by root with the service user as its group, and fills in a generated API
+# key. Every setting here can also be given as an environment variable with a
+# READERBOARD_ prefix, which wins over the file: READERBOARD_SERIAL_URL,
+# READERBOARD_API_KEY, and so on.
 #
 # Under Docker the file is optional and usually absent, because the environment
 # carries the settings instead. Mount one at /etc/readerboard/config.toml to use
@@ -74,8 +75,9 @@ clock_sync_interval_seconds = 3600.0
 host = "0.0.0.0"
 port = 5001
 
-# Required on every write. install.sh generates one if this is empty. Anyone
-# holding it can write to the sign, so keep this file mode 0640.
+# Required on every write. install.sh generates one when it first writes this
+# file; it never touches an existing config file, so a key blanked by hand stays
+# blank. Anyone holding it can write to the sign, so keep this file mode 0640.
 api_key = ""
 
 # == state and logging =======================================================

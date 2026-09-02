@@ -83,8 +83,8 @@ a second tool alongside the simulator for exercising the API by hand.
   - `default_display_mode` and `default_text_position`, which have been read by
     nothing since the first commit. They were declared, validated, documented in
     the example config and printed by `--print-config` as settings in force, so
-    the program stated a fact about itself that was not true. `packaging/config.example.toml`
-    no longer lists any of the three.
+    the program stated a fact about itself that was not true.
+    `packaging/config.example.toml` no longer lists any of the three.
 
 - **Lenient rendering is no longer reachable over HTTP.** The removed message
   write passed an unknown markup token through to the sign as literal text. A
@@ -130,8 +130,8 @@ a second tool alongside the simulator for exercising the API by hand.
   It is a tool, not part of the service. Qt stays out of `pyproject.toml`,
   `tools/` stays in `.dockerignore`, and the client has its own hash-pinned lock
   file, the fourth in the tree. It needs no dependency the simulator did not
-  already have, because its HTTP client is `QtNetwork`. `tools/apiclient/README.md`
-  has the rest.
+  already have, because its HTTP client is `QtNetwork`.
+  `tools/apiclient/README.md` has the rest.
 
 - **`scripts/run_with_simulator.py --with-client` starts all three at once.**
   The script already brought up the simulator and the service pointed at it.

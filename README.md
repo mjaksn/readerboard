@@ -161,7 +161,9 @@ curl -X POST http://localhost:5001/alerts \
      -d '{"message": "<red><flash_on>SMOKE ALARM", "ttl_seconds": 30}'
 ```
 
-The full API, including every markup token and display mode, is at `/docs`.
+The full API is at `/docs`. Every markup token, display mode, text position and
+control command is listed by the `/enumerations` reads there, which answer at
+request time rather than being frozen into the description.
 
 ### Writing messages
 

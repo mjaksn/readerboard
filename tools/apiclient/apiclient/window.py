@@ -52,7 +52,7 @@ from apiclient.dialogs import (
 from apiclient.history import History
 from apiclient.net import Caller, Completed, DescriptionFetcher
 
-DEFAULT_BASE_URL = "http://127.0.0.1:8000"
+DEFAULT_BASE_URL = "http://127.0.0.1:5001"
 
 # What the surface label means, held here rather than set once in the
 # constructor. _show_verdict rewrites the tooltip on every keystroke, so a
@@ -84,8 +84,9 @@ def fit_to_screen(window: QWidget, margin: int = SCREEN_MARGIN) -> None:
     ``move`` places the frame's corner while ``resize`` sets the client area,
     which is why the two are worked out separately.
 
-    The sign simulator carries the same function, for the reason it carries its own lock
-    file: the two tools share nothing, so that one can move without the other.
+    The sign simulator carries the same function, for the reason it carries its
+    own lock file: the two tools share nothing, so that one can move without
+    the other.
     """
     edge = QMargins(margin, margin, margin, margin)
     room = window.screen().availableGeometry().marginsRemoved(edge)

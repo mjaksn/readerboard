@@ -2,7 +2,7 @@
 """Run the client out of a checkout, with nothing installed.
 
     python tools/apiclient/run.py
-    python tools/apiclient/run.py --base-url http://192.168.2.40:8000
+    python tools/apiclient/run.py --base-url http://192.168.2.40:5001
 
 The client is a tool that lives beside the service rather than a package that
 ships with it, so neither of them is on the import path by default. This puts

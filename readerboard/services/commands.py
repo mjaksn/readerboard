@@ -34,7 +34,7 @@ def build(name: str, parameter: str) -> bytes:
     command = name.strip().upper()
     if command not in COMMAND_BY_NAME:
         raise UnknownCommand(
-            "unrecognized control command %r; the available commands are %s"
+            "unrecognised control command %r; the available commands are %s"
             % (name, ", ".join(sorted(COMMAND_BY_NAME)))
         )
 
