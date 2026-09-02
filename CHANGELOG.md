@@ -96,6 +96,15 @@ a second tool alongside the simulator for exercising the API by hand.
 
 ### Added
 
+- **The sign simulator and the client each have an icon.** Both showed
+  Python's icon on the taskbar and Qt's stock one in the title bar. Each now
+  carries a drawing of its own beside its code, and the two are deliberately
+  nothing alike, so that they are told apart at a glance: the simulator's is
+  the sign itself, amber dots on black, and the client's is a paper plane on a
+  blue tile. On Windows each tool also names its process to the taskbar,
+  so the taskbar shows the same icon as the title bar and the two tools get a
+  button each when run together, rather than sharing one under Python's.
+
 - **A desktop client for the HTTP surface, `tools/apiclient/`.** The simulator
   stands in for the sign; this stands in for a caller. It can call all fifteen
   endpoints, and the fifteen are checked rather than claimed: its endpoint table

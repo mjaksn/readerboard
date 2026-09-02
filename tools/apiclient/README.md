@@ -154,6 +154,25 @@ The HTTP client is Qt's own `QtNetwork`, which is why this tool needs no
 dependency the simulator does not already have. There is no requests, no httpx
 and no certifi to pin.
 
+Beside the modules are `icon.svg` and `icon.ico`. The first is the drawing, a
+paper plane on a blue tile for the tool that sends things, and the one to edit;
+the second is what the window loads, holding the drawing at each size Windows
+draws an icon at. `scripts/render_icons.py` makes the second from the first,
+and its `--check` runs in CI so that an edited drawing cannot be committed
+without its rendering. The simulator's icon is the sign itself, amber dots on
+black, and the two are deliberately nothing alike so that they are told apart
+at a glance on a taskbar.
+
+On Windows the icon would reach the title bar and not the taskbar without one
+more step, because the taskbar files a window under its process's executable,
+which for a Python program is `python.exe`. `app.py` names the process to the
+taskbar before it has a window, as `readerboard.apiclient`, which is what puts
+the same icon in both places and gives the client and the simulator a taskbar
+button each when they are run together. One thing to know when the drawing changes: the taskbar keeps the last icon
+it showed for that name for a while after the window closes, so a relaunch
+within a minute or so can show the old icon on the taskbar and the new one
+in the title bar. Waiting, or signing out and back in, clears it.
+
 One call is in flight at a time. That is not worth engineering around: the thing
 on the other end drives a single sign down a 9600 baud line behind one lock, so
 overlapping calls would tell you less than they appear to.

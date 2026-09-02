@@ -104,6 +104,12 @@ jobs:
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
         env:
           QT_QPA_PLATFORM: offscreen
+      # Each tool's icon.ico is rendered from the icon.svg beside it, and the
+      # drawing is the file a person edits. This renders both afresh and
+      # compares, so an edited drawing cannot land without its rendering. It
+      # needs Qt, which is why it is here rather than in the test job.
+      - name: the tools' icons are rendered from their drawings
+        run: python scripts/render_icons.py --check
 
   test:
     name: tests ${{ matrix.python }} on ${{ matrix.os }}
