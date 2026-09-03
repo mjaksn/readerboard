@@ -21,6 +21,8 @@ library, and the names inside it may move without that being a breaking change.
   service sets it, in both `.vscode/launch.json` and
   `.idea/runConfigurations/`, and nothing else does: it is off by default, so
   an installed service on a machine with nobody in front of it opens nothing.
+  `packaging/config.example.toml` lists it with the rest of the settings, off
+  there as everywhere else.
 
   The service does the waiting and the opening rather than the editor, which is
   what makes it land on the address actually bound. That matters for the
