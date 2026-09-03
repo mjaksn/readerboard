@@ -17,7 +17,7 @@ def test_the_enumeration_shape_parses():
 def test_every_set_arrives_in_that_one_shape():
     for payload in (
         [{"name": "HOLD", "description": "hold"}],
-        [{"name": "SOFT_RESET", "description": "reset"}],
+        [{"name": "SET_TIME", "description": "set the clock"}],
         [{"name": "<red>", "description": "red"}],
     ):
         assert parse(payload)[0].description

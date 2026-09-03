@@ -147,9 +147,10 @@ take markup are all decisions no generator could read out of it.
 
 One thing in the table is not from the schema and is named so it cannot be
 mistaken for it. `prefill` is what a field starts out holding. Where the schema
-declares a default the two must agree, and a test insists on it; where it declares
-none the prefill is this client's own convenience, which is true in exactly one
-place and a test pins that too.
+declares a default the two must agree, and a test insists on it; where it
+declares none the prefill would be this client's own convenience, and today
+there is not one. A test spells that out as an empty set, so offering one has
+to be a deliberate change to the assertion.
 
 The HTTP client is Qt's own `QtNetwork`, which is why this tool needs no
 dependency the simulator does not already have. There is no requests, no httpx
@@ -195,3 +196,14 @@ of that, nothing in it builds a window, so CI additionally constructs one
 offscreen in the job that already has Qt installed. A signal connected to an
 attribute that does not exist yet raises on construction and nowhere else, and
 that is otherwise nobody's job to notice.
+
+Type checking is a separate invocation, because the root `mypy` config names
+only the service:
+
+```
+MYPYPATH=tools/apiclient mypy tools/apiclient/apiclient
+```
+
+CI runs it in the lint job, after installing the lock file above, for the reason
+it runs the simulator's: an invocation only ever run by hand rots without
+anybody hearing about it.

@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     application.setOrganizationName(names.ORGANISATION)
     application.setApplicationName(names.IDENTIFIER)
     # On the application rather than the window, so that it reaches the
-    # enumeration, error and history dialogs as well.
+    # enumeration, error, history and curl preview dialogs as well.
     application.setWindowIcon(QIcon(str(ICON)))
 
     window = MainWindow()

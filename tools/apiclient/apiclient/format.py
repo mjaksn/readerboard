@@ -69,8 +69,11 @@ class Rendered:
 
 
 # What the codes this service uses actually mean here, in its own terms. Taken
-# from the docstring at the top of readerboard/api/routes.py and from
-# readerboard/api/deps.py, which are the two places that decide them.
+# from the docstring at the top of readerboard/api/routes.py and the OpenAPI
+# description in readerboard/api/app.py. What decides them is the table in
+# readerboard/api/errors.py, which maps each of the service's own exceptions
+# to a code; the 401 and the no-key 503 are raised earlier still, by
+# require_api_key in readerboard/api/deps.py.
 STATUS_MEANING = {
     200: "the call succeeded",
     201: "created",
