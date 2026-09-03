@@ -11,7 +11,7 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## Unreleased
 
 ### Added
 
@@ -635,7 +635,7 @@ No code changed in this release.
   though it did.
 - Added the licence badge to the README.
 
-## [0.1.0] - 2026-08-26
+## 0.1.0 - 2026-08-26
 
 First release.
 
