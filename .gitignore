@@ -195,3 +195,14 @@ cython_debug/
 # write to the sign. It describes one machine's sign and one person's key,
 # and no other checkout wants either.
 config.local.toml
+
+# Agent tooling scratch. AGENTS.md asks for a worktree per change, and a
+# worktree is a checkout of this repository living inside it, which git would
+# otherwise try to record as a nested repository. It was a line in
+# .git/info/exclude before this, which is local to the clone it sits in and is
+# cloned with nothing, so every other clone saw them.
+# settings.local.json is per-user in the same way.
+# A shared .claude/settings.json is deliberately not ignored, so one can still
+# be committed if ever wanted.
+.claude/worktrees/
+.claude/settings.local.json
