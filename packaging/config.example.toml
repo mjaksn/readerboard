@@ -80,6 +80,13 @@ port = 5001
 # blank. Anyone holding it can write to the sign, so keep this file mode 0640.
 api_key = ""
 
+# Open the documentation page in a browser once the service is listening. For
+# running from an editor; an installed service has nobody at the machine to
+# show it to, which is why it is off unless asked for. The launch
+# configurations in .vscode/launch.json and .idea/runConfigurations/ set
+# READERBOARD_OPEN_DOCS rather than editing this.
+open_docs = false
+
 # == state and logging =======================================================
 
 # Where the registered messages are persisted, so that a restart puts the sign
@@ -91,5 +98,9 @@ state_path = "/var/lib/readerboard/state.json"
 log_level = "INFO"
 
 # Logs go to stderr, which journald collects under systemd and `docker logs`
-# collects under a container. Set this as well for a rotating file copy.
-#log_file = "/var/log/readerboard/readerboard.log"
+# collects under a container. Set this as well for a rotating file copy, and
+# keep it inside the state directory: the unit runs with ProtectSystem=strict
+# and /var/lib/readerboard is the only path it may write, and the container's
+# user cannot write under /var/log either. Add LogsDirectory=readerboard to the
+# unit if you would rather have it in /var/log.
+#log_file = "/var/lib/readerboard/readerboard.log"

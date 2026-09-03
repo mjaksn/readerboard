@@ -1,9 +1,10 @@
-"""The windows that open on top: enumerations, errors and the call history.
+"""The windows that open on top: enumerations, errors, the call history and the curl preview.
 
 Everything here exists so the main window can stay one screen. A set of markup
-tokens, the full text of an error and a network tab's worth of detail are all
-things worth having and none of them are worth a permanent quarter of the
-window, so each gets a dialog and the screen keeps its shape.
+tokens, the full text of an error, a network tab's worth of detail and the curl
+command for the call just made are all things worth having and none of them are
+worth a permanent quarter of the window, so each gets a dialog and the screen
+keeps its shape.
 """
 
 from __future__ import annotations

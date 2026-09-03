@@ -13,7 +13,7 @@ and the difference is the point of it. A run sequence write that lands in a tab
 nobody has open changes nothing a person can see, which is the opposite of what
 this tool is for. The sections that have nothing in them yet stay shut and open
 themselves when they first hold a row, so the column grows as the sign is
-configured instead of standing there as headings over four empty tables.
+configured instead of standing there as headings over three empty tables.
 
 The colouring is the small thing that makes the rest readable. Framing bytes,
 the command and its file label, control sequences, literal text, glyphs and

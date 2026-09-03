@@ -186,12 +186,14 @@ def test_a_configuration_that_starts_no_service_does_not_ask_for_a_browser():
             assert OPEN_DOCS not in _pycharm_env(configuration), path.name
 
 
-def test_the_two_editors_start_the_service_the_same_number_of_ways() -> None:
+def test_every_way_pycharm_starts_the_service_exists_in_vscode() -> None:
     """A configuration added to one editor and not the other is the usual drift.
 
-    Both files are maintained by hand and the names match deliberately, so a
-    count that disagrees means one of them gained a way to start the service
-    that the other does not have.
+    Both files are maintained by hand and the names match deliberately, so
+    every way PyCharm can start the service has to exist in VSCode under the
+    same name. The reverse is not required: VSCode carries "against the real
+    sign", which needs a config file naming a serial port and has never had a
+    PyCharm twin.
     """
     vscode = sorted(
         c["name"] for c in _vscode_configurations() if _vscode_starts_the_service(c)

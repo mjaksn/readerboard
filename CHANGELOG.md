@@ -11,7 +11,7 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## Unreleased
 
 ### Added
 
@@ -21,6 +21,8 @@ library, and the names inside it may move without that being a breaking change.
   service sets it, in both `.vscode/launch.json` and
   `.idea/runConfigurations/`, and nothing else does: it is off by default, so
   an installed service on a machine with nobody in front of it opens nothing.
+  `packaging/config.example.toml` lists it with the rest of the settings, off
+  there as everywhere else.
 
   The service does the waiting and the opening rather than the editor, which is
   what makes it land on the address actually bound. That matters for the
@@ -37,7 +39,9 @@ library, and the names inside it may move without that being a breaking change.
   to get by invoking uvicorn directly. That configuration now runs the
   service's own entry point, as the PyCharm one of the same name always has, so
   both read settings the same way. Started by hand, uvicorn reads none of them,
-  which is why the setting above could not have reached it.
+  which is why the setting above could not have reached it. watchfiles is not a
+  dependency, for the reason `pyproject.toml` gives, so uvicorn polls the tree
+  instead and a save takes a moment to be noticed.
 
 ### Changed
 
@@ -633,7 +637,7 @@ No code changed in this release.
   though it did.
 - Added the licence badge to the README.
 
-## [0.1.0] - 2026-08-26
+## 0.1.0 - 2026-08-26
 
 First release.
 

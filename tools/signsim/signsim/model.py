@@ -310,7 +310,7 @@ class SignState:
             # the file and then rewrites the run sequence to name it, so this is
             # true of almost every ordinary write for exactly one transmission.
             # A file that stays here is the interesting case, and the run
-            # sequence tab is where that shows.
+            # sequence section is where that shows.
             notes.append(
                 Note(
                     NoteLevel.INFO,

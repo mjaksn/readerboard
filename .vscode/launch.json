@@ -27,8 +27,10 @@
     // below; uvicorn started by hand reads none of them.
     //
     // "readerboard against the real sign" reads the config file like the
-    // installed service does. Point READERBOARD_CONFIG_FILE at a copy you keep
-    // locally.
+    // installed service does. It points READERBOARD_CONFIG_FILE at
+    // config.local.toml in the workspace root, which .gitignore covers:
+    // that file carries a real serial URL and a real API key, and anyone
+    // holding the key can write to the sign.
     //
     // Every configuration that starts the service sets READERBOARD_OPEN_DOCS,
     // which opens the documentation page once the port answers. The service

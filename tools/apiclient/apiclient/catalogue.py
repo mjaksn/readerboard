@@ -43,10 +43,10 @@ class Input:
 
     ``prefill`` is what the field starts out holding, which is not the same as
     the schema's default and is deliberately named so it cannot be mistaken for
-    it. Usually the two agree, and ``tools/apiclient/tests/test_catalogue.py``
-    insists on that wherever the schema declares a default. Where it declares
-    none the prefill is a convenience of this client's own, offered without the
-    service having promised it.
+    it. Every prefill has a declared default behind it, and
+    ``test_no_prefill_is_offered_that_the_schema_does_not_back`` in
+    ``tools/apiclient/tests/test_catalogue.py`` refuses one that does not, so
+    the client promises the caller nothing the service has not.
     """
 
     name: str

@@ -48,8 +48,10 @@ dependencies = [
     # measurable. What they cost is real, though. uvloop, httptools and PyYAML
     # publish no 32-bit arm wheel, and building all three from source under
     # emulation was eight minutes of the container image's build. The extra also
-    # brought in websockets, for a surface this API does not have, and watchfiles,
-    # for a --reload this never runs with.
+    # brought in websockets, for a surface this API does not have, and
+    # watchfiles, which only makes --reload quicker. That flag is for working on
+    # the service rather than for running one, and uvicorn polls the tree
+    # without it.
     "uvicorn>=0.52.1,<0.53",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
@@ -178,9 +180,3 @@ enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
 # pyserial ships no type information.
 module = ["serial", "serial.*"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# The constants module is a flat table of byte literals; annotating every one of
-# them would add nothing a reader does not already see.
-module = "readerboard.protocol.constants"
-disallow_untyped_defs = false
