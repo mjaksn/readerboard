@@ -180,9 +180,3 @@ enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
 # pyserial ships no type information.
 module = ["serial", "serial.*"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# The constants module is a flat table of byte literals; annotating every one of
-# them would add nothing a reader does not already see.
-module = "readerboard.protocol.constants"
-disallow_untyped_defs = false
