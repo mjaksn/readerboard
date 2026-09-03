@@ -188,3 +188,10 @@ cython_debug/
 # what is on the sign, and it is rewritten on every run.
 .local-state.json
 
+# The config file the "readerboard against the real sign" launch
+# configuration reads. Unlike the other configurations, which set a few
+# environment overrides inline, that one names a whole config file, so this
+# holds a real serial URL and a real API key. Anyone holding that key can
+# write to the sign. It describes one machine's sign and one person's key,
+# and no other checkout wants either.
+config.local.toml
