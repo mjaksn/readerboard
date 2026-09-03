@@ -39,7 +39,9 @@ library, and the names inside it may move without that being a breaking change.
   to get by invoking uvicorn directly. That configuration now runs the
   service's own entry point, as the PyCharm one of the same name always has, so
   both read settings the same way. Started by hand, uvicorn reads none of them,
-  which is why the setting above could not have reached it.
+  which is why the setting above could not have reached it. watchfiles is not a
+  dependency, for the reason `pyproject.toml` gives, so uvicorn polls the tree
+  instead and a save takes a moment to be noticed.
 
 ### Changed
 
