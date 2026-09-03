@@ -186,7 +186,7 @@ def test_a_configuration_that_starts_no_service_does_not_ask_for_a_browser():
             assert OPEN_DOCS not in _pycharm_env(configuration), path.name
 
 
-def test_the_two_editors_start_the_service_the_same_number_of_ways() -> None:
+def test_every_way_pycharm_starts_the_service_exists_in_vscode() -> None:
     """A configuration added to one editor and not the other is the usual drift.
 
     Both files are maintained by hand and the names match deliberately, so
