@@ -66,6 +66,17 @@ dev = [
     # starlette's TestClient moved to httpx2; plain httpx now raises a
     # deprecation warning, which this suite is configured to treat as an error.
     "httpx2>=2.10.0,<3",
+    # The same thing again, one layer down. anyio 4.15.0 deprecated the
+    # anyio.abc.BlockingPortal alias, starlette's TestClient still imports it at
+    # module scope, and filterwarnings = ["error"] turns that into a collection
+    # error before a single test runs. It is not our deprecation to fix, and the
+    # ceiling comes off when starlette stops using the old name.
+    #
+    # This is a ceiling on a package nothing here imports, which is worth saying
+    # plainly: anyio arrives through fastapi and starlette, and pinning it in a
+    # dev extra is how a transitive dependency gets held still without a lock
+    # file. Issue #41 is about doing this properly.
+    "anyio>=4.14.2,<4.15",
     "ruff>=0.16.2,<0.17",
     "mypy>=2.3.0,<3",
 ]
