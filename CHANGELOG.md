@@ -52,6 +52,22 @@ library, and the names inside it may move without that being a breaking change.
   not. A configuration that quietly lost the setting would still run perfectly
   and simply stop opening a tab, which is not the sort of thing anybody reports.
 
+### Fixed
+
+- **The log carries uvicorn's lines again, so there is an HTTP access log.**
+  Every request the service answered, the startup banner and the address
+  actually bound had been going nowhere. `logging_setup.configure` silenced
+  propagation on the uvicorn loggers, which is the right thing to do when
+  uvicorn configures its own handlers and the wrong thing here: the service
+  starts it with `log_config=None`, so those records had no handler at either
+  end and were dropped. Nothing else was affected, which is why it went
+  unnoticed. The service started, served, and drove the sign in silence about
+  every request it answered.
+
+  `tests/test_logging_setup.py` pins both halves of it, because the obvious
+  repair for one is the cause of the other: an access line reaches the
+  handlers, and it reaches them once.
+
 ## [0.3.0] - 2026-09-02
 
 **Every path changes, and three settings are removed.** The second, older HTTP

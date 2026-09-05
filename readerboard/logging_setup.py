@@ -47,7 +47,9 @@ def configure(level: str = "INFO", log_file: Path | None = None) -> None:
         rotating.setFormatter(formatter)
         root.addHandler(rotating)
 
-    # uvicorn installs its own handlers; letting them propagate to ours would
-    # print every access line twice.
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        logging.getLogger(name).propagate = False
+    # Nothing is done to uvicorn's loggers, and that is the point. The service
+    # starts uvicorn with log_config=None, so uvicorn installs no handlers of
+    # its own and its records reach the root and the handlers above: one copy
+    # of every startup and access line, in this format, and in the rotating
+    # file when one is configured. Silencing propagation here left them with no
+    # handler at either end, which meant no access log at all.
