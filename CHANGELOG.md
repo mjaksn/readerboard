@@ -83,7 +83,8 @@ library, and the names inside it may move without that being a breaking change.
   message there is not the release sequence, it is a slot held open around
   nothing: the sign cycles to a file with no text in it and the pool is a slot
   smaller for it. `DELETE /messages/{key}` is how a slot is given back, and it
-  always was.
+  always was. A service upgraded with one already in its state file drops it on
+  the next start and hands the file back to the pool.
 
 - **A control command parameter of digits the sign never meant is now a 400.**
   `SET_TIME` and `SET_DAY_OF_WEEK` guarded their parameter with `str.isdigit`

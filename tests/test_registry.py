@@ -226,6 +226,26 @@ class TestRestart:
         # Reallocating erases the sign, so the slots cannot be claimed to survive.
         assert restored.list_slots() == []
 
+    async def test_an_empty_slot_written_by_an_older_version_is_dropped(
+        self, registry, store, transport, clock, caplog
+    ):
+        # The HTTP surface refuses an empty message now, but a state file
+        # written before it did still holds one, and it would otherwise be
+        # rewritten and left in the run sequence on every start. Registered
+        # here through the service, which is what the older version's HTTP
+        # layer reached.
+        await add(registry, "blank", "")
+        await add(registry, "doorbell", "DING")
+
+        restored, layout = self.rebuild(store, transport, clock)
+        await restored.restore()
+
+        assert [slot.key for slot in restored.list_slots()] == ["doorbell"]
+        assert "no message" in caplog.text
+        # And it stays gone, with its file handed back to the pool.
+        assert store.load().slots.keys() == {"doorbell"}
+        assert layout.label_for("blank") is None
+
     async def test_a_slot_outside_a_shrunken_pool_is_dropped(
         self, registry, store, transport, clock, caplog
     ):
