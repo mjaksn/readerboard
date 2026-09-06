@@ -338,7 +338,7 @@ class TestSignCommands:
             headers=HEADERS,
         )
         assert response.status_code == 400
-        assert "four digits" in response.json()["detail"]
+        assert "four ASCII digits" in response.json()["detail"]
 
     def test_a_day_of_week_of_digits_the_sign_never_meant_is_400(self, client):
         response = client.post(

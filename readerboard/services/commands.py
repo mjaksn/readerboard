@@ -66,7 +66,7 @@ def _set_time(parameter: str) -> bytes:
     value = parameter.strip()
     if len(value) != 4 or not _is_digits(value):
         raise BadParameter(
-            "SET_TIME takes the time as four digits, HHMM on a 24 hour clock, got %r"
+            "SET_TIME takes the time as four ASCII digits, HHMM on a 24 hour clock, got %r"
             % parameter
         )
     try:
@@ -79,7 +79,7 @@ def _set_day_of_week(parameter: str) -> bytes:
     value = parameter.strip()
     if len(value) != 1 or not _is_digits(value):
         raise BadParameter(
-            "SET_DAY_OF_WEEK takes a single digit, 1 for Sunday through 7 for Saturday, "
+            "SET_DAY_OF_WEEK takes a single ASCII digit, 1 for Sunday through 7 for Saturday, "
             "got %r" % parameter
         )
     try:
