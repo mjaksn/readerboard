@@ -3,6 +3,64 @@
 An HTTP service that drives a BetaBrite Classic sign over the Alpha protocol,
 either through a serial cable or through an Ethernet to RS-232 adapter.
 
+## Work in a worktree, not in this checkout
+
+**Cut a worktree and work in that, before making the first change.** The
+failure this guards against is two agents editing one checkout at the same
+time, and every part of it is quiet: each reads the other's half-finished
+edits as its own, a test fails for a reason nothing in the branch explains,
+and a commit carries away work belonging to a change somebody else was in the
+middle of. Nothing announces any of it, and the repository root is where a
+person is most likely to be sitting.
+
+So fetch, and cut a branch from `origin/main` into a worktree under
+`.claude/worktrees/`, which is where this repository already keeps them and
+which `.gitignore` covers. `EnterWorktree` does it, an `Agent` given
+`isolation: "worktree"` does it, and by hand it is
+`git worktree add .claude/worktrees/<name> -b <name> origin/main`.
+
+Two things a worktree does not inherit have to be made again inside it, and
+both are quiet when they are not.
+
+- **A virtual environment of its own, with `pip install -e ".[dev]"` in it.**
+  Borrowing the one beside the main checkout looks like it works and does not.
+  An editable install resolves the package to the tree it was made from, and
+  `tests/` holds a `conftest.py` and no `__init__.py`, so pytest puts that
+  directory on `sys.path` rather than the root above it and nothing points at
+  the worktree. A run started in the worktree therefore collects the
+  worktree's tests and imports the service from the main checkout, and passes
+  or fails against code nobody is editing. This was measured rather than
+  feared.
+- **`.local-state.json`, before the service is started at all.** It is one
+  machine's file, it is ignored, and the run configurations name
+  `$PROJECT_DIR$/.local-state.json`, which in a worktree is a file that is not
+  there. No state file means no record of which memory configuration was
+  applied, and `Layout.needs_reconfiguration` answers True to that. Against
+  the sign simulator it costs nothing. Against a real sign it is the one
+  dangerous operation described below, and it erases every message on it.
+
+  Not having `config.local.toml` either is what saves a worktree today, since
+  the real-sign configuration cannot start without it. That protection lasts
+  exactly until somebody copies that file across and not the other one, which
+  is the order they will do it in. Copy both, or point the worktree at the
+  simulator.
+
+Three kinds of work stay in the main checkout, and all three are work a
+worktree cannot see or cannot reach.
+
+- **Anything about uncommitted work there.** Committing what is already in the
+  tree, saying what has changed, or chasing a failure that only happens with
+  those edits in place. A worktree has none of it.
+- **Anything about the repository rather than the code**: pruning branches,
+  tagging a release, listing or removing worktrees. These act on one shared
+  git directory whichever checkout runs them, and a branch that is checked out
+  in a worktree cannot be deleted at all.
+- **Reading, when nothing is going to be written.** Answering a question or
+  reviewing what is there costs a worktree nothing and gains nothing, and the
+  checkout is likely to be the tree the question is about.
+
+And being told to, which needs no reason.
+
 ## Read this first
 
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
