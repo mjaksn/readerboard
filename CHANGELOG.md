@@ -68,6 +68,33 @@ library, and the names inside it may move without that being a breaking change.
   repair for one is the cause of the other: an access line reaches the
   handlers, and it reaches them once.
 
+- **An empty alert message is now rejected rather than acted on.** `POST
+  /alerts` with `""` wrote an empty priority file, which is the protocol's own
+  release sequence, and then recorded the alert as active. The sign handed
+  itself back and `GET /alerts` went on reporting an alert nothing was
+  displaying. The field now carries `min_length=1`, so pydantic answers 422 and
+  the OpenAPI description says why. Only an empty string could do this: every
+  other message renders to at least one byte.
+
+  A service upgraded with one already in its state file lets it go on the next
+  start, rather than restoring it and repeating the release write forever.
+
+  `PUT /messages/{key}` takes the same floor, for a different reason. An empty
+  message there is not the release sequence, it is a slot held open around
+  nothing: the sign cycles to a file with no text in it and the pool is a slot
+  smaller for it. `DELETE /messages/{key}` is how a slot is given back, and it
+  always was. A service upgraded with one already in its state file drops it on
+  the next start and hands the file back to the pool.
+
+- **A control command parameter of digits the sign never meant is now a 400.**
+  `SET_TIME` and `SET_DAY_OF_WEEK` guarded their parameter with `str.isdigit`
+  and then called `int` on it, and the two do not accept the same characters. A
+  parameter of superscript twos passed the guard and failed the conversion,
+  which reached the caller as a 500 in plain text rather than as one of the
+  service's own errors. The Arabic-Indic digits passed both, so `٠٩٣٠` quietly
+  set the sign to 09:30. The guard now asks for ASCII decimal digits, which is
+  what "four digits, HHMM on a 24 hour clock" already promised.
+
 ## [0.3.0] - 2026-09-02
 
 **Every path changes, and three settings are removed.** The second, older HTTP

@@ -127,7 +127,8 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
     Token(
         "SET_TIME",
         c.CMD_SET_TIME,
-        "Set the sign's internal clock. The parameter is the time as HHMM on a 24 hour clock",
+        "Set the sign's internal clock. The parameter is the time as four ASCII digits, "
+        "HHMM on a 24 hour clock",
     ),
     Token(
         "SET_TIME_FORMAT",
@@ -137,7 +138,7 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
     Token(
         "SET_DAY_OF_WEEK",
         c.CMD_SET_DAY_OF_WEEK,
-        "Set the sign's day of the week. The parameter is a single digit, "
+        "Set the sign's day of the week. The parameter is a single ASCII digit, "
         "1 for Sunday through 7 for Saturday",
     ),
 )

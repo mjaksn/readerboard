@@ -26,6 +26,20 @@ class BadParameter(ValueError):
     """The parameter is not valid for the command it was given to."""
 
 
+def _is_digits(value: str) -> bool:
+    """Whether ``value`` is digits this module can hand to ``int``, and only those.
+
+    ``str.isdigit`` is the wrong question and answers it two ways. It is true of
+    a superscript two, which ``int`` then refuses, so the guard passed and the
+    conversion below raised an error nothing here catches. It is also true of
+    the Arabic-Indic digits, which ``int`` does accept, so "١٢٣٤" was quietly
+    read as a time. Neither is what a caller means by the four digits of a 24
+    hour clock or the single digit of a day of the week, which are the two
+    parameters this guards.
+    """
+    return value.isascii() and value.isdecimal()
+
+
 def build(name: str, parameter: str) -> bytes:
     """Build the payload for a named control command.
 
@@ -50,9 +64,9 @@ def build(name: str, parameter: str) -> bytes:
 
 def _set_time(parameter: str) -> bytes:
     value = parameter.strip()
-    if len(value) != 4 or not value.isdigit():
+    if len(value) != 4 or not _is_digits(value):
         raise BadParameter(
-            "SET_TIME takes the time as four digits, HHMM on a 24 hour clock, got %r"
+            "SET_TIME takes the time as four ASCII digits, HHMM on a 24 hour clock, got %r"
             % parameter
         )
     try:
@@ -63,9 +77,9 @@ def _set_time(parameter: str) -> bytes:
 
 def _set_day_of_week(parameter: str) -> bytes:
     value = parameter.strip()
-    if len(value) != 1 or not value.isdigit():
+    if len(value) != 1 or not _is_digits(value):
         raise BadParameter(
-            "SET_DAY_OF_WEEK takes a single digit, 1 for Sunday through 7 for Saturday, "
+            "SET_DAY_OF_WEEK takes a single ASCII digit, 1 for Sunday through 7 for Saturday, "
             "got %r" % parameter
         )
     try:

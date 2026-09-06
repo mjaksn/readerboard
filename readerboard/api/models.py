@@ -52,8 +52,13 @@ class MessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(
+        min_length=1,
         max_length=4096,
-        description="the message, including markup tokens such as <red> and <degree>",
+        description=(
+            "the message, including markup tokens such as <red> and <degree>. It cannot "
+            "be empty: an empty message holds a slot open around nothing, and the sign "
+            "cycles to a file with no text in it. Use DELETE to give the slot back"
+        ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the message")
     position: str = Field(default="MIDDLE", description="where the text sits vertically")
@@ -111,10 +116,13 @@ class AlertRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(
+        min_length=1,
         max_length=4096,
         description=(
             "the alert text. The sign's priority file holds 125 bytes once markup has "
-            "been rendered, and cannot be resized"
+            "been rendered, and cannot be resized. It cannot be empty: an empty "
+            "priority file is the protocol's own release sequence, so the sign would "
+            "hand itself back while the service went on reporting an alert"
         ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the alert")

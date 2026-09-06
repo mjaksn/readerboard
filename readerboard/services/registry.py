@@ -114,8 +114,20 @@ class MessageRegistry:
             self._save()
 
     def _reattach_labels(self) -> None:
-        """Re-establish which slot owns which file, dropping any that no longer fit."""
+        """Re-establish which slot owns which file, dropping the ones that cannot come back.
+
+        Two cannot: a slot whose file is outside the pool as it now stands, and
+        a slot with no message, which an earlier version accepted. The second
+        would otherwise be rewritten and left in the run sequence on every
+        start, holding a file open around nothing while the sign cycled to it
+        and showed nothing.
+        """
         for key, slot in list(self._state.slots.items()):
+            if not slot.message:
+                logger.warning("slot %r has no message; dropping it", key)
+                del self._state.slots[key]
+                continue
+
             try:
                 self._layout.restore(key, slot.label.encode("ascii"))
             except ValueError:
