@@ -106,6 +106,25 @@ class TestRestart:
         assert restored.active is None
         assert transport.last_packet == frames.packet(frames.clear_priority_file())
 
+    async def test_an_empty_alert_written_by_an_older_version_is_let_go(
+        self, alerts, transport, store, clock, caplog
+    ):
+        # The HTTP surface refuses an empty alert now, but a state file written
+        # before it did still holds one, and restoring it wrote the release
+        # sequence while leaving the service reporting an alert nothing was
+        # displaying. Raised here through the service, which is what the older
+        # version's HTTP layer reached.
+        await raise_alert(alerts, "")
+
+        restored = self.rebuild(transport, store, clock)
+        with caplog.at_level("WARNING"):
+            await restored.restore()
+
+        assert restored.active is None
+        assert "no message" in caplog.text
+        # And it stays gone: the state file is what the next restart reads.
+        assert store.load().alert is None
+
     async def test_starting_with_no_alert_still_releases_the_priority_file(
         self, transport, store, clock
     ):

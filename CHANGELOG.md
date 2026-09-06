@@ -76,6 +76,9 @@ library, and the names inside it may move without that being a breaking change.
   the OpenAPI description says why. Only an empty string could do this: every
   other message renders to at least one byte.
 
+  A service upgraded with one already in its state file lets it go on the next
+  start, rather than restoring it and repeating the release write forever.
+
   `PUT /messages/{key}` takes the same floor, for a different reason. An empty
   message there is not the release sequence, it is a slot held open around
   nothing: the sign cycles to a file with no text in it and the pool is a slot

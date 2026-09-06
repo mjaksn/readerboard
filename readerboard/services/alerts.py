@@ -78,6 +78,18 @@ class AlertService:
             await self._controller.clear_priority()
             return
 
+        if not alert.message:
+            # An earlier version accepted an empty alert, and writing one is the
+            # protocol's own release sequence: the sign hands itself back while
+            # the state file goes on calling the alert active, and every restart
+            # and re-assert repeats it. There is nothing here the sign can hold,
+            # so let it go and record that it is gone.
+            logger.warning(
+                "an alert with no message was recorded before the restart; releasing it"
+            )
+            await self.release()
+            return
+
         if alert.expires_at is not None and alert.expires_at <= self._now():
             logger.info("an alert was active before the restart but has since expired")
             await self.release()
