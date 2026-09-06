@@ -12,8 +12,9 @@
             "type": "string"
           },
           "message": {
-            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized",
+            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It cannot be empty: an empty priority file is the protocol's own release sequence, so the sign would hand itself back while the service went on reporting an alert",
             "maxLength": 4096,
+            "minLength": 1,
             "title": "Message",
             "type": "string"
           },
@@ -262,8 +263,9 @@
             "type": "string"
           },
           "message": {
-            "description": "the message, including markup tokens such as <red> and <degree>",
+            "description": "the message, including markup tokens such as <red> and <degree>. It cannot be empty: an empty message holds a slot open around nothing, and the sign cycles to a file with no text in it. Use DELETE to give the slot back",
             "maxLength": 4096,
+            "minLength": 1,
             "title": "Message",
             "type": "string"
           },

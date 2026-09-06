@@ -212,6 +212,14 @@ class TestMessages:
         assert response.status_code == 400
         assert "unknown markup token" in response.json()["detail"]
 
+    def test_an_empty_message_is_rejected(self, client):
+        # It is not how a slot is given back, and accepted it would hold one
+        # open around nothing: the sign cycles to a file with no text in it and
+        # the pool is a slot smaller for it. DELETE is the way.
+        response = client.put("/messages/one", json={"message": ""}, headers=HEADERS)
+        assert response.status_code == 422
+        assert client.get("/messages").json() == []
+
     def test_a_message_too_long_for_a_slot_is_400(self, client):
         response = client.put(
             "/messages/one", json={"message": "X" * 300}, headers=HEADERS
@@ -258,6 +266,16 @@ class TestAlerts:
         assert response.status_code == 400
         assert "125" in response.json()["detail"]
 
+    def test_an_empty_alert_is_rejected(self, client):
+        # An empty message renders to no bytes, and an empty priority file is
+        # the protocol's own release sequence. Accepted, it handed the sign back
+        # and then recorded an alert as active, so GET /alerts reported one that
+        # nothing was displaying.
+        response = client.post("/alerts", json={"message": ""}, headers=HEADERS)
+        assert response.status_code == 422
+        assert client.get("/alerts").json() is None
+        assert client.get("/health").json()["alert_active"] is False
+
     def test_an_unknown_markup_token_in_an_alert_is_400(self, client):
         # An alert renders twice: once here, to decide whether to accept it, and
         # again on the re-assert path, which renders leniently so that an alert
@@ -296,6 +314,36 @@ class TestSignCommands:
         response = client.post(
             "/sign/command",
             json={"command": "SET_TIME", "parameter": "9999"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 400
+
+    @pytest.mark.parametrize(
+        "parameter",
+        [
+            # Four superscript twos. str.isdigit is true of these and int is
+            # not, so the guard passed the parameter to a conversion that
+            # raised, and the caller was told 500 in plain text.
+            "²²²²",
+            # Arabic-Indic zero nine three zero. Both were true of these, so
+            # the sign was quietly set to 09:30 by a parameter that is not the
+            # HHMM the message asks for.
+            "٠٩٣٠",
+        ],
+    )
+    def test_a_parameter_of_digits_the_sign_never_meant_is_400(self, client, parameter):
+        response = client.post(
+            "/sign/command",
+            json={"command": "SET_TIME", "parameter": parameter},
+            headers=HEADERS,
+        )
+        assert response.status_code == 400
+        assert "four digits" in response.json()["detail"]
+
+    def test_a_day_of_week_of_digits_the_sign_never_meant_is_400(self, client):
+        response = client.post(
+            "/sign/command",
+            json={"command": "SET_DAY_OF_WEEK", "parameter": "²"},
             headers=HEADERS,
         )
         assert response.status_code == 400
