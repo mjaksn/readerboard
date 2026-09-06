@@ -53,17 +53,20 @@ def _configured_capture(level: str = "INFO") -> Capture:
     return capture
 
 
+# One access line as uvicorn writes it, quotes and all, so that what is pinned
+# here is the shape of the thing that was going missing.
+ACCESS_LINE = '127.0.0.1:52343 - "GET /health HTTP/1.1" 200'
+
+
 def test_a_uvicorn_access_line_reaches_the_handlers():
     """An HTTP request line has somewhere to land."""
     capture = _configured_capture()
     try:
-        logging.getLogger("uvicorn.access").info('GET /health HTTP/1.1" 200')
+        logging.getLogger("uvicorn.access").info(ACCESS_LINE)
     finally:
         logging.getLogger().removeHandler(capture)
 
-    assert [record.getMessage() for record in capture.records] == [
-        'GET /health HTTP/1.1" 200'
-    ]
+    assert [record.getMessage() for record in capture.records] == [ACCESS_LINE]
 
 
 def test_a_uvicorn_line_lands_exactly_once():
@@ -75,7 +78,9 @@ def test_a_uvicorn_line_lands_exactly_once():
     finally:
         logging.getLogger().removeHandler(capture)
 
-    assert len(capture.records) == len(UVICORN_LOGGERS)
+    # Named rather than counted: one logger doubling while another is silenced
+    # keeps the total right and is exactly the failure this is here to catch.
+    assert [record.name for record in capture.records] == list(UVICORN_LOGGERS)
 
 
 def test_uvicorn_loggers_carry_no_handlers_of_their_own():
