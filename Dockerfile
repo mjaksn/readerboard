@@ -34,7 +34,7 @@
 # cooldown for this: the cooldown reads the version, and a rebuilt digest is
 # the same version it was yesterday. This one was 23 days old when it was
 # pinned, and carries the same tzdata the note below relies on.
-FROM python:3.14.6-slim@sha256:7bec7ddcddeff7975d6ba9b4be7dd6f6b2f55e7491539145e2978f7f97ce9144 AS builder
+FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -71,7 +71,7 @@ RUN pip install --no-deps --no-build-isolation . \
     && pip uninstall --yes setuptools
 
 
-FROM python:3.14.6-slim@sha256:7bec7ddcddeff7975d6ba9b4be7dd6f6b2f55e7491539145e2978f7f97ce9144
+FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
 
 LABEL org.opencontainers.image.title="readerboard" \
       org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, expiring messages and clock sync" \
