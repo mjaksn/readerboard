@@ -46,8 +46,12 @@ class TestWriteTextFile:
 
 
 class TestPriorityFile:
-    def test_clearing_writes_an_empty_body_to_file_zero(self):
-        assert frames.clear_priority_file() == b"A0\x1b b"
+    def test_clearing_is_a_bare_write_to_file_zero(self):
+        # The release is a write to file 0 "without any ASCII Message", and it
+        # has to carry nothing after the label. Measured on the sign: adding the
+        # SOM, position and mode of an ordinary write makes it an empty priority
+        # message that suppresses the display rather than releasing it.
+        assert frames.clear_priority_file() == b"A0"
 
     def test_a_message_within_the_capacity_is_allowed(self):
         body = b"X" * c.PRIORITY_FILE_CAPACITY

@@ -84,8 +84,11 @@ def write_text_file(
 ) -> bytes:
     """Build the payload that writes ``body`` into the TEXT file ``label``.
 
-    An empty ``body`` blanks the file. Writing an empty body to the priority
-    file is how an alert is released, so it is explicitly allowed.
+    An empty ``body`` blanks an ordinary file. It is not how the priority file
+    is released, though: a write carrying the formatting bytes below with no
+    text is read by the sign as an empty priority message that takes the screen
+    over, not as a release. :func:`clear_priority_file` sends the bare write the
+    release actually needs.
     """
     if len(label) != 1:
         raise ProtocolError("a file label is exactly one byte, got %r" % label)
@@ -100,10 +103,20 @@ def write_text_file(
 def clear_priority_file() -> bytes:
     """Build the payload that releases a priority takeover.
 
-    Writing nothing to file ``0`` is what tells the sign to go back to playing
-    its run sequence. There is no separate release command.
+    The release is a write to file ``0`` "without any ASCII Message", and it has
+    to be a bare one: the write command and the file label, nothing after. The
+    Start-of-Message byte and the position and mode an ordinary text write
+    carries are enough to make the sign read this as a priority message that
+    happens to be empty, and it then takes the screen over showing nothing
+    instead of releasing it. Measured on a BetaBrite Classic on 2026-09-09: the
+    bare form brought the rotation straight back, the ``A0`` with formatting and
+    an empty body blanked it. This was the bug behind a sign that showed alerts
+    and never showed a slot, because the service clears the priority file on
+    every start. See docs/protocol-notes.md.
+
+    There is no separate release command; this degenerate write is it.
     """
-    return write_text_file(c.FILE_PRIORITY, b"")
+    return c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY
 
 
 def write_special(label: bytes, parameter: bytes = b"") -> bytes:

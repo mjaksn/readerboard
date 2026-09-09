@@ -86,6 +86,21 @@ class TestMemoryConfiguration:
         # The sign has just been erased, so the same bytes must go again.
         assert await controller.write_text_file(b"A", b"HI") is True
 
+    async def test_memory_is_cleared_before_it_is_configured(self):
+        # A BetaBrite Classic on an Ethernet adapter stored a configuration,
+        # read it back correctly, and displayed nothing from it until a bare E$
+        # clear was sent first. So the clear is not optional and it comes first.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+
+        allocations = [frames.FileAllocation(b"A", 256)]
+        await controller.apply_memory_config(allocations)
+
+        assert transport.packets == [
+            frames.packet(frames.clear_memory()),
+            frames.packet(frames.set_memory_config(allocations)),
+        ]
+
     async def test_it_warns_that_the_sign_will_be_cleared(self, caplog):
         transport = FakeTransport()
         controller = SignController(transport, inter_packet_delay=0)

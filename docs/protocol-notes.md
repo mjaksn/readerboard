@@ -78,6 +78,33 @@ Three consequences that shape the design:
 `E$` with nothing after it clears memory outright. `frames.clear_memory` spells that,
 kept separate from `set_memory_config` so an empty list cannot wipe the sign by accident.
 
+### A clear must come first, measured on the sign
+
+On 2026-09-09 the real BetaBrite Classic, on an Ethernet to RS-232 adapter at
+`socket://192.168.2.154:23`, refused to display from a memory configuration that was not
+preceded by a bare `E$` clear. The configuration was accepted, stored and read back
+verbatim through `F$`, and the sign then showed nothing from any file it named. Sending a
+bare `E$` and then the identical configuration, on writes matching to the byte, made the
+files play. Without the clear the sign stayed blank; with it the rotation ran. This was
+confirmed with the service's own byte sequence, differing only by that one command.
+
+So the document's "whenever a Memory Configuration is written, the previous table is
+overwritten" is true of the stored table and not of the display: this sign needs the
+table torn down before the new one takes. `SignController.apply_memory_config` therefore
+sends `clear_memory` before `set_memory_config`. It adds no risk, because writing a
+configuration already erases the sign, so clearing first reaches the same empty sign a
+step sooner.
+
+The clear puts the sign through a reset, and reads go unanswered through the first five
+seconds or so of it. The configuration that follows, though, is accepted regardless:
+sweeping the gap between the clear and the configuration showed the rotation displaying
+for every value from one second upward, so the sign buffers the configuration through the
+reset and applies it on the way back. `apply_memory_config` waits
+`MEMORY_CLEAR_SETTLE_SECONDS`, two, which sits a little above the shortest gap that was
+tried rather than at its edge. The wait is skipped when `inter_packet_delay` is zero,
+which is how the simulator and the test transport are run, because neither has a reset to
+sit through.
+
 ### The start and stop times
 
 Appendix B encodes times in ten minute steps, `00` for midnight through to the small
@@ -102,6 +129,20 @@ file stops running, the sign will begin running the other TEXT files."
 
 That is precisely an alert: takeover, then release by writing an empty priority file, and
 the rotation resumes by itself.
+
+"Without any ASCII Message" turns out to mean without anything at all, and this was
+measured the hard way on 2026-09-09. An ordinary text write is `A`, the label, a
+Start-of-Message byte, a position, a mode, then the text. Sending that to file `0` with
+the text empty, which reads as "no ASCII message" and is what the service did, does not
+release: the sign takes it as a blank priority message and holds the screen on nothing.
+The release is the bare write, `A0` and not a byte more. On the sign the bare form brought
+the rotation straight back and the formatted-but-empty form blanked it. `clear_priority`
+and `frames.clear_priority_file` send the bare form.
+
+This was the bug behind the sign that showed alerts and never showed a slot. The service
+clears the priority file on every start, to let go of an alert a previous run may have
+left up, so from the first moment a blank priority message was suppressing every slot that
+was ever written. It looked exactly like the rotation not working.
 
 It is also the trap. Writing ordinary messages to file `0` is the obvious shortcut, and it
 works right up until a second source wants the sign, at which point the protocol
@@ -135,21 +176,29 @@ rotation costs nothing, so several sources can share the sign without constant r
 
 ## What the spike still has to confirm
 
-The wire format questions are closed. Four behavioural ones are not, and every one of
-them needs the sign in front of you.
+The wire format questions are closed. Four behavioural ones were open, and a session with
+the sign on 2026-09-09 settled three of them. What each turned out to be is recorded here
+rather than deleted, because the next person will want to know it was answered on hardware
+and not merely assumed.
 
-1. **Is the rotation seamless?** Several files playing in turn should not blank between
-   them. If they do, the fallback is server-side rotation with a longer dwell time, and
-   that is a decision to bring back rather than to take quietly.
-2. **Does rewriting only the run sequence disturb the display?** A slot expiring by TTL
-   does exactly that, every time, so a flicker here would be a recurring visible cost.
-3. **Does a run sequence write cancel a running priority message?** See the section on
-   what cancels a priority message. The service currently assumes it might.
-4. **Does the sign answer reads through the Ethernet adapter?** See the section on
-   reading state back. Nothing depends on the answer yet, but it decides whether
-   reconciliation can stop being a timer.
+1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
+   themselves ran without much of a pause, so server-side rotation is not needed.
+2. **Does rewriting only the run sequence disturb the display?** Answered no. A run
+   sequence written while the rotation was on screen left it running, with no blank and no
+   restart. So a slot expiring by TTL, which rewrites the sequence, costs nothing visible.
+3. **Does a run sequence write cancel a running priority message?** Still open. The
+   session did not produce a clean test of it, so the service keeps the cautious reading
+   below and defers run sequence writes while an alert is up.
+4. **Does the sign answer reads through the Ethernet adapter?** Answered yes. All four
+   reads in the table below came back correct, so the adapter is two-way and divergence
+   could be detected by asking rather than by re-pushing on a timer.
 
-And one measurement: the inter-packet delay this sign actually needs. The old
+The same session turned up a fifth thing that was not on this list, because nobody thought
+to doubt it: a memory configuration does not display unless a bare `E$` clear precedes it.
+See "A clear must come first" above. That was the bug behind a sign that accepted every
+write and showed nothing.
+
+And one measurement remains: the inter-packet delay this sign actually needs. The old
 implementation slept two seconds after every write and closed the port; that number was
 never measured, and `inter_packet_delay` defaults to a conservative 0.5s until it is.
 
@@ -162,7 +211,8 @@ refuses to run without `--confirm-erase`.
 
 The document lists exactly four, and one of them is the intended release path:
 
-- an empty priority write, which is how an alert is released;
+- a bare priority write, `A0` with nothing after the label, which is how an alert is
+  released;
 - **any serial write to the Run Time table**;
 - **any serial write to the Run Day table**;
 - the PROG key on an infrared keyboard.

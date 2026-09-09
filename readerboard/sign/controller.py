@@ -29,6 +29,15 @@ from readerboard.transport.base import Transport, TransportError
 
 logger = logging.getLogger(__name__)
 
+# How long to wait after clearing memory before writing the new configuration.
+# An "E$" clear puts the BetaBrite Classic through a reset. The configuration
+# that follows is accepted through it, apparently buffered and applied when the
+# sign comes back: a sweep on the sign showed the rotation displaying for every
+# gap from one second upward. One second is the shortest that was tried, so this
+# sits a little above it for margin rather than at an edge. It is only paid on a
+# reconfiguration, which is rare and already the one dangerous operation.
+MEMORY_CLEAR_SETTLE_SECONDS = 2.0
+
 ReconnectHook = Callable[[], Awaitable[None]]
 
 
@@ -173,9 +182,23 @@ class SignController:
             c.FILE_PRIORITY, body, mode=mode, position=position, force=force
         )
 
-    async def clear_priority(self) -> bool:
-        """Release a priority takeover so the run sequence resumes."""
-        return await self.write_priority(b"")
+    async def clear_priority(self, *, force: bool = False) -> bool:
+        """Release a priority takeover so the run sequence resumes.
+
+        Deliberately not ``write_priority(b"")``. An ordinary write to the
+        priority file, even with an empty body, carries the Start-of-Message
+        byte and a position and mode, and the sign reads that as a blank
+        priority message it should display, keeping the screen instead of
+        handing it back. The release is the bare write ``clear_priority_file``
+        builds, and it goes through the same suppression cache under the
+        priority label so a repeated release is not re-sent.
+        """
+        payload = frames.clear_priority_file()
+        if force:
+            await self._send(payload)
+            self._file_contents[c.FILE_PRIORITY] = payload
+            return True
+        return await self._send_if_changed(c.FILE_PRIORITY, payload)
 
     async def set_run_sequence(self, labels: list[bytes]) -> bool:
         """Choose which files play and in what order. Returns False if unchanged."""
@@ -197,6 +220,24 @@ class SignController:
         """
         labels = ", ".join(entry.label.decode("ascii") for entry in allocations)
         logger.warning("reallocating sign memory (%s); this clears every message", labels)
+        # Clear memory outright first. A BetaBrite Classic on an Ethernet to
+        # RS-232 adapter was measured accepting a memory configuration, storing
+        # it, echoing it back correctly on a read, and then displaying nothing
+        # from any file it named. The one thing that made the files play was a
+        # bare "E$" clear ahead of the configuration; with it the sign showed
+        # the rotation, without it the sign stayed blank, on writes identical to
+        # the byte. So the clear is not tidiness here, it is what makes the
+        # configuration take. It adds no risk: writing a configuration already
+        # erases the sign, which is why this whole method is the one dangerous
+        # operation, so clearing first reaches the same empty sign by a
+        # different door. See docs/protocol-notes.md.
+        await self._send(frames.clear_memory())
+        # Let the reset the clear triggers finish before the configuration lands,
+        # or the configuration arrives while the sign is deaf and is lost. Gated
+        # on the same delay as the per-packet wait below: a link told to pace
+        # nothing is a fake or a simulator, which has no reset to wait through.
+        if self._inter_packet_delay:
+            await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
         await self._send(frames.set_memory_config(allocations))
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()

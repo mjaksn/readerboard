@@ -96,6 +96,30 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
+- **Releasing an alert no longer hides every message on the sign.** The release
+  wrote the priority file with an empty body but with the Start-of-Message byte,
+  a position and a mode still attached, the shape of an ordinary text write. A
+  BetaBrite Classic reads that as a blank priority message and holds the whole
+  screen on it, rather than as the "write without any ASCII message" the
+  protocol releases on. Because the service clears the priority file on every
+  start, to let go of an alert a previous run might have left up, a blank
+  priority takeover was suppressing every slot from the first moment the service
+  ran: alerts displayed, and the rotation never did. The release is now the bare
+  write the sign wants, `A0` and nothing after the label. Found against the sign,
+  where the bare form brought the rotation straight back and the old form blanked
+  it. `docs/protocol-notes.md` records it and `tests/test_frames.py` pins the
+  bare form.
+
+- **A memory configuration is now written to a sign that will display it.** The
+  BetaBrite Classic stored a configuration, echoed it back on a read verbatim,
+  and then showed nothing from any file it named, unless a bare `E$` clear was
+  sent first. `SignController.apply_memory_config` now clears before it
+  configures, which reaches the same erased sign a step sooner and so adds no
+  risk to what was already the one destructive operation, and waits a moment
+  after the clear for the reset it triggers. Reconfiguration is rare, only when
+  the slot pool changes, so the wait is paid almost never.
+  `tests/test_controller.py` pins the clear-then-configure order.
+
 - **The log carries uvicorn's lines again, so there is an HTTP access log.**
   Every request the service answered, the startup banner and the address
   actually bound had been going nowhere. `logging_setup.configure` silenced
