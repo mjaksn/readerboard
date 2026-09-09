@@ -27,9 +27,10 @@ until it is released, after which the rotation resumes.
 - **It does not redraw the sign for nothing.** A write of bytes the sign already holds is
   suppressed, so a source re-sending an unchanged temperature does not make the display
   flicker.
-- **It survives restarts and outages.** The registered messages are persisted, and a
-  write that arrives while the sign is unreachable is accepted and delivered when the
-  link returns.
+- **It survives restarts and outages.** The registered messages are persisted and
+  pushed to the sign again whenever the link returns, so a restart or a power cut leaves
+  the rotation intact. A write that arrives while the sign is unreachable is refused with
+  a 503 rather than silently held, so the caller learns it did not land.
 - **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
   render is a 400, each with the reason in the body. Nothing here reports a failure
   under a 200.

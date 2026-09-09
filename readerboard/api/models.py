@@ -199,8 +199,9 @@ class HealthResponse(BaseModel):
     slots_total: int
     sign_in_sync: bool = Field(
         description=(
-            "false when a registered message has been accepted but not yet written to "
-            "the sign, which is what a write during an outage looks like"
+            "false when the sign is behind the service's record, which is a removal or "
+            "an expiry that could not reach the sign yet; a message write that cannot "
+            "reach the sign is refused with a 503 rather than held"
         )
     )
     alert_active: bool

@@ -85,11 +85,31 @@ class SerialTransport:
             self._ensure_open_locked()
 
     def write(self, data: bytes) -> None:
-        """Send one complete transmission, opening the link first if needed."""
+        """Send one complete transmission over a link that is already open.
+
+        The link is not opened here. When it is down this fails at once, rather
+        than blocking the caller for the length of a connection attempt, which
+        against a network sign at a wrong or dead address is the operating
+        system's whole connect timeout. Opening the link is the reconnect loop's
+        job, and the first open is startup's.
+
+        The ``is_open`` check is before the lock on purpose. The reconnect loop
+        holds that lock for the length of a connect, so a write that waited for
+        the lock would wait out exactly the block this exists to avoid. Reading
+        ``is_open`` outside the lock is safe: if the link drops between the check
+        and the write, the write fails and is reported like any other failure.
+        """
+        if not self.is_open:
+            waiting = max(0.0, self._retry_after - self._monotonic())
+            raise TransportError(
+                "link to %s is down (%s); next attempt in %.1fs"
+                % (self._url, self._last_error or "reason unknown", waiting)
+            )
         with self._lock:
-            self._ensure_open_locked()
             port = self._port
-            assert port is not None  # _ensure_open_locked guarantees this
+            if port is None:
+                # Dropped between the check and the lock. Same answer.
+                raise TransportError("link to %s is down" % self._url)
             try:
                 port.write(data)
                 port.flush()

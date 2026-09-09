@@ -397,26 +397,36 @@ class TestEnumerations:
 
 
 class TestUnreachableSign:
-    """A validated registry write is satisfiable even with the sign unplugged.
+    """Every write that needs the sign returns 503 when it cannot be reached.
 
-    Alerts, the clock and control commands are not: immediacy is their point,
-    so those are the ones that get a 503.
+    Messages, alerts, the clock and control commands all put something on the
+    sign, so an unreachable sign fails each of them the same way rather than a
+    message quietly buffering while the rest report the outage.
     """
 
-    def test_a_registry_write_is_accepted(self, client, sign):
+    def test_a_registry_write_is_503(self, client, sign):
         sign.fail_with = "cable unplugged"
 
         response = client.put(
             "/messages/temperature", json={"message": "18.4"}, headers=HEADERS
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 503
+        # The transport's reason reaches the response, so a caller learns why
+        # from the 503 itself rather than from a log it cannot see.
+        assert "cable unplugged" in response.json()["detail"]
 
-    def test_health_says_the_sign_is_behind(self, client, sign):
+    def test_a_rejected_write_leaves_no_slot_behind(self, client, sign):
         sign.fail_with = "cable unplugged"
         client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
 
-        assert client.get("/health").json()["sign_in_sync"] is False
+        assert client.get("/messages").json() == []
+
+    def test_health_says_the_link_is_down(self, client, sign):
+        sign.fail_with = "cable unplugged"
+        client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
+
+        assert client.get("/health").json()["link"]["connected"] is False
 
     def test_an_alert_is_503(self, client, sign):
         sign.fail_with = "cable unplugged"

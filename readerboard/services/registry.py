@@ -199,6 +199,7 @@ class MessageRegistry:
 
         async with self._lock:
             existed = key in self._state.slots
+            previous = self._state.slots.get(key)
             label = self._layout.assign(key)  # raises LayoutFull when the pool is full
 
             now = self._now()
@@ -221,26 +222,19 @@ class MessageRegistry:
                 )
                 if not existed:
                     await self._apply_run_sequence()
-            except TransportError as err:
-                # The registry is the durable record of what should be on the
-                # sign, so a request that validated is a request we can satisfy
-                # even with the sign unplugged. Keep it, and converge when the
-                # link is back, rather than making Home Assistant hold the retry
-                # logic this service exists to take off it. /health says the
-                # sign is out of sync in the meantime.
-                self._dirty = True
-                logger.warning(
-                    "slot %r accepted but the sign is unreachable (%s); it will be "
-                    "written when the link is back",
-                    key,
-                    err,
-                )
             except Exception:
-                # Something other than the link is wrong, so this slot is not
-                # something we can promise to deliver. Give its file back rather
-                # than leaking one per failed request.
-                del self._state.slots[key]
-                if not existed:
+                # The write did not land, so the slot is not on the sign, and
+                # keeping it would promise what the sign is not showing. Put the
+                # registry back exactly as it was, then let the error surface: a
+                # sign that cannot be reached becomes the 503 that tells a client
+                # it cannot write right now rather than a 200 that hides it. A new
+                # message is theirs to retry when the link is back, and a failed
+                # update leaves the previous one in place. The slots already on
+                # the sign are re-pushed on reconnect regardless of this.
+                if previous is not None:
+                    self._state.slots[key] = previous
+                else:
+                    del self._state.slots[key]
                     self._layout.release(key)
                 raise
 

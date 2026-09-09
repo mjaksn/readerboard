@@ -87,6 +87,26 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Changed
 
+- **A message write is refused with a 503 when the sign is unreachable, rather
+  than accepted and held.** `PUT /messages/{key}` used to keep a write it could
+  not deliver and converge when the link returned, so a caller learned the sign
+  was unreachable only by reading `/health`. It now lets the failure through as
+  the 503 that alerts, the clock and control commands already gave, with the
+  reason in the `detail` body, so a client can tell at once that its message did
+  not reach the sign. The registry is left exactly as it was: a new message is
+  the caller's to retry when the link is back, and a failed update keeps the
+  message that was already there. Messages already on the sign are still pushed
+  again when the link returns, which is a separate path.
+
+  The write also fails fast now. A write while the link was down went through a
+  fresh connection attempt, which against a wrong or dead network address is the
+  operating system's whole connect timeout, so a request could hang for the best
+  part of a minute before it was answered. The link is opened only by the
+  reconnect loop and at startup; a write to a link that is down is refused at
+  once. This bounds the wait when the sign cannot be reached; it does nothing for
+  a sign power cycled behind a still-connected adapter, where the socket stays up
+  and the periodic refresh is what repairs the display.
+
 - **`tests/test_launch_configurations.py` now covers both editors.** It checked
   that PyCharm could parse its files; it also checks that `.vscode/launch.json`
   loads, that every configuration in either editor which starts the service

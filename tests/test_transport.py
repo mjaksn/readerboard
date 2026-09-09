@@ -64,9 +64,10 @@ class TestSerialTransportOverLoopback:
         transport = SerialTransport("loop://")
         assert not transport.is_open
 
-    def test_writing_opens_the_link_and_the_bytes_come_back(self):
+    def test_writing_over_an_open_link_puts_the_bytes_through(self):
         transport = SerialTransport("loop://", timeout=1.0)
         try:
+            transport.ensure_open()
             transport.write(b"HELLO")
             assert transport.is_open
             # loop:// echoes what is written, so this proves the bytes really
@@ -75,6 +76,17 @@ class TestSerialTransportOverLoopback:
             assert transport._port.read(5) == b"HELLO"
         finally:
             transport.close()
+
+    def test_writing_a_link_that_is_down_fails_at_once_without_opening(self):
+        # The link is not opened by a write. loop:// would open instantly if it
+        # were, so a write that raises "is down" rather than echoing is the proof
+        # that opening is left to the reconnect loop and the caller is not made
+        # to wait out a connection attempt.
+        transport = SerialTransport("loop://")
+        assert not transport.is_open
+        with pytest.raises(TransportError, match="is down"):
+            transport.write(b"HELLO")
+        assert not transport.is_open
 
     def test_closing_an_already_closed_link_is_harmless(self):
         transport = SerialTransport("loop://")
