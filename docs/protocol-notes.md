@@ -96,10 +96,10 @@ configuration already erases the sign, so clearing first reaches the same empty 
 step sooner.
 
 The clear puts the sign through a reset, and reads go unanswered through the first five
-seconds or so of it. The configuration that follows, though, is accepted regardless:
-sweeping the gap between the clear and the configuration showed the rotation displaying
-for every value from one second upward, so the sign buffers the configuration through the
-reset and applies it on the way back. `apply_memory_config` waits
+seconds or so of it. The configuration that follows, though, is accepted regardless: a
+configuration written a second or more after the clear was seen to display once the sign
+came back, so the sign buffers it through the reset and applies it on the way back. One
+second is the shortest gap that was tried. `apply_memory_config` waits
 `MEMORY_CLEAR_SETTLE_SECONDS`, two, which sits a little above the shortest gap that was
 tried rather than at its edge. The wait is skipped when `inter_packet_delay` is zero,
 which is how the simulator and the test transport are run, because neither has a reset to
@@ -173,6 +173,32 @@ sequence being rewritten.
 Once the sequence is set, the sign cycles the named files by itself, with no host
 involvement and no serial traffic per rotation. This is what the design rests on:
 rotation costs nothing, so several sources can share the sign without constant redraws.
+
+## Soft reset, the non-destructive one
+
+Table 15 gives `,` (2CH) as **Soft Reset**: "causes a soft reset of the sign. There is no
+data in this field. A soft reset causes the sign to go through its power-up diagnostics.
+Memory will not be cleared (non-destructive)."
+
+Both halves of that were checked on the real sign on 2026-09-09 rather than taken on
+trust, because the claim that matters is the second one. The sign visibly ran the same
+self test and start-up sequence it runs when it is plugged in. Either side of the reset,
+`F$`, `F#`, `F.` and reads of two occupied text files came back **byte for byte
+identical**: the memory configuration, the pool's used and free counts, the run sequence
+`E.SUABC`, and the rendered contents of files A and B including their colour codes. The
+sign resumed cycling what it had been cycling. It was sent twice, with the same result.
+
+So there are two resets in this protocol and they are a byte apart. `E$` tears the sign
+down and erases it. `E,` restarts the sign and keeps everything. That makes the soft reset
+the first thing to reach for on a sign whose decoder has wedged out of reach, and
+`POST /sign/reboot`, which erases and rebuilds, the escalation when a restart alone is not
+enough. `SOFT_RESET` is therefore safe to carry in the closed control command set, since
+it disturbs no file the service is tracking.
+
+One consequence worth knowing: the sign is deaf while it runs its diagnostics, so a write
+sent into that window is not refused, it simply is not there afterwards. The control
+command route waits the reset out before answering, so a 204 means the sign is listening
+again rather than that bytes were sent.
 
 ## What the spike still has to confirm
 
@@ -251,9 +277,17 @@ separately powered: the sign can be power cycled with the TCP link still up, not
 fires, and the suppression cache then skips exactly the writes that would repair a blank
 sign. Being able to ask would replace that with a cheap comparison.
 
-The frame builders exist. What is unproven is whether this sign answers a read **through
-the Ethernet to RS-232 adapter** at all; two-way traffic over that path has never been
-tried. The spike's step 5 tries all four. Nothing in the service depends on the answer
+The frame builders exist, and the adapter is two-way: this sign answered all four of these
+reads through it on 2026-09-09, and answered them again during the soft reset check above,
+which read two text files back with `B` as well. Nothing in the service depends on that
+yet, which is deliberate; the reads are available whenever divergence detection is worth
+building.
+
+One trap when reading: a reply opens with a run of `NUL`s and the payload arrives a moment
+behind the first byte, so a reader that takes `in_waiting or 1` and stops returns a lone
+`b"\x00"` for every question. Compare two of those and they match, which looks like proof
+and is not. Drain until the sign goes quiet instead. `scripts/protocol_spike.py` has the
+eager version. Nothing in the service depends on the answer
 yet, which is deliberate.
 
 One trap when comparing a read-back memory configuration against a plan: the sign gives

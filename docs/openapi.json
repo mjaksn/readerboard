@@ -108,7 +108,7 @@
         "description": "A command aimed at the sign itself rather than at a message.",
         "properties": {
           "command": {
-            "description": "one of SET_DAY_OF_WEEK, SET_TIME, SET_TIME_FORMAT",
+            "description": "one of SET_DAY_OF_WEEK, SET_TIME, SET_TIME_FORMAT, SOFT_RESET",
             "title": "Command",
             "type": "string"
           },
@@ -876,7 +876,7 @@
     },
     "/sign/command": {
       "post": {
-        "description": "Send one of the sign's own control commands.",
+        "description": "Send one of the sign's own control commands.\n\n`SOFT_RESET` restarts the sign. It erases nothing, the sign comes back\nshowing what it was showing, and it is the first thing to try on a sign that\nhas stopped responding. The display is blank for a few seconds while it runs\nits power-up diagnostics, and this call waits that out before answering, so\na 204 means the sign is listening again. Reach for `POST /sign/reboot` only\nwhen a soft reset is not enough: that one erases the sign and rebuilds it.",
         "operationId": "send_command_sign_command_post",
         "requestBody": {
           "content": {

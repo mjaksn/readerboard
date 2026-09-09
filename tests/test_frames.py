@@ -149,6 +149,16 @@ class TestClockCommands:
         assert frames.set_time_format(military=True) == b"E\x27" b"M"
         assert frames.set_time_format(military=False) == b"E\x27S"
 
+    def test_soft_reset(self):
+        # "There is no data in this field", so the payload is the bare label.
+        # Sent to a BetaBrite Classic it ran the sign's power-up diagnostics and
+        # left every file intact.
+        assert frames.soft_reset() == b"E,"
+
+    def test_soft_reset_is_not_the_destructive_one(self):
+        # The two resets differ by one byte, and one of them erases the sign.
+        assert frames.soft_reset() != frames.clear_memory()
+
 
 def test_the_full_transmission_for_a_temperature_message():
     """One end to end golden packet, of the kind Home Assistant produces."""

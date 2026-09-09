@@ -141,6 +141,14 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
         "Set the sign's day of the week. The parameter is a single ASCII digit, "
         "1 for Sunday through 7 for Saturday",
     ),
+    Token(
+        "SOFT_RESET",
+        c.CMD_SOFT_RESET,
+        "Restart the sign, which runs its power-up diagnostics and comes back showing "
+        "what it was showing. Nothing is erased and no parameter is taken. Use it first "
+        "on a sign that has stopped responding; the display is blank for a few seconds "
+        "while it restarts",
+    ),
 )
 
 

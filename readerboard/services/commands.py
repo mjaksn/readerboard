@@ -1,12 +1,17 @@
 """Turning a named control command and its parameter into a payload.
 
 These are the commands that act on the sign itself rather than on a message:
-setting its clock, its day of week, and how it renders the time.
+setting its clock, its day of week, how it renders the time, and restarting it.
 
 The set is deliberately closed. Anything reaching the sign from here is one of
-these three, none of which touches the memory configuration or the run time
+these four, none of which touches the memory configuration or the run time
 table, so a caller cannot use this route to disturb the file layout the service
 believes it has.
+
+SOFT_RESET is in the set for exactly that reason. It restarts the sign and the
+sign's memory survives, verified on hardware either side of the reset, so it
+disturbs no file the service is tracking. The destructive reset, which erases
+the sign, is not reachable from here and lives behind ``POST /sign/reboot``.
 
 Note the day of week numbering, which is easy to get wrong: the protocol defines
 1 for Sunday through 7 for Saturday, not 0 through 6.
@@ -16,6 +21,9 @@ from __future__ import annotations
 
 from readerboard.protocol import frames
 from readerboard.protocol.tokens import COMMAND_BY_NAME
+
+# The commands that put the sign through a restart. See :func:`resets_the_sign`.
+_RESETTING = frozenset({"SOFT_RESET"})
 
 
 class UnknownCommand(ValueError):
@@ -58,8 +66,21 @@ def build(name: str, parameter: str) -> bytes:
         return _set_day_of_week(parameter)
     if command == "SET_TIME_FORMAT":
         return _set_time_format(parameter)
+    if command == "SOFT_RESET":
+        return _soft_reset(parameter)
 
     raise UnknownCommand("control command %r has no handler" % command)  # pragma: no cover
+
+
+def resets_the_sign(name: str) -> bool:
+    """Whether a command restarts the sign, so the caller should wait it out.
+
+    The sign is deaf while it runs its power-up diagnostics. A write sent into
+    that window is not refused, it is simply not there afterwards, which is the
+    quietest way for a message to go missing. The route holds the request open
+    instead, so a 204 means the sign is back rather than that bytes were sent.
+    """
+    return name.strip().upper() in _RESETTING
 
 
 def _set_time(parameter: str) -> bytes:
@@ -95,3 +116,12 @@ def _set_time_format(parameter: str) -> bytes:
             "SET_TIME_FORMAT takes 'S' for standard or 'M' for military, got %r" % parameter
         )
     return frames.set_time_format(military=value == "M")
+
+
+def _soft_reset(parameter: str) -> bytes:
+    # The protocol is explicit that this field carries no data, so a parameter
+    # is refused rather than ignored: a caller who passed one meant something by
+    # it, and silently dropping it would leave them believing it took effect.
+    if parameter.strip():
+        raise BadParameter("SOFT_RESET takes no parameter, got %r" % parameter)
+    return frames.soft_reset()

@@ -170,8 +170,18 @@ async def sync_clock(clock: ClockDep) -> ClockResponse:
     dependencies=[RequireApiKey],
 )
 async def send_command(body: ControlCommandRequest, controller: ControllerDep) -> Response:
-    """Send one of the sign's own control commands."""
+    """Send one of the sign's own control commands.
+
+    `SOFT_RESET` restarts the sign. It erases nothing, the sign comes back
+    showing what it was showing, and it is the first thing to try on a sign that
+    has stopped responding. The display is blank for a few seconds while it runs
+    its power-up diagnostics, and this call waits that out before answering, so
+    a 204 means the sign is listening again. Reach for `POST /sign/reboot` only
+    when a soft reset is not enough: that one erases the sign and rebuilds it.
+    """
     await controller.send_special(commands.build(body.command, body.parameter))
+    if commands.resets_the_sign(body.command):
+        await controller.wait_for_reset()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

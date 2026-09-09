@@ -155,10 +155,11 @@ class MessageRegistry:
         Refreshing drops what the controller believes about the sign's contents
         and writes it all again. It runs on a timer, and on every reconnect.
 
-        If the spike shows the sign answers read commands through the adapter,
-        this can become a read-back comparison that only writes on a real
-        mismatch. The frame builders for those reads already exist; what is
-        unproven is whether two-way traffic works over that path at all.
+        This could become a read-back comparison that only writes on a real
+        mismatch: the frame builders for those reads exist, and the sign has
+        since been shown to answer them through the Ethernet adapter. Nothing
+        here depends on that yet. See "Reading state back" in
+        docs/protocol-notes.md.
         """
         async with self._lock:
             self._controller.forget_sign_contents()

@@ -214,6 +214,17 @@ def set_time_format(military: bool) -> bytes:
     return write_special(c.CMD_SET_TIME_FORMAT, b"M" if military else b"S")
 
 
+def soft_reset() -> bytes:
+    """Build the payload that puts the sign through its power-up diagnostics.
+
+    Carries no data, which the protocol is explicit about. This is the
+    non-destructive reset: the sign restarts and its memory survives, so it is
+    the gentle first move on a sign whose decoder has wedged. Not to be confused
+    with :func:`clear_memory`, which resets the sign by erasing it.
+    """
+    return write_special(c.CMD_SOFT_RESET)
+
+
 # ===========================================================================
 # Reading state back from the sign.
 #

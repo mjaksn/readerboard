@@ -83,8 +83,15 @@ its state file, and reconfigures only when the plan itself changes. Changing
 is done deliberately, it is logged at WARNING, and it must never become
 something an ordinary message update can trigger.
 
-There is one place it runs on demand: `POST /sign/reboot`, the recovery path for
-a sign whose decoder has wedged out of reach. It clears the sign deliberately to
+Note that the protocol has a second reset which is nothing to do with this one.
+`E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,
+verified on hardware by reading everything back either side of it. It is the
+gentle recovery and carries none of the warnings below. The two are a byte
+apart, so read which one a change means.
+
+There is one place the dangerous one runs on demand: `POST /sign/reboot`, the
+recovery path for a sign whose decoder has wedged out of reach and which a soft
+reset did not bring back. It clears the sign deliberately to
 reset it, then re-pushes every slot and the run sequence from the service's own
 record, so the erase is followed at once by a restore and the display comes back
 rather than staying blank. `MessageRegistry.reboot` is the whole of it; it is

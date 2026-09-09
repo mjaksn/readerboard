@@ -248,17 +248,34 @@ shown something it did not ask for.
 
 A sign mounted out of reach can wedge: a stray bit corrupts what its decoder is
 showing, it stops responding to writes, and there is no power switch within reach.
-`POST /sign/reboot` is the recovery for that. It clears the sign, which resets it,
-waits for it to restart, then re-pushes every message and the run sequence from the
-service's own record, so the display comes back to what it was rather than blank.
+There are two recoveries, and they are not interchangeable. Try the gentle one first.
+
+**A soft reset restarts the sign and erases nothing.** The sign runs the same power-up
+diagnostics it runs when you plug it in, then carries on showing what it was showing.
+Its memory, its file table and its messages all survive; this was verified on the sign
+by reading them back either side of a reset.
+
+```
+curl -X POST http://localhost:5001/sign/command \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"command": "SOFT_RESET"}'
+```
+
+The call waits out the diagnostics before answering, so a 204 means the sign is
+listening again rather than that the bytes went out.
+
+**`POST /sign/reboot` is the escalation, and it is destructive.** It clears the sign
+outright, waits for it to restart, then re-pushes every message and the run sequence
+from the service's own record, so the display still comes back to what it was.
 
 ```
 curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'
 ```
 
-It is disruptive: the sign is blank for about ten seconds while it resets. Use it to
-recover a wedged sign, not to clear messages, which `DELETE /messages` does without a
-reset. The client fronts it with a warning-coloured confirmation for the same reason.
+Reach for it only when a soft reset was not enough. The sign is blank for about ten
+seconds while it resets. Neither is a way to clear messages: `DELETE /messages` does
+that without resetting anything. The client fronts the reboot with a warning-coloured
+confirmation for the same reason.
 
 ## Configuration
 

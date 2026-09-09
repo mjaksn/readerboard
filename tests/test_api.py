@@ -10,6 +10,7 @@ from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
 from readerboard.protocol import frames
+from readerboard.services import commands
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
@@ -305,6 +306,46 @@ class TestSignCommands:
             headers=HEADERS,
         )
         assert response.status_code == 204
+
+    def test_a_soft_reset(self, client, sign):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.packets.clear()
+
+        response = client.post(
+            "/sign/command", json={"command": "SOFT_RESET", "parameter": ""}, headers=HEADERS
+        )
+
+        assert response.status_code == 204
+        assert sign.packets == [frames.packet(frames.soft_reset())]
+
+    def test_a_soft_reset_erases_nothing(self, client, sign):
+        # The whole point of it. The destructive reset is POST /sign/reboot.
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.packets.clear()
+
+        client.post(
+            "/sign/command", json={"command": "SOFT_RESET", "parameter": ""}, headers=HEADERS
+        )
+
+        assert frames.packet(frames.clear_memory()) not in sign.packets
+        assert client.get("/messages").json()[0]["key"] == "one"
+
+    def test_only_a_reset_makes_the_route_wait(self):
+        # The wait is what stops a write landing while the sign is deaf through
+        # its diagnostics. Spelled out so that a command which restarts the sign
+        # has to declare itself here rather than quietly not waiting.
+        assert commands.resets_the_sign("SOFT_RESET")
+        assert commands.resets_the_sign("  soft_reset  ")
+        for name in ("SET_TIME", "SET_DAY_OF_WEEK", "SET_TIME_FORMAT"):
+            assert not commands.resets_the_sign(name)
+
+    def test_a_soft_reset_with_a_parameter_is_400(self, client):
+        # Refused rather than ignored: the caller meant something by it.
+        response = client.post(
+            "/sign/command", json={"command": "SOFT_RESET", "parameter": "9"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "takes no parameter" in response.json()["detail"]
 
     def test_rebooting_the_sign(self, client, sign):
         client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)

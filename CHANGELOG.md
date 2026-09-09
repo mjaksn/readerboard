@@ -15,6 +15,18 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **A `SOFT_RESET` control command restarts the sign without erasing it.** The
+  protocol has two resets a byte apart, and only one of them is destructive.
+  `E,` puts the sign through its power-up diagnostics and keeps everything:
+  checked on a BetaBrite Classic by reading the memory configuration, the pool
+  counts, the run sequence and two text files back either side of it, all byte
+  for byte identical. So this is the first thing to try on a sign that has
+  stopped responding, and `POST /sign/reboot` below is the escalation. It joins
+  the closed control command set on `POST /sign/command`, since it disturbs no
+  file the service tracks, and it takes no parameter. The call waits out the
+  diagnostics before answering, because the sign is deaf through them and a
+  write sent into that window would go missing rather than be refused.
+
 - **`POST /sign/reboot` resets a wedged sign and restores the display.** A sign
   mounted out of reach can stop responding to writes when a stray bit corrupts
   what its decoder is showing, and cannot be power cycled by hand. This clears

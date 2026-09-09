@@ -125,6 +125,26 @@ CMD_SET_DAY_OF_WEEK = b"&"
 CMD_SET_TIME_FORMAT = b"'"
 
 # ==========================================================================
+# Soft reset
+# ==========================================================================
+# Table 15 on document page 21, for the label "," (2CH): "causes a soft reset of
+# the sign. There is no data in this field. A soft reset causes the sign to go
+# through its power-up diagnostics. Memory will not be cleared
+# (non-destructive)."
+#
+# Both halves of that were checked on a BetaBrite Classic through an Ethernet to
+# RS-232 adapter rather than taken on trust. The sign ran the same self test it
+# runs at power on, and reads of the memory configuration, the memory pool, the
+# run sequence and two text files came back byte for byte identical either side
+# of it. See docs/protocol-notes.md.
+#
+# It takes no parameter, and it is the one reset in this module that destroys
+# nothing, which is what makes it the first thing to try on a sign whose decoder
+# has wedged. SF_SET_MEMORY_CONFIG below is the destructive one.
+
+CMD_SOFT_RESET = b","
+
+# ==========================================================================
 # Display position
 # ==========================================================================
 # The first byte of a TEXT file's mode field, from Table 12 on document page 18.
