@@ -1,10 +1,11 @@
 """Turning a named control command and its parameter into a payload.
 
 These are the commands that act on the sign itself rather than on a message:
-setting its clock, its day of week, how it renders the time, and restarting it.
+setting its clock, its day of week, how it renders the time, sounding its
+speaker, and restarting it.
 
 The set is deliberately closed. Anything reaching the sign from here is one of
-these four, none of which touches the memory configuration or the run time
+these five, none of which touches the memory configuration or the run time
 table, so a caller cannot use this route to disturb the file layout the service
 believes it has.
 
@@ -66,6 +67,8 @@ def build(name: str, parameter: str) -> bytes:
         return _set_day_of_week(parameter)
     if command == "SET_TIME_FORMAT":
         return _set_time_format(parameter)
+    if command == "SOUND":
+        return _sound(parameter)
     if command == "SOFT_RESET":
         return _soft_reset(parameter)
 
@@ -116,6 +119,22 @@ def _set_time_format(parameter: str) -> bytes:
             "SET_TIME_FORMAT takes 'S' for standard or 'M' for military, got %r" % parameter
         )
     return frames.set_time_format(military=value == "M")
+
+
+def _sound(parameter: str) -> bytes:
+    # Named rather than passed through as the protocol's "0" and "1", the way
+    # display modes and text positions are named. The sounds are spelled out
+    # instead of taking the protocol's programmable form, because this sign's
+    # buzzer ignores the frequency that form carries; see constants.py.
+    value = parameter.strip().upper()
+    if value == "TONE":
+        return frames.sound_tone()
+    if value == "BEEPS":
+        return frames.sound_beeps()
+    raise BadParameter(
+        "SOUND takes 'TONE' for one continuous tone or 'BEEPS' for three short beeps, "
+        "got %r" % parameter
+    )
 
 
 def _soft_reset(parameter: str) -> bytes:

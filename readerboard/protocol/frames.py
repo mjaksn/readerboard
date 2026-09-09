@@ -214,6 +214,19 @@ def set_time_format(military: bool) -> bytes:
     return write_special(c.CMD_SET_TIME_FORMAT, b"M" if military else b"S")
 
 
+def sound_tone() -> bytes:
+    """Build the payload for one continuous tone, about two seconds long."""
+    return write_special(c.CMD_SPEAKER_TONE, c.TONE_CONTINUOUS)
+
+
+def sound_beeps() -> bytes:
+    """Build the payload for three short beeps, about two seconds in total.
+
+    Three is the protocol's own count and is not adjustable in this form.
+    """
+    return write_special(c.CMD_SPEAKER_TONE, c.TONE_BEEPS)
+
+
 def soft_reset() -> bytes:
     """Build the payload that puts the sign through its power-up diagnostics.
 

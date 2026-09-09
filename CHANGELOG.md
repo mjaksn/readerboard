@@ -15,6 +15,16 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **A `SOUND` control command sounds the sign's speaker.** `TONE` gives one
+  continuous tone of about two seconds, `BEEPS` gives three short beeps, and
+  those are the only two sounds offered because they are the only two this
+  hardware can make. The protocol also has a programmable tone carrying a
+  frequency, a duration and a repeat count, which is deliberately not exposed:
+  driving a BetaBrite Classic across the whole documented frequency range, `00`
+  against `FE`, produced no audible difference, so the sign has a fixed-pitch
+  buzzer and drops the frequency. A parameter the sign silently ignores would
+  promise control that does not exist.
+
 - **A `SOFT_RESET` control command restarts the sign without erasing it.** The
   protocol has two resets a byte apart, and only one of them is destructive.
   `E,` puts the sign through its power-up diagnostics and keeps everything:

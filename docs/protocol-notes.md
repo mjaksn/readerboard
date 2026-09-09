@@ -200,6 +200,32 @@ sent into that window is not refused, it simply is not there afterwards. The con
 command route waits the reset out before answering, so a 204 means the sign is listening
 again rather than that bytes were sent.
 
+## The speaker is a fixed-pitch buzzer
+
+Table 15 gives `(` (28H) as Generate Speaker Tone, taking one to five characters: `A` and
+`B` turn the speaker on and off, `0` is "a continuous tone for about 2 seconds", `1` is
+"three, short beeps (total time about 2 seconds)", and `2` takes `FFDR`, a programmable
+tone carrying a frequency `00`..`FE`, a duration in 0.1s steps, and a repeat count.
+Options `3` and `4` are Alpha 2.0 and 3.0 only, so not this sign.
+
+The programmable form is not exposed, and the reason is the hardware. On 2026-09-09 the
+BetaBrite Classic was driven at `40` against `A0`, then at the extreme ends `00` against
+`FE`, holding duration and repeat constant. Every tone sounded the same pitch. A suspected
+loudness difference did not survive a controlled two-tone comparison either and was put
+down to the earlier tones colouring the impression. So this sign has a fixed-pitch piezo
+buzzer and drops the frequency byte.
+
+Exposing `FFDR` would therefore promise a caller control the sign does not have, and a
+parameter that is silently ignored is worse than one that was never offered. The service
+exposes the two fixed sounds and nothing else, as `SOUND` with `TONE` or `BEEPS`.
+
+Label `!` (21H) enables and disables the speaker, and Table 16 reads it back: `00` is
+enabled, `FF` disabled. The document calls disabled the default. This sign read as
+*enabled* without having been told to, which is consistent with it beeping at power-up, so
+that documented default is not universal. Nothing in the service writes that register, so
+a sign found disabled would beep silently; that is the thing to check first if `SOUND`
+appears to do nothing.
+
 ## What the spike still has to confirm
 
 The wire format questions are closed. Four behavioural ones were open, and a session with

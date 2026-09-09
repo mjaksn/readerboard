@@ -307,6 +307,36 @@ class TestSignCommands:
         )
         assert response.status_code == 204
 
+    @pytest.mark.parametrize(
+        ("parameter", "expected"),
+        [
+            ("TONE", frames.sound_tone),
+            ("BEEPS", frames.sound_beeps),
+            ("beeps", frames.sound_beeps),
+        ],
+    )
+    def test_sounding_the_speaker(self, client, sign, parameter, expected):
+        sign.packets.clear()
+
+        response = client.post(
+            "/sign/command", json={"command": "SOUND", "parameter": parameter}, headers=HEADERS
+        )
+
+        assert response.status_code == 204
+        assert sign.packets == [frames.packet(expected())]
+
+    def test_an_unknown_sound_is_400(self, client):
+        response = client.post(
+            "/sign/command", json={"command": "SOUND", "parameter": "SIREN"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "TONE" in response.json()["detail"]
+
+    def test_sounding_the_speaker_does_not_wait(self):
+        # Only a restart makes the sign deaf. A beep must not hold the request
+        # open for the ten seconds a reset needs.
+        assert not commands.resets_the_sign("SOUND")
+
     def test_a_soft_reset(self, client, sign):
         client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
         sign.packets.clear()

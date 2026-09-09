@@ -145,6 +145,31 @@ CMD_SET_TIME_FORMAT = b"'"
 CMD_SOFT_RESET = b","
 
 # ==========================================================================
+# The speaker
+# ==========================================================================
+# Table 15, document page 22, label "(" (28H) Generate Speaker Tone: "one to
+# five ASCII characters which generate a tone from a sign's speaker", of which
+# "0" is "Generate a continuous tone for about 2 seconds" and "1" is "Generate
+# three, short beeps (total time about 2 seconds)".
+#
+# The table also offers "2" followed by FFDR, a programmable tone carrying a
+# frequency, a duration and a repeat count. That is not exposed, and the reason
+# is the hardware rather than the effort. A BetaBrite Classic was driven across
+# the whole documented frequency range, 00 against FE, and the two ends were
+# indistinguishable by ear: this sign has a fixed-pitch piezo buzzer and ignores
+# the frequency byte. Offering a parameter the sign silently drops would promise
+# control that does not exist, so the two fixed sounds are all this exposes.
+# Options "3" and "4" are Alpha 2.0 and 3.0 only, so not this sign at all.
+#
+# Label "!" (21H) enables and disables the speaker, and Table 16 reads it back.
+# The document calls disabled the default; the sign measured here read as
+# enabled without being told to, so that default is not universal.
+
+CMD_SPEAKER_TONE = b"("
+TONE_CONTINUOUS = b"0"
+TONE_BEEPS = b"1"
+
+# ==========================================================================
 # Display position
 # ==========================================================================
 # The first byte of a TEXT file's mode field, from Table 12 on document page 18.

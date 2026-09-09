@@ -148,6 +148,9 @@ SPECIAL_FUNCTION_LABELS = [
     (c.CMD_SET_DAY_OF_WEEK, b"\x26", '"&" 26H Set Day of Week, Table 15'),
     (c.CMD_SET_TIME_FORMAT, b"\x27", "\"'\" 27H Set Time Format, Table 15"),
     (c.CMD_SOFT_RESET, b"\x2c", '"," 2CH Soft Reset, Table 15'),
+    (c.CMD_SPEAKER_TONE, b"\x28", '"(" 28H Generate Speaker Tone, Table 15'),
+    (c.TONE_CONTINUOUS, b"\x30", '"0" 30H continuous tone for about 2 seconds, Table 15'),
+    (c.TONE_BEEPS, b"\x31", '"1" 31H three short beeps, Table 15'),
 ]
 
 

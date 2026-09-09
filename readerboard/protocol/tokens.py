@@ -142,6 +142,13 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
         "1 for Sunday through 7 for Saturday",
     ),
     Token(
+        "SOUND",
+        c.CMD_SPEAKER_TONE,
+        "Sound the sign's speaker. The parameter is 'TONE' for one continuous tone of "
+        "about two seconds or 'BEEPS' for three short beeps. The sign has a fixed-pitch "
+        "buzzer, so there is no pitch to choose and no other sound to make",
+    ),
+    Token(
         "SOFT_RESET",
         c.CMD_SOFT_RESET,
         "Restart the sign, which runs its power-up diagnostics and comes back showing "

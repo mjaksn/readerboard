@@ -229,6 +229,19 @@ curl -X POST http://localhost:5001/alerts \
      -d '{"message": "<red><flash_on>SMOKE ALARM", "ttl_seconds": 30}'
 ```
 
+Make a noise, which is worth pairing with an alert if the sign is somewhere nobody
+is watching it:
+
+```
+curl -X POST http://localhost:5001/sign/command \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"command": "SOUND", "parameter": "BEEPS"}'
+```
+
+`BEEPS` is three short beeps and `TONE` is one continuous tone of about two seconds.
+Those are the only two sounds there are: the sign has a fixed-pitch buzzer, so there
+is no pitch or volume to choose.
+
 The full API is at `/docs`. Every markup token, display mode, text position and
 control command is listed by the `/enumerations` reads there, which answer at
 request time rather than being frozen into the description.

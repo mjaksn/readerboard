@@ -149,6 +149,16 @@ class TestClockCommands:
         assert frames.set_time_format(military=True) == b"E\x27" b"M"
         assert frames.set_time_format(military=False) == b"E\x27S"
 
+    def test_the_two_sounds(self):
+        assert frames.sound_tone() == b"E(0"
+        assert frames.sound_beeps() == b"E(1"
+
+    def test_no_sound_carries_a_frequency(self):
+        # The programmable form is E(2 followed by FFDR. This sign's buzzer is
+        # fixed pitch and drops the frequency, so nothing here should emit it.
+        assert not frames.sound_tone().startswith(b"E(2")
+        assert not frames.sound_beeps().startswith(b"E(2")
+
     def test_soft_reset(self):
         # "There is no data in this field", so the payload is the bare label.
         # Sent to a BetaBrite Classic it ran the sign's power-up diagnostics and
