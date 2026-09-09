@@ -15,6 +15,15 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **A `SPEAKER` control command mutes the sign.** `ON` and `OFF` write the
+  sign's speaker enable register, and `OFF` is a mute: `SOUND` is still
+  accepted and makes no noise. The setting lives on the sign and survives a
+  restart. It is a separate command from `SOUND` deliberately, because a sound
+  command that re-enabled the speaker on its way past would leave the mute
+  unable to hold, so nothing but this writes that register. It is also the
+  answer when `SOUND` appears to do nothing: the protocol calls disabled the
+  default, and a sign in that state beeps silently.
+
 - **A `SOUND` control command sounds the sign's speaker.** `TONE` gives one
   continuous tone of about two seconds, `BEEPS` gives three short beeps, and
   those are the only two sounds offered because they are the only two this

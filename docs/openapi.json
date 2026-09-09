@@ -108,7 +108,7 @@
         "description": "A command aimed at the sign itself rather than at a message.",
         "properties": {
           "command": {
-            "description": "one of SET_DAY_OF_WEEK, SET_TIME, SET_TIME_FORMAT, SOFT_RESET, SOUND",
+            "description": "one of SET_DAY_OF_WEEK, SET_TIME, SET_TIME_FORMAT, SOFT_RESET, SOUND, SPEAKER",
             "title": "Command",
             "type": "string"
           },

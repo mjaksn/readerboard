@@ -214,6 +214,17 @@ def set_time_format(military: bool) -> bytes:
     return write_special(c.CMD_SET_TIME_FORMAT, b"M" if military else b"S")
 
 
+def set_speaker(enabled: bool) -> bytes:
+    """Build the payload that enables or disables the sign's speaker.
+
+    Disabling is a mute: the sign keeps accepting tone commands and makes no
+    sound. Deliberately separate from :func:`sound_tone` and
+    :func:`sound_beeps`, which never touch this register, because a sound
+    command that quietly re-enabled the speaker would make the mute useless.
+    """
+    return write_special(c.CMD_SPEAKER_ENABLE, c.SPEAKER_ON if enabled else c.SPEAKER_OFF)
+
+
 def sound_tone() -> bytes:
     """Build the payload for one continuous tone, about two seconds long."""
     return write_special(c.CMD_SPEAKER_TONE, c.TONE_CONTINUOUS)

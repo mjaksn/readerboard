@@ -1,13 +1,17 @@
 """Turning a named control command and its parameter into a payload.
 
 These are the commands that act on the sign itself rather than on a message:
-setting its clock, its day of week, how it renders the time, sounding its
-speaker, and restarting it.
+setting its clock, its day of week, how it renders the time, sounding and
+silencing its speaker, and restarting it.
 
 The set is deliberately closed. Anything reaching the sign from here is one of
-these five, none of which touches the memory configuration or the run time
+these six, none of which touches the memory configuration or the run time
 table, so a caller cannot use this route to disturb the file layout the service
 believes it has.
+
+SPEAKER and SOUND are kept apart on purpose. A sound command that enabled the
+speaker on its way past would make SPEAKER OFF unable to hold, so muting is the
+one thing that stays where the caller put it.
 
 SOFT_RESET is in the set for exactly that reason. It restarts the sign and the
 sign's memory survives, verified on hardware either side of the reset, so it
@@ -67,6 +71,8 @@ def build(name: str, parameter: str) -> bytes:
         return _set_day_of_week(parameter)
     if command == "SET_TIME_FORMAT":
         return _set_time_format(parameter)
+    if command == "SPEAKER":
+        return _speaker(parameter)
     if command == "SOUND":
         return _sound(parameter)
     if command == "SOFT_RESET":
@@ -119,6 +125,15 @@ def _set_time_format(parameter: str) -> bytes:
             "SET_TIME_FORMAT takes 'S' for standard or 'M' for military, got %r" % parameter
         )
     return frames.set_time_format(military=value == "M")
+
+
+def _speaker(parameter: str) -> bytes:
+    value = parameter.strip().upper()
+    if value == "ON":
+        return frames.set_speaker(True)
+    if value == "OFF":
+        return frames.set_speaker(False)
+    raise BadParameter("SPEAKER takes 'ON' or 'OFF', got %r" % parameter)
 
 
 def _sound(parameter: str) -> bytes:

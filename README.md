@@ -242,6 +242,11 @@ curl -X POST http://localhost:5001/sign/command \
 Those are the only two sounds there are: the sign has a fixed-pitch buzzer, so there
 is no pitch or volume to choose.
 
+Silence it with `{"command": "SPEAKER", "parameter": "OFF"}`, and turn it back on with
+`ON`. That is a real mute: `SOUND` is still accepted and makes no noise. The setting
+lives on the sign and survives a restart, so it is also the first thing to check if
+`SOUND` ever seems to do nothing.
+
 The full API is at `/docs`. Every markup token, display mode, text position and
 control command is listed by the `/enumerations` reads there, which answer at
 request time rather than being frozen into the description.

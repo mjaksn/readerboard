@@ -161,13 +161,22 @@ CMD_SOFT_RESET = b","
 # control that does not exist, so the two fixed sounds are all this exposes.
 # Options "3" and "4" are Alpha 2.0 and 3.0 only, so not this sign at all.
 #
-# Label "!" (21H) enables and disables the speaker, and Table 16 reads it back.
-# The document calls disabled the default; the sign measured here read as
-# enabled without being told to, so that default is not universal.
+# Label "!" (21H) enables and disables the speaker, "two ASCII characters: 00
+# (30H + 30H) = enable speaker, FF (46H + 46H) = disable speaker (default)".
+# Table 16 reads the same label back in the same two characters. The document
+# calls disabled the default; the sign measured here read as enabled without
+# being told to, so that default is not universal.
+#
+# Both values are a pair of ASCII characters rather than one byte, which is why
+# SPEAKER_ON is b"00" and not b"\x00".
 
 CMD_SPEAKER_TONE = b"("
 TONE_CONTINUOUS = b"0"
 TONE_BEEPS = b"1"
+
+CMD_SPEAKER_ENABLE = b"!"
+SPEAKER_ON = b"00"
+SPEAKER_OFF = b"FF"
 
 # ==========================================================================
 # Display position

@@ -156,6 +156,13 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
         "1 for Sunday through 7 for Saturday",
     ),
     Token(
+        "SPEAKER",
+        c.CMD_SPEAKER_ENABLE,
+        "Enable or silence the sign's speaker. The parameter is 'ON' or 'OFF'. Turning it "
+        "off mutes the sign: SOUND is still accepted and makes no noise. The setting "
+        "lives on the sign and survives a restart",
+    ),
+    Token(
         "SOUND",
         c.CMD_SPEAKER_TONE,
         "Sound the sign's speaker. The parameter is 'TONE' for one continuous tone of "

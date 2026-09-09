@@ -308,6 +308,27 @@ class TestSignCommands:
         assert response.status_code == 204
 
     @pytest.mark.parametrize(
+        ("parameter", "enabled"),
+        [("ON", True), ("OFF", False), ("off", False)],
+    )
+    def test_muting_and_unmuting_the_speaker(self, client, sign, parameter, enabled):
+        sign.packets.clear()
+
+        response = client.post(
+            "/sign/command", json={"command": "SPEAKER", "parameter": parameter}, headers=HEADERS
+        )
+
+        assert response.status_code == 204
+        assert sign.packets == [frames.packet(frames.set_speaker(enabled))]
+
+    def test_an_unknown_speaker_setting_is_400(self, client):
+        response = client.post(
+            "/sign/command", json={"command": "SPEAKER", "parameter": "MUTE"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "ON" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
         ("parameter", "expected"),
         [
             ("TONE", frames.sound_tone),

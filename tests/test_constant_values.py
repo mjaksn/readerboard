@@ -151,6 +151,9 @@ SPECIAL_FUNCTION_LABELS = [
     (c.CMD_SPEAKER_TONE, b"\x28", '"(" 28H Generate Speaker Tone, Table 15'),
     (c.TONE_CONTINUOUS, b"\x30", '"0" 30H continuous tone for about 2 seconds, Table 15'),
     (c.TONE_BEEPS, b"\x31", '"1" 31H three short beeps, Table 15'),
+    (c.CMD_SPEAKER_ENABLE, b"\x21", '"!" 21H Enable / Disable a Sign\'s Speaker, Table 15'),
+    (c.SPEAKER_ON, b"\x30\x30", '"00" 30H + 30H = enable speaker, Table 15'),
+    (c.SPEAKER_OFF, b"\x46\x46", '"FF" 46H + 46H = disable speaker, Table 15'),
 ]
 
 

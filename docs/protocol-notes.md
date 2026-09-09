@@ -246,11 +246,15 @@ parameter that is silently ignored is worse than one that was never offered. The
 exposes the two fixed sounds and nothing else, as `SOUND` with `TONE` or `BEEPS`.
 
 Label `!` (21H) enables and disables the speaker, and Table 16 reads it back: `00` is
-enabled, `FF` disabled. The document calls disabled the default. This sign read as
-*enabled* without having been told to, which is consistent with it beeping at power-up, so
-that documented default is not universal. Nothing in the service writes that register, so
-a sign found disabled would beep silently; that is the thing to check first if `SOUND`
-appears to do nothing.
+enabled, `FF` disabled, each a pair of ASCII characters rather than a byte. The document
+calls disabled the default. This sign read as *enabled* without having been told to, which
+is consistent with it beeping at power-up, so that documented default is not universal.
+
+The service exposes that register as `SPEAKER`, with `ON` and `OFF`, which is the mute. It
+is a separate command from `SOUND` on purpose: a sound command that enabled the speaker on
+its way past would leave `SPEAKER OFF` unable to hold, so nothing but `SPEAKER` writes
+this register. A sign found silent is a sign whose register is `FF`, and that is the first
+thing to check when `SOUND` appears to do nothing.
 
 ## What the spike still has to confirm
 

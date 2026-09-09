@@ -149,6 +149,16 @@ class TestClockCommands:
         assert frames.set_time_format(military=True) == b"E\x27" b"M"
         assert frames.set_time_format(military=False) == b"E\x27S"
 
+    def test_the_speaker_switch(self):
+        # Two ASCII characters, not one byte: "00" is 30H 30H, "FF" is 46H 46H.
+        assert frames.set_speaker(True) == b"E!00"
+        assert frames.set_speaker(False) == b"E!FF"
+
+    def test_a_sound_never_touches_the_speaker_switch(self):
+        # Otherwise SPEAKER OFF could not hold: the next beep would undo it.
+        for payload in (frames.sound_tone(), frames.sound_beeps()):
+            assert not payload.startswith(b"E!")
+
     def test_the_two_sounds(self):
         assert frames.sound_tone() == b"E(0"
         assert frames.sound_beeps() == b"E(1"
