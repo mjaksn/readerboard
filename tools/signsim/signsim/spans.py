@@ -126,6 +126,12 @@ def _build_table() -> dict[bytes, tuple[SpanKind, str, str]]:
         (c.COUNTER_3, "counter_3", "Insert the current value of counter 3"),
         (c.COUNTER_4, "counter_4", "Insert the current value of counter 4"),
         (c.COUNTER_5, "counter_5", "Insert the current value of counter 5"),
+        # The service offers no date token, because this sign applies no century
+        # to its two-digit year. These are still decoded: the codes are real, and
+        # a message stored by a version that did offer them has to stay readable.
+        (c.CURDATE_MMDDYY_SLASH, "date_mmddyy_slash", "Insert the current date as MM/DD/YY"),
+        (c.CURDATE_DDMMYY_SLASH, "date_ddmmyy_slash", "Insert the current date as DD/MM/YY"),
+        (c.CURDATE_MMMDDYYYY, "date_mmmddyyyy", "Insert the current date as MMM.DD, YYYY"),
         (c.CURDATE_MMDDYY_DASH, "date_mmddyy_dash", "Insert the current date as MM-DD-YY"),
         (c.CURDATE_DDMMYY_DASH, "date_ddmmyy_dash", "Insert the current date as DD-MM-YY"),
         (c.CURDATE_MMDDYY_DOT, "date_mmddyy_dot", "Insert the current date as MM.DD.YY"),

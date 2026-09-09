@@ -24,6 +24,34 @@ def test_every_token_in_the_table_renders():
         assert render(token.text) == token.value
 
 
+def test_no_token_inserts_the_signs_date():
+    # This sign puts no century on its two-digit year, so a date token would
+    # render a confidently wrong date. Pinned as an absence, because the codes
+    # are still in constants.py and re-adding a token for one would otherwise
+    # look like filling a gap. tokens.py has the reasoning.
+    date_values = {
+        c.CURDATE_MMDDYY_SLASH,
+        c.CURDATE_DDMMYY_SLASH,
+        c.CURDATE_MMDDYY_DASH,
+        c.CURDATE_DDMMYY_DASH,
+        c.CURDATE_MMDDYY_DOT,
+        c.CURDATE_DDMMYY_DOT,
+        c.CURDATE_MMDDYY_SPACE,
+        c.CURDATE_DDMMYY_SPACE,
+        c.CURDATE_MMMDDYYYY,
+    }
+    offered = {token.value for token in MARKUP_TOKENS}
+    assert not (offered & date_values)
+
+
+def test_the_time_and_day_of_week_are_still_offered():
+    # Both are registers the clock sync writes, so unlike the date they are
+    # right. Removing the date tokens must not take these with them.
+    offered = {token.value for token in MARKUP_TOKENS}
+    assert c.CURTIME_INSERT in offered
+    assert c.CURDATE_WEEKDAYY in offered
+
+
 def test_the_home_assistant_payload_renders():
     # A temperature and the time, the common shape: a value from somewhere
     # else, then <time> for the sign to fill in on its own.

@@ -148,6 +148,25 @@ library, and the names inside it may move without that being a breaking change.
   not. A configuration that quietly lost the setting would still run perfectly
   and simply stop opening a tab, which is not the sort of thing anybody reports.
 
+### Removed
+
+- **The `<date>`, `<date_dmy>` and `<date_long>` markup tokens.** They inserted
+  the sign's own date, and on this hardware that date cannot be made correct.
+  The sign stores a two-digit year, and the windowing that would read `26` as
+  2026 is gated by the protocol's Table 15 footnote 15 to "Alpha protocol
+  version 2.0 and greater", which Table 3 says a Betabrite is not: it is listed
+  as EZ KEY II and Alpha 1.0 only. So the sign applies no century, nothing the
+  service could send would fix it, and every one of these tokens rendered a
+  confidently wrong date. `<date_long>` was the worst of them, drawing a
+  four-digit year out of a field that has no century in it.
+
+  A message that still contains one of these is not rejected. Restored content
+  is re-rendered leniently for exactly this case, so the tag comes back as
+  literal text rather than failing to load, and the sign simulator still
+  annotates the underlying control codes. `<time>` and `<week_day>` are
+  unaffected and stay: both are registers of their own that the clock sync
+  writes at startup, hourly and on every reconnect, so both are right.
+
 ### Fixed
 
 - **Releasing an alert no longer hides every message on the sign.** The release

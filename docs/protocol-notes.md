@@ -200,6 +200,32 @@ sent into that window is not refused, it simply is not there afterwards. The con
 command route waits the reset out before answering, so a 204 means the sign is listening
 again rather than that bytes were sent.
 
+## The sign's date has no century, so no token offers it
+
+Table 15 gives `;` (3BH) as Set Date, six ASCII characters `mmddyy`, and Table 16 reads it
+back in the same shape. Nothing in this service writes it, and that is deliberate rather
+than an oversight, which is worth writing down because the absence looks exactly like a
+gap somebody should close.
+
+The year is two digits. Footnote 15 to that table says: "For Alpha protocol version 2.0
+and greater, the year (yy) is windowed as follows: 00 to 96 = 2000 to 2096. 97 to 99 =
+1997 to 1999." The windowing is gated to 2.0 and above. Table 3, Protocol version
+comparison, lists the supported protocols per sign, and its Betabrite row reads
+`Yes Yes Yes No No No No` against the columns EZ KEY II, Alpha 1.0, Alpha 2.0 and Alpha
+3.0, the last two each split into their two parity variants. A Betabrite is EZ KEY II and
+Alpha 1.0 only.
+
+So this sign applies no century to the year it stores, and no value the service could send
+makes it read as the present day. The `<date>`, `<date_dmy>` and `<date_long>` markup
+tokens were therefore removed: each inserted the sign's own date, and each would have
+drawn a confidently wrong one. `<date_long>` was the worst, rendering `MMM.DD, YYYY` from a
+field with no century in it.
+
+`<time>` and `<week_day>` stay, and the difference is that both are registers of their own
+which `ClockService` writes at startup, hourly, and on every reconnect. The protocol's
+date control codes remain in `constants.py` with their citations, and the sign simulator
+still annotates them, so a message written by an older version stays readable.
+
 ## The speaker is a fixed-pitch buzzer
 
 Table 15 gives `(` (28H) as Generate Speaker Tone, taking one to five characters: `A` and

@@ -56,9 +56,23 @@ MARKUP_TOKENS: tuple[Token, ...] = (
     Token("<half_space>", c.TILDE, "A half width space"),
     Token("<time>", c.CURTIME_INSERT, "Insert the sign's current time"),
     Token("<week_day>", c.CURDATE_WEEKDAYY, "Insert the current day of the week"),
-    Token("<date>", c.CURDATE_MMDDYY_SLASH, "Insert the current date as MM/DD/YY"),
-    Token("<date_dmy>", c.CURDATE_DDMMYY_SLASH, "Insert the current date as DD/MM/YY"),
-    Token("<date_long>", c.CURDATE_MMMDDYYYY, "Insert the current date as MMM.DD, YYYY"),
+    # There is deliberately no token for the sign's date, and this is the one
+    # place in the table where something the sign can draw is withheld.
+    #
+    # The sign stores a two-digit year. The windowing that would read "26" as
+    # 2026 is gated by Table 15's footnote 15 to "Alpha protocol version 2.0 and
+    # greater", and Table 3 lists a Betabrite as EZ KEY II and Alpha 1.0 only.
+    # So this sign applies no century at all, and no amount of setting its date
+    # makes it show the right one. A date token would render a confidently wrong
+    # date, which is worse than offering nothing, and the whole point of the
+    # strict renderer is that a caller is never shown what it did not ask for.
+    #
+    # The time and the day of week above are a different matter and stay: both
+    # are registers of their own, and ClockService writes them at startup,
+    # hourly, and on every reconnect, so they are right. The protocol's date
+    # control codes are still named in constants.py, and the sign simulator
+    # still annotates them, so a message stored by an older version remains
+    # readable. See docs/protocol-notes.md.
     Token("<newline>", c.CR, "Start a new line"),
     Token("<new_page>", c.NEW_PAGE, "Start the next display page"),
     Token("<no_hold_speed>", c.NO_HOLD_SPEED, "Do not pause after the mode finishes"),
