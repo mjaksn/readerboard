@@ -5,10 +5,15 @@
     the API itself is the thing being worked on.
 
     The API key is not optional: with none configured every write answers 503 by
-    design, so a development one is set here. The state path is set because the
-    default is /var/lib/readerboard/state.json, which on Windows would resolve
-    to C:\var\lib and is nobody's idea of a good time. Clock sync is off so the
-    log shows what you did rather than what a timer did.
+    design, so a development one is set here. Set here, and not read from the
+    environment: an entry below wins over the same name inherited from the
+    machine, so unlike the two configurations that run the launcher script, this
+    one takes a different key only by editing the value below.
+
+    The state path is set because the default is
+    /var/lib/readerboard/state.json, which on Windows would resolve to
+    C:\var\lib and is nobody's idea of a good time. Clock sync is off so the log
+    shows what you did rather than what a timer did.
   -->
   <configuration default="false" name="readerboard against the loopback" type="PythonConfigurationType" factoryName="Python">
     <module name="readerboard" />

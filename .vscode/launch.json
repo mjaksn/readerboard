@@ -17,6 +17,15 @@
     // between runs. Closing the client leaves the other two running; closing
     // either of those stops the rest.
     //
+    // Both of those take the API key from READERBOARD_API_KEY when this
+    // machine sets one, and fall back to a development key when it does not,
+    // so running with a key of your own needs no edit to this file. The
+    // loopback configuration below is different: it sets the variable itself,
+    // in an "env" block that wins over the same name inherited from the
+    // machine, so a different key there means editing the value. The real sign
+    // takes its key from the config file named below instead, which is the
+    // ignored one.
+    //
     // "readerboard against the loopback" needs no hardware either: loop:// is
     // pyserial's loopback, so the service starts, serves /docs, and accepts
     // writes that go nowhere. Use it when the API itself is the thing being

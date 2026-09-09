@@ -17,6 +17,13 @@
     the base URL into the settings it remembers between runs, replacing an
     address you may have left in it.
 
+    To run with a key of your own, set READERBOARD_API_KEY in the environment
+    this machine gives its processes. The script takes it from there, and the
+    printed line then quotes that key rather than the development default. Do
+    not put it in the parameters below instead: this file is tracked and
+    shared, so the key would be committed, and PyCharm rewrites the file
+    whenever a field in it is edited, which is what strips this comment.
+
     Closing the client leaves the other two running. Closing either of those
     stops the rest, because the service and the simulator are no use without
     each other.

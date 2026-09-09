@@ -9,6 +9,11 @@
     what it sets and why; its docstring explains the one default worth knowing,
     which is that the service starts from a clean state file because the
     simulator starts empty.
+
+    The one thing worth changing from outside it is the API key. The script
+    gives the service a development key, and takes READERBOARD_API_KEY from
+    the environment ahead of that when this machine sets one, so a key of your
+    own needs no edit here and never ends up in this tracked file.
   -->
   <configuration default="false" name="readerboard and the sign simulator" type="PythonConfigurationType" factoryName="Python">
     <module name="readerboard" />
