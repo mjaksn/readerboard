@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all fifteen
+Everything the tool does is on it: the connection, the enumerations, all sixteen
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -701,7 +701,12 @@ class MainWindow(QMainWindow):
         self.run(self._form.operation)
 
     def run(self, operation: Operation) -> bool:
-        """Send one operation, confirming first if it clears the whole sign.
+        """Send one operation, confirming first if it is disruptive to run.
+
+        Two operations ask first, and for different reasons: clearing every
+        message throws work away, and rebooting the sign blanks it while it
+        resets. See ``_confirm_disruptive`` for the warning-coloured prompt the
+        second one shows.
 
         Returns whether the request actually went out, which is what stops a
         caller acting as though it had.
@@ -715,7 +720,10 @@ class MainWindow(QMainWindow):
             )
             return False
 
-        if operation.destructive:
+        if operation.confirm:
+            if not self._confirm_disruptive(operation):
+                return False
+        elif operation.destructive:
             answer = QMessageBox.question(
                 self,
                 "Clear every message?",
@@ -736,6 +744,27 @@ class MainWindow(QMainWindow):
         self._set_strip("Sending %s ..." % operation.signature, None)
         self._caller.send(prepared)
         return True
+
+    def _confirm_disruptive(self, operation: Operation) -> bool:
+        """Ask before a disruptive operation, in warning colours. Returns yes/no.
+
+        Distinct from the plain question a destructive delete asks. This fronts
+        an operation that is not throwing work away but is disruptive to run,
+        such as rebooting the sign, so it wears the theme's warning ink and
+        defaults to No. The wording is the operation's own ``confirm`` text, so
+        the catalogue carries what is said and this only paints it.
+        """
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Please confirm")
+        box.setText(operation.summary)
+        box.setInformativeText(operation.confirm)
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        box.setStyleSheet("QLabel { color: %s }" % self.theme.bad)
+        return box.exec() == QMessageBox.StandardButton.Yes
 
     def load_slot_keys(self) -> None:
         """Fetch the message list so the key boxes can offer what is registered.

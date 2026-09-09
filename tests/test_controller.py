@@ -7,7 +7,7 @@ import pytest
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.protocol.markup import render
-from readerboard.sign.controller import SignController
+from readerboard.sign.controller import RESET_SETTLE_SECONDS, SignController
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -160,6 +160,34 @@ class TestConcurrency:
 
         await controller.write_text_file(b"A", b"ONE")
         await controller.write_text_file(b"A", b"TWO")
+
+        assert slept == []
+
+
+class TestWaitingForAReset:
+    async def test_it_waits_the_settle_when_the_link_paces_packets(self):
+        slept: list[float] = []
+
+        async def record(seconds: float) -> None:
+            slept.append(seconds)
+
+        controller = SignController(FakeTransport(), inter_packet_delay=0.05, sleep=record)
+
+        await controller.wait_for_reset()
+
+        assert slept == [RESET_SETTLE_SECONDS]
+
+    async def test_it_does_not_wait_when_pacing_is_configured_away(self):
+        # A zero delay is a fake or a simulator, which has no reset to wait
+        # through, so the recovery path must not stall a test for ten seconds.
+        slept: list[float] = []
+
+        async def record(seconds: float) -> None:
+            slept.append(seconds)
+
+        controller = SignController(FakeTransport(), inter_packet_delay=0, sleep=record)
+
+        await controller.wait_for_reset()
 
         assert slept == []
 

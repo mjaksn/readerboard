@@ -39,6 +39,15 @@ logger = logging.getLogger(__name__)
 # operation.
 MEMORY_CLEAR_SETTLE_SECONDS = 2.0
 
+# How long to wait for an "E$" clear's reset to finish before re-pushing message
+# content. apply_memory_config lets the configuration itself buffer through the
+# reset, which the sign applies as it comes back, but writing message content
+# needs the sign actually back and listening rather than merely able to hold one
+# buffered write. The clear puts the sign through a reset it is deaf through for
+# several seconds; this waits that out. Only the reboot recovery path pays it,
+# and only against real hardware.
+RESET_SETTLE_SECONDS = 10.0
+
 ReconnectHook = Callable[[], Awaitable[None]]
 
 
@@ -242,6 +251,19 @@ class SignController:
         await self._send(frames.set_memory_config(allocations))
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
+
+    async def wait_for_reset(self) -> None:
+        """Pause for an E$ clear's reset to finish before writing content again.
+
+        :meth:`apply_memory_config` sends the clear and lets the configuration
+        buffer through the reset, but re-pushing message content needs the sign
+        actually back and listening, not merely able to hold one buffered write.
+        Gated on ``inter_packet_delay`` for the same reason the memory-clear
+        settle is: a link told to pace nothing is a fake or a simulator, which
+        has no reset to wait through.
+        """
+        if self._inter_packet_delay:
+            await self._sleep(RESET_SETTLE_SECONDS)
 
     async def send_special(self, payload: bytes) -> None:
         """Send a special function such as a clock command.

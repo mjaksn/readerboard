@@ -83,6 +83,16 @@ its state file, and reconfigures only when the plan itself changes. Changing
 is done deliberately, it is logged at WARNING, and it must never become
 something an ordinary message update can trigger.
 
+There is one place it runs on demand: `POST /sign/reboot`, the recovery path for
+a sign whose decoder has wedged out of reach. It clears the sign deliberately to
+reset it, then re-pushes every slot and the run sequence from the service's own
+record, so the erase is followed at once by a restore and the display comes back
+rather than staying blank. `MessageRegistry.reboot` is the whole of it; it is
+gated behind the API key like every other write, and the client fronts it with a
+warning-coloured confirmation. This is the exception the paragraph above allows
+for, not a hole in it: a message write still cannot reach the clear, only this
+one route asked for by name can.
+
 ## What each thing is called
 
 Three things here can be run, and each answers to a name in three tiers. Use the
@@ -243,7 +253,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all fifteen endpoints, formats every
+it at a running service and it can call all sixteen endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are

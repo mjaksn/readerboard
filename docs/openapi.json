@@ -914,6 +914,26 @@
         ]
       }
     },
+    "/sign/reboot": {
+      "post": {
+        "description": "Reset the sign to recover it, then put everything back.\n\n**A recovery tool, not a routine operation, and it is disruptive.** It sends\nthe memory clear that resets the sign, which erases every file on it and\ntakes the display blank for several seconds while the sign restarts. The\nservice then waits for the reset to finish and re-pushes every message and\nthe run sequence from its own record, so the sign comes back showing what it\nwas showing before rather than empty. Any active alert is re-asserted as\npart of that restore.\n\nUse it for a sign that has stopped responding to writes or is showing\ngarbage, the wedged-decoder state a unit mounted out of reach can fall into\nfrom a stray bit and that cannot be fixed by power cycling it by hand. Do\nnot use it to clear the sign: `DELETE /messages` takes every message off\nwithout resetting anything, and this puts them all straight back. Expect a\nblank display for roughly ten seconds before the rotation returns.\n\n503 if the sign cannot be reached, since a sign that is not answering cannot\nbe rebooted.",
+        "operationId": "reboot_sign_sign_reboot_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Reboot the sign to recover it, then restore the display",
+        "tags": [
+          "Sign"
+        ]
+      }
+    },
     "/sign/sync-clock": {
       "post": {
         "description": "Set the sign's clock and day of week immediately.\n\nThe service already does this at startup, hourly, and whenever the link to\nthe sign comes back. This is for when you would rather not wait.",

@@ -15,6 +15,18 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **`POST /sign/reboot` resets a wedged sign and restores the display.** A sign
+  mounted out of reach can stop responding to writes when a stray bit corrupts
+  what its decoder is showing, and cannot be power cycled by hand. This clears
+  the sign, which resets it, waits for it to restart, then re-pushes every
+  message and the run sequence from the service's own record, so the sign comes
+  back showing what it was rather than blank; any active alert is re-asserted
+  too. It is disruptive, blanking the sign for about ten seconds, and it is a
+  recovery tool rather than a way to clear messages, which `DELETE /messages`
+  still does without a reset. It is refused with a 503 when the sign cannot be
+  reached, since a sign that is not answering cannot be rebooted. The client
+  lists it and fronts it with a warning-coloured confirmation.
+
 - **A way to run against a real sign from a checkout, with the client beside
   it, and the sign's address where it can be edited.**
   `scripts/run_against_a_sign.py` starts the service and the client and no

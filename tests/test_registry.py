@@ -354,6 +354,57 @@ class TestRefresh:
         assert payloads_starting(transport, b"E$") == []
 
 
+class TestReboot:
+    """Resetting the sign to recover it, then restoring the rotation.
+
+    Unlike a refresh, which re-pushes content over whatever is there, a reboot
+    clears the sign outright and lets it restart before writing anything back.
+    The service's own record is what it restores from, so the slots survive and
+    come back on the same files.
+    """
+
+    async def test_it_clears_the_sign_then_restores_every_slot(
+        self, registry, layout, transport
+    ):
+        await add(registry, "one", "ONE")
+        await add(registry, "two", "TWO")
+        transport.clear()
+
+        restored = await registry.reboot()
+
+        # The clear and the configuration went out, erasing the sign, ...
+        assert frames.packet(frames.clear_memory()) in transport.packets
+        assert (
+            frames.packet(frames.set_memory_config(layout.allocations()))
+            in transport.packets
+        )
+        # ... and both slots and the run sequence were written again after it.
+        assert restored == 2
+        assert [slot.key for slot in registry.list_slots()] == ["one", "two"]
+        assert len(payloads_starting(transport, b"A")) == 2
+        assert run_sequences(transport)
+
+    async def test_it_keeps_each_slot_on_its_own_file(self, registry, layout):
+        await add(registry, "one")
+        await add(registry, "two")
+
+        await registry.reboot()
+
+        assert layout.label_for("one") == b"A"
+        assert layout.label_for("two") == b"B"
+
+    async def test_a_reboot_that_cannot_reach_the_sign_raises(self, registry, transport):
+        await add(registry, "one")
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError, match="cable unplugged"):
+            await registry.reboot()
+
+        # The record is untouched, so the slot is still there to restore once
+        # the link is back.
+        assert [slot.key for slot in registry.list_slots()] == ["one"]
+
+
 class TestAlertDeferral:
     """A run sequence write during an alert might cancel it.
 

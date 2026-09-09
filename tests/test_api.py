@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
+from readerboard.protocol import frames
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
@@ -132,6 +133,7 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
             ("/alerts", "delete"),
             ("/sign/sync-clock", "post"),
             ("/sign/command", "post"),
+            ("/sign/reboot", "post"),
         ]:
             assert schema["paths"][path][method]["security"] == [{"ApiKeyAuth": []}], (
                 "%s %s should be marked as needing the key" % (method.upper(), path)
@@ -304,6 +306,17 @@ class TestSignCommands:
         )
         assert response.status_code == 204
 
+    def test_rebooting_the_sign(self, client, sign):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+
+        response = client.post("/sign/reboot", headers=HEADERS)
+
+        assert response.status_code == 204
+        # The clear went to the sign, and the message that was registered
+        # survives the reset in the service's record.
+        assert frames.packet(frames.clear_memory()) in sign.packets
+        assert client.get("/messages").json()[0]["key"] == "one"
+
     def test_an_unknown_command_is_400(self, client):
         response = client.post(
             "/sign/command", json={"command": "NOPE", "parameter": ""}, headers=HEADERS
@@ -447,6 +460,12 @@ class TestUnreachableSign:
             headers=HEADERS,
         )
         assert response.status_code == 503
+
+    def test_a_reboot_is_503(self, client, sign):
+        # A sign that is not answering cannot be rebooted, so the recovery path
+        # says so rather than pretending it reset something.
+        sign.fail_with = "cable unplugged"
+        assert client.post("/sign/reboot", headers=HEADERS).status_code == 503
 
 
 class TestTheErrorTable:

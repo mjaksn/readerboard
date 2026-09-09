@@ -167,6 +167,38 @@ class MessageRegistry:
 
         logger.debug("re-pushed %d slot(s) to the sign", len(self._state.slots))
 
+    async def reboot(self) -> int:
+        """Reset the sign to recover it, then restore the rotation from record.
+
+        This is the recovery path for a sign that has stopped showing what it
+        was told, the wedged-decoder state a BetaBrite mounted out of reach can
+        fall into when a stray bit corrupts what it is displaying and it cannot
+        be power cycled by hand. It sends the same memory clear the one
+        dangerous operation does, which erases every file on the sign and puts
+        it through a reset, waits for that reset to finish, then re-pushes every
+        slot and the run sequence.
+
+        The service's own record is left untouched, so the sign comes back
+        showing what it should rather than blank. Returns how many slots were
+        restored. An alert lives in the priority file, which this does not
+        touch; the caller re-asserts it.
+        """
+        async with self._lock:
+            await self._controller.apply_memory_config(self._layout.allocations())
+            self._state.layout = self._layout.as_applied()
+            await self._controller.wait_for_reset()
+            # apply_memory_config already forgot the sign's contents, but the
+            # rewrite forces every write regardless, because after a reset the
+            # cache is exactly what cannot be trusted.
+            self._controller.forget_sign_contents()
+            await self._rewrite_all(force=True)
+            self._dirty = False
+            self._save()
+
+        count = len(self._state.slots)
+        logger.warning("sign rebooted; %d slot(s) restored", count)
+        return count
+
     @property
     def in_sync(self) -> bool:
         """Whether everything registered is believed to be on the sign."""

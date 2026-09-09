@@ -244,6 +244,22 @@ displays correctly. A character the sign cannot render is rejected with a 400, a
 unknown token: a write is told what the sign would have made of it rather than being
 shown something it did not ask for.
 
+### Recovering a sign that has stopped responding
+
+A sign mounted out of reach can wedge: a stray bit corrupts what its decoder is
+showing, it stops responding to writes, and there is no power switch within reach.
+`POST /sign/reboot` is the recovery for that. It clears the sign, which resets it,
+waits for it to restart, then re-pushes every message and the run sequence from the
+service's own record, so the display comes back to what it was rather than blank.
+
+```
+curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'
+```
+
+It is disruptive: the sign is blank for about ten seconds while it resets. Use it to
+recover a wedged sign, not to clear messages, which `DELETE /messages` does without a
+reset. The client fronts it with a warning-coloured confirmation for the same reason.
+
 ## Configuration
 
 Settings come from `/etc/readerboard/config.toml`, overridden by environment variables

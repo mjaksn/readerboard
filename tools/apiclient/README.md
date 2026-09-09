@@ -25,7 +25,7 @@ pip install --require-hashes -r tools/apiclient/requirements.lock
 
 ## What it does
 
-**Every endpoint, on one screen.** All fifteen operations are listed at once,
+**Every endpoint, on one screen.** All sixteen operations are listed at once,
 grouped by what they act on. Selecting one swaps the form beside it. There is no
 drill-down and no wizard: the things that would need a quarter of the window to
 show properly, a set of markup tokens or a call's full detail, open as dialogs
