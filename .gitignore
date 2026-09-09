@@ -166,7 +166,11 @@ cython_debug/
 # What is ignored is the per-user half of that directory. None of it describes
 # the project; it describes one person's window layout, one person's local
 # interpreter path, and one editor's caches, and committing any of it means
-# every checkout fights over it.
+# every checkout fights over it. Some of it only restates what the checkout
+# already says, that git is the version control, that pyproject.toml is the
+# build configuration and that ruff is the linter. The editor works all of
+# that out again on opening the project, so a committed copy is one more
+# thing to go stale.
 #  JetBrains keep a fuller template at
 #  https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 .idea/workspace.xml
@@ -183,6 +187,10 @@ cython_debug/
 .idea/modules.xml
 .idea/*.iml
 .idea/modules
+.idea/inspectionProfiles/
+.idea/pyLspTools.xml
+.idea/pyProjectModel.xml
+.idea/vcs.xml
 
 # The state file the local run configurations write. It is one machine's idea of
 # what is on the sign, and it is rewritten on every run.
