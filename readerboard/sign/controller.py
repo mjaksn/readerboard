@@ -32,10 +32,11 @@ logger = logging.getLogger(__name__)
 # How long to wait after clearing memory before writing the new configuration.
 # An "E$" clear puts the BetaBrite Classic through a reset. The configuration
 # that follows is accepted through it, apparently buffered and applied when the
-# sign comes back: a sweep on the sign showed the rotation displaying for every
-# gap from one second upward. One second is the shortest that was tried, so this
-# sits a little above it for margin rather than at an edge. It is only paid on a
-# reconfiguration, which is rare and already the one dangerous operation.
+# sign comes back. A configuration written a second or more after the clear was
+# seen to display once the sign returned; one second was the shortest gap tried,
+# so this sits a little above it for margin rather than at an edge. It is only
+# paid on a reconfiguration, which is rare and already the one dangerous
+# operation.
 MEMORY_CLEAR_SETTLE_SECONDS = 2.0
 
 ReconnectHook = Callable[[], Awaitable[None]]
