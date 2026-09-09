@@ -18,6 +18,15 @@
 # device path such as /dev/ttyUSB0 for a cable plugged straight in. loop://
 # runs the service against nothing, which is useful for trying the API out.
 #
+# There is no slash between the host and the port. socket://host/:4001 looks
+# close enough to right and is not, and pyserial answers it with a bare
+# TypeError from inside a connection attempt, naming neither this setting nor
+# the value in it.
+#
+# An adapter that answers on port 23 and shows rubbish on the sign is probably
+# negotiating telnet rather than passing bytes through. rfc2217://host:23 is
+# the form that speaks that.
+#
 # The address below is an example rather than the default, which is loop://.
 # scripts/install.sh replaces it when it is given --serial-url.
 #
@@ -84,7 +93,10 @@ api_key = ""
 # running from an editor; an installed service has nobody at the machine to
 # show it to, which is why it is off unless asked for. The launch
 # configurations in .vscode/launch.json and .idea/runConfigurations/ set
-# READERBOARD_OPEN_DOCS rather than editing this.
+# READERBOARD_OPEN_DOCS rather than editing this, and that includes the ones
+# that run against a real sign, which read the ignored config.local.toml: a
+# copy of this file holding a generated key and little else, since those
+# configurations carry the sign's address themselves.
 open_docs = false
 
 # == state and logging =======================================================

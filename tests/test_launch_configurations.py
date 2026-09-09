@@ -41,10 +41,15 @@ VSCODE_LAUNCH = REPO_ROOT / ".vscode" / "launch.json"
 # The variable that asks the service to show its own documentation.
 OPEN_DOCS = "READERBOARD_OPEN_DOCS"
 
-# What a configuration runs when it runs the service. The launcher counts: it
+# What a configuration runs when it runs the service. The launchers count: each
 # starts the service as a child and hands the whole environment down, so the
-# variable set on it reaches the service the same way.
-LAUNCHER = "run_with_simulator.py"
+# variable set on one reaches the service the same way.
+#
+# There are two of them because the sign is either simulated or real, and the
+# difference between them is not a flag. The simulator starts empty every run so
+# its launcher discards the state file; a real sign keeps its memory across a
+# restart, and discarding the state file there erases it.
+LAUNCHERS = ("run_with_simulator.py", "run_against_a_sign.py")
 
 
 def run_configuration_files() -> list[Path]:
@@ -113,7 +118,8 @@ def _vscode_starts_the_service(configuration: dict) -> bool:
     """Whether a VSCode configuration ends up with the service running."""
     if configuration.get("module") == service_names.IDENTIFIER:
         return True
-    return LAUNCHER in configuration.get("program", "")
+    program = configuration.get("program", "")
+    return any(launcher in program for launcher in LAUNCHERS)
 
 
 def _pycharm_starts_the_service(configuration: ET.Element) -> bool:
@@ -124,7 +130,7 @@ def _pycharm_starts_the_service(configuration: ET.Element) -> bool:
     as_module = module_mode is not None and module_mode.get("value") == "true"
     if as_module and target == service_names.IDENTIFIER:
         return True
-    return LAUNCHER in target
+    return any(launcher in target for launcher in LAUNCHERS)
 
 
 def _pycharm_env(configuration: ET.Element) -> dict[str, str]:

@@ -192,16 +192,25 @@ cython_debug/
 .idea/pyProjectModel.xml
 .idea/vcs.xml
 
-# The state file the local run configurations write. It is one machine's idea of
-# what is on the sign, and it is rewritten on every run.
+# The state files the local run configurations write. Each is one machine's idea
+# of what is on the sign it drives, and neither describes the project.
+#
+# There are two because they must not be shared. The simulator starts empty
+# every run, so scripts/run_with_simulator.py deletes the first on every launch
+# and the service reconfigures the simulator from scratch. A real sign keeps its
+# memory across a restart, and a service with no record of the configuration
+# already applied writes a new one, which erases every message on the sign. So
+# the sign has a file of its own that nothing deletes.
 .local-state.json
+.local-sign-state.json
 
-# The config file the "readerboard against the real sign" launch
-# configuration reads. Unlike the other configurations, which set a few
-# environment overrides inline, that one names a whole config file, so this
-# holds a real serial URL and a real API key. Anyone holding that key can
-# write to the sign. It describes one machine's sign and one person's key,
-# and no other checkout wants either.
+# The config file the "readerboard against the real sign" launch configurations
+# read, and which scripts/run_against_a_sign.py writes on its first run. Unlike
+# the other configurations, which set a few environment overrides inline, those
+# name a whole config file, so this holds a real API key, and a serial URL when
+# the run configuration does not carry one. Anyone holding that key can write to
+# the sign. It describes one machine's sign and one person's key, and no other
+# checkout wants either.
 config.local.toml
 
 # Agent tooling scratch. AGENTS.md asks for a worktree per change, and a

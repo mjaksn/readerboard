@@ -1,0 +1,37 @@
+<component name="ProjectRunConfigurationManager">
+  <!--
+    The service against a real sign, with the client beside it and no simulator.
+
+    The sign's address is the serial-url value in the parameters below. Edit it
+    there to point at a different adapter. No slash between the host and the
+    port. The api-port beside it is the service's own HTTP port, not the sign's.
+
+    README.md, under "Running it against a real sign", has the rest, including
+    the reason the first run against a sign erases it. Keep this comment short:
+    PyCharm rewrites this file whenever a field in it is edited, and drops the
+    comment when it does. Two hyphens in a row are not allowed in here either.
+  -->
+  <configuration default="false" name="readerboard against the real sign and the client" type="PythonConfigurationType" factoryName="Python">
+    <module name="readerboard" />
+    <option name="ENV_FILES" value="" />
+    <option name="INTERPRETER_OPTIONS" value="" />
+    <option name="PARENT_ENVS" value="true" />
+    <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
+      <env name="READERBOARD_OPEN_DOCS" value="1" />
+    </envs>
+    <option name="SDK_HOME" value="" />
+    <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    <option name="IS_MODULE_SDK" value="true" />
+    <option name="ADD_CONTENT_ROOTS" value="true" />
+    <option name="ADD_SOURCE_ROOTS" value="true" />
+    <option name="SCRIPT_NAME" value="$PROJECT_DIR$/scripts/run_against_a_sign.py" />
+    <option name="PARAMETERS" value="--serial-url socket://192.168.2.154:23 --api-port 5002" />
+    <option name="SHOW_COMMAND_LINE" value="false" />
+    <option name="EMULATE_TERMINAL" value="true" />
+    <option name="MODULE_MODE" value="false" />
+    <option name="REDIRECT_INPUT" value="false" />
+    <option name="INPUT_FILE" value="" />
+    <method v="2" />
+  </configuration>
+</component>

@@ -15,6 +15,48 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **A way to run against a real sign from a checkout, with the client beside
+  it, and the sign's address where it can be edited.**
+  `scripts/run_against_a_sign.py` starts the service and the client and no
+  simulator, and both editors carry it as "readerboard against the real sign
+  and the client".
+
+  The address is a `--serial-url` argument in those configurations rather than a
+  setting in a file, so pointing the service at a different adapter is editing
+  the Parameters field in PyCharm's run configuration dialog. That is the one
+  deliberate exception to keeping a real sign's details out of a tracked file,
+  and it is there because changing the address is the thing done most often. The
+  API key is not an argument: it stays in `config.local.toml`, which git ignores
+  and which the launcher writes with a generated key the first time it runs,
+  because a launch configuration is a tracked file and a command line is a shell
+  history.
+
+  It keeps a state file of its own, `.local-sign-state.json`, and never discards
+  it. Both halves of that are about the one dangerous operation this service
+  has. A service with no record of the memory configuration already applied
+  writes a new one, and that erases every message on the sign; and
+  `scripts/run_with_simulator.py` deletes its own state file on every launch,
+  because the simulator starts empty every time, so a shared file would have
+  meant a simulator session quietly erasing the sign on the next real run. The
+  first run against a sign this machine has never driven still erases it, which
+  is the only way to allocate the files it then writes into, and the README says
+  so where somebody about to do it will read it.
+
+  The serial URL is checked before anything is opened. `socket://host/:4001`
+  looks close enough to right and is not, and pyserial answers it with a bare
+  `TypeError` from inside a connection attempt, naming neither the setting nor
+  the value. The port the service will bind is checked too, so that a second
+  checkout of this repository already holding it is reported rather than
+  discovered after the client has been pointed at it. The README, the example
+  config and the script's own `--help` all give the four address forms,
+  `rfc2217://` among them for an adapter that negotiates telnet rather than
+  passing bytes through.
+
+  The two launchers share their process supervision through the new
+  `scripts/_supervise.py`, so that starting, streaming and stopping children is
+  written once and what each child is given stays with the launcher that gives
+  it.
+
 - **The documentation page opens itself when the service is started from an
   editor.** A new setting, `open_docs`, waits for the port to answer and then
   shows `/docs` in a browser. Every launch configuration that starts the
