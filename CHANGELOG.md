@@ -95,6 +95,28 @@ library, and the names inside it may move without that being a breaking change.
   set the sign to 09:30. The guard now asks for ASCII decimal digits, which is
   what "four digits, HHMM on a 24 hour clock" already promised.
 
+- **`scripts/run_with_simulator.py` now honours a `READERBOARD_API_KEY` the
+  machine already sets.** It builds the environment it starts the service in,
+  and it set that variable from its own option every time, so a key set
+  anywhere else was discarded without a word. The service came up, answered,
+  and refused every write carrying the key its owner had every reason to think
+  was in use. The option still wins where it is given and the development key
+  is still the fallback, so nothing that worked before behaves differently; an
+  empty variable counts as unset.
+
+  What made it worth fixing is where the option has to be written in an editor.
+  Both configurations that run this script are tracked files shared with
+  everyone who opens the project, and PyCharm rewrites one of them in place the
+  moment a field in it is edited, taking the comment that explains it with it. A
+  variable set on the machine needs none of that. The configurations that start
+  the service directly are unchanged and could not work this way: an editor
+  environment block wins over the same name inherited from the machine, so the
+  key those use is still the value in the file, and each one now says so.
+
+  `tests/test_run_with_simulator.py` pins the order, and pins that the help
+  text does not print a key it found in the environment. That output is the one
+  that gets pasted into a message to somebody else.
+
 ## [0.3.0] - 2026-09-02
 
 **Every path changes, and three settings are removed.** The second, older HTTP

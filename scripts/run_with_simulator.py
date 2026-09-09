@@ -21,6 +21,14 @@ key in use is printed here for pasting. Closing the client leaves the other two
 running, which closing either of them does not: the service writing to a
 simulator that has gone away is broken, and a closed client is only closed.
 
+The key itself has a development default, so writes work with nothing set up.
+``READERBOARD_API_KEY`` in the environment is taken ahead of that default when
+it holds anything, and ``--api-key`` beats both. That order is what lets a
+machine use a key of its own: set the variable once, wherever that machine sets
+variables, and every editor configuration that runs this script picks it up.
+The alternative is putting the key in the launch configuration, and those are
+tracked and shared, so it would be committed.
+
 One default is worth knowing about, because getting it wrong is confusing rather
 than obviously broken. The service records the memory configuration it applied
 in its state file and reconfigures only when the plan changes, which is exactly
@@ -53,6 +61,15 @@ _CLIENT = _ROOT / "tools" / "apiclient" / "run.py"
 DEFAULT_SIM_PORT = 4001
 DEFAULT_API_PORT = 5001
 DEFAULT_API_KEY = "local-development-key"
+
+# The key the service reads, which is also where this looks before falling back to
+# the development default above. Taking it from the environment is what lets a
+# machine run with a key of its own: the flag below would have to be written into
+# a launch configuration, and those are tracked, shared, and rewritten in place by
+# an editor that drops the comment explaining them. A key on a command line is
+# also a key in the shell history, which is the same reason the client has no
+# option for one.
+API_KEY_VARIABLE = "READERBOARD_API_KEY"
 DEFAULT_STATE = _ROOT / ".local-state.json"
 
 # What the simulator prints once it is bound, which is what says it is safe to
@@ -72,8 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
             "configuration needed."
         ),
         epilog=(
-            "Ctrl+C stops everything. Anything already set in the environment is "
-            "passed through, so READERBOARD_SLOT_COUNT and the like still work."
+            "Ctrl+C stops everything. The environment is passed down to both "
+            "children, so READERBOARD_SLOT_COUNT and the like still work. What "
+            "this script decides for itself is what its own options cover, and "
+            "the option covering each of those says so."
         ),
     )
     parser.add_argument(
@@ -91,9 +110,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--api-key",
-        default=DEFAULT_API_KEY,
+        default=os.environ.get(API_KEY_VARIABLE) or DEFAULT_API_KEY,
         help="the key every write needs. Without one the service refuses them all "
-        "with a 503, so this has a development default rather than being required",
+        "with a 503, so this has a development default rather than being required. "
+        "%s in the environment is taken when this is not given, which is how a "
+        "machine uses a key of its own without writing it into a file the "
+        "repository tracks. An empty value there counts as unset" % API_KEY_VARIABLE,
     )
     parser.add_argument(
         "--state-path",
@@ -233,7 +255,7 @@ def _start_service(args: argparse.Namespace, address: str) -> subprocess.Popen[s
     env.update(
         {
             "READERBOARD_SERIAL_URL": "socket://%s" % address,
-            "READERBOARD_API_KEY": args.api_key,
+            API_KEY_VARIABLE: args.api_key,
             "READERBOARD_STATE_PATH": str(args.state_path),
             "READERBOARD_PORT": str(args.api_port),
             "READERBOARD_LOG_LEVEL": args.log_level,
