@@ -11,7 +11,16 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## Unreleased
+## [0.4.0] - 2026-09-10
+
+**This is the release that met the hardware.** Everything in it comes from
+driving a real BetaBrite Classic rather than reading the protocol document, and
+the document turned out to be wrong about this sign five times and silent about
+it once. A message field and seven markup tokens are removed because the sign
+does not honour them, so a request carrying `position` is now a 422 and one
+using `<wide_on>`, `<dbl_height_on>` or any of the `<date>` tokens is a 400,
+where each used to be accepted and quietly draw something else. **Read the
+Removed section before upgrading.**
 
 ### Added
 
@@ -1111,6 +1120,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.4.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.2.0
 [0.1.4]: https://github.com/mjaksn/readerboard/releases/tag/v0.1.4
