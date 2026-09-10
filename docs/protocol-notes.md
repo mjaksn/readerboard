@@ -486,6 +486,18 @@ service writes:
 | `F#` | the memory pool's total and unused size |
 | `F.` | the current run sequence |
 | `F)` | the run time table, including whether a priority message is running |
+| `F"` | general information, described below |
+
+`F"` is the one worth knowing about and the one nothing here has ever sent. Table 16 gives
+its reply as `FFFFFFFFfMmYyHhNnRSSPOOL,pool`: eight characters of firmware version, a
+revision letter, the firmware's release month and year, the sign's clock, the time format,
+the speaker status, and the memory pool's total and unused size. The document's own note on
+it is "General Information is most useful as a source of troubleshooting information", and
+it answers in one read most of what the four above answer separately.
+
+It is also the only way to ask this sign what it is, which is an open question rather than
+an idle one: the extended character table's footnote claims a Betabrite 1036 draws the
+pictographs at C2H to D9H, and this sign draws none of them.
 
 These would turn divergence detection from a timer into a question. The service currently
 re-pushes everything every fifteen minutes, because the sign and the Ethernet adapter are
@@ -510,6 +522,133 @@ One trap when comparing a read-back memory configuration against a plan: the sig
 whatever is left of the memory pool to the **first** file in the configuration once it
 starts running. The first file's size will therefore never match what was sent. Compare
 the plan semantically, not byte for byte.
+
+## What this sign cannot do, audited against the whole document
+
+On 2026-09-10 the document was swept end to end for anything the service does not offer,
+because two earlier findings had shown that reading it piecemeal misses things: the
+pictographs at C2H to D9H were hidden behind a section header that contradicted its own
+table, and the twenty character sets and attributes had never been compared against the
+display's seven rows.
+
+The sweep covered Table 15 (Write SPECIAL FUNCTION), Table 16 (Read SPECIAL FUNCTION),
+Tables 65 to 67 (modes), the display position field, the whole control code table in
+Appendix G, and the appendix index. What follows is the result, so that the next person
+asking "did we miss a feature?" can read it rather than derive it again.
+
+### Modes and positions are complete
+
+Table 65 has twenty-two standard mode codes and every one is accounted for. `d` (64H) is
+reserved. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
+through. `m` (6DH) SCROLL is "New message line pushes the bottom line to the top line **if
+2-line sign**". `u` (75H) EXPLODE and `v` (76H) CLOCK are both marked Alpha 3.0, and Table
+3 gives a Betabrite as EZ KEY II and Alpha 1.0 only. The remaining seventeen are all
+offered.
+
+Table 66's thirteen special modes are all offered but one: `C` (43H) CYCLE COLORS, whose
+footnote reads "COLOR CYCLE will only work on AlphaEclipse 3600 signs". All seven of Table
+67's special graphics are offered.
+
+The display position field has six values. The four the service offers are `20H` Middle,
+`22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0 only.
+
+One thing about those four is unsettled and worth a parade. The note closing that list
+reads: "On one-line signs, the Display Position is irrelevant." A Betabrite is one line,
+so all four may well draw identically, exactly as twenty ways of drawing text collapsed
+into five. Nobody has put them on the sign. Until somebody does, four positions are
+offered on the strength of the document alone, which is the weakest evidence this project
+accepts anywhere else.
+
+### Excluded because the document says so
+
+Each of these exists in the protocol, is absent here, and names the reason.
+
+| Feature | Why not this sign |
+| --- | --- |
+| The whole of Appendix M | Headed "Alpha 2.0 protocol additions", and "the Alpha 2.0 protocol is only available for the AlphaPremiere and AlphaEclipse signs" |
+| Set Dimming Register (2FH) | "Dimming is only available on Solar signs" |
+| Set Dimming Times (2FH) | "Dimming times is only available AlphaEclipse signs" |
+| Enable/Disable ACK/NAK (73H) | Alpha 2.0 and 3.0 only |
+| Display Text at XY Position (2BH) | ALPHAVISION character matrix signs |
+| Set Counter (35H), counter inserts (08H+7AH to 7EH) | "the five internal timers available on counter-equipped signs" |
+| Set Color Correction (43H, 33H, 58H) | Alpha 3.0, AlphaEclipse 3600 RGB signs |
+| The Set Unit family (31H to 39H, 4EH) | AlphaEclipse tiled displays |
+| Set Temperature Offset (54H), temperature inserts (08H+1CH, 1DH) | "only on Solar, 790i, 460i, 440i, and 430i" |
+| Auxiliary Port attribute (1DH+6) | "Series 4000 & 7000 signs only" |
+| Speed control (0FH) | Alpha 2.0 only |
+| Clear Memory and Compact Flash (four 24H) | Alpha 3.0 only |
+| LF (0AH) and 0EH | No meaning at all: both rows of the control code table are blank |
+
+Appendix M is the one worth reading twice, because its subsection list is the most
+tempting thing in the document. It contains a Dimming Control Register, custom character
+sets, an automode table that chooses which modes AUTO draws from, a timeout message and
+sound control. None of it reaches this sign, and one sentence at the head of the appendix
+covers all of it.
+
+Two exclusions were settled on the hardware rather than from the document, and are written
+up in their own sections above: the pictographs at C2H to D9H, which the document says a
+Betabrite 1036 draws and this sign renders as question marks, and the Shadow attribute
+(1DH+7), which the document restricts to "Betabrite model 1036 and AlphaPremiere 9000
+signs only" and which drew as ordinary text in the font parade.
+
+The absence of ACK/NAK is worth one extra line, because it explains a design decision
+elsewhere. This sign cannot acknowledge a write. That is why the service re-pushes
+everything on a timer rather than trusting that a write landed, and why the read commands
+above are the only way to ask.
+
+### Capabilities that do apply and are not used
+
+These are not exclusions. The document offers them, nothing says this sign lacks them, and
+the service simply does not use them. They are recorded so that "we never thought of it"
+and "we thought about it" stay distinguishable.
+
+**STRING files** (`G` and `H`, called from a TEXT file with 10H). The document's stated
+purpose is this project's use case: "applications where a string of frequently changing
+data must be transmitted to, and displayed by, a sign. Applications include the storage of
+a number which changes often, such as a temperature, a quantity, or a timer." The property
+that matters is the next one: "When writing STRING files to a message center, the display
+will not blank as it does when writing TEXT files. This is because the STRING file data is
+buffered and TEXT file internal Checksum does not change."
+
+Every update this service makes rewrites a TEXT file and restarts the message. A STRING
+file would not. The cost is that memory must be allocated for them first, which is the one
+dangerous operation, once; a STRING file is capped at 125 bytes; and it accepts only a
+subset of the control codes, with a specific note that "Rainbow 1 and 2 colors do not work
+in STRING files".
+
+**SMALL DOTS PICTURE files** (`I` and `J`, called with 14H, or by name with 1FH). Bitmaps
+up to 31 by 255 pixels that "can be used to create virtually any logo pattern on the
+display of the sign", stored as their own file type and inserted into a TEXT file. On a
+seven-high display that is a 7 by N bitmap, and it is the way to draw an arrow, a heart or
+a musical note now that the pictograph range has turned out to be absent.
+
+**Read General Information** (`F"`). See "Reading state back" above.
+
+**Run Time Table** (29H) and **Run Day Table** (32H). Per-file start and stop times, and
+per-file start and stop days including `0` Daily and `8` Monday-Friday. The service writes
+`FFFF`, always, and expires slots host-side on a TTL instead. Note that both tables are on
+the short list of things that cancel a running priority message, so scheduling and alerts
+interact.
+
+### One thing this audit found wrong rather than missing
+
+The tone command carries two footnotes that the implementation does not honour.
+
+> **2** the tone generation command must be the last transmission frame because the sign's
+> serial port is disabled (and cannot receive any data) while a tone is generated.
+
+> **4** Wait a minimum of 3 seconds before transmitting more data to the sign.
+
+`SOUND` does not settle. `readerboard/api/routes.py` passes `settle=resets_the_sign(...)`
+and `_RESETTING` holds only `SOFT_RESET`, so after a tone the next write goes out once
+`inter_packet_delay` has passed, which defaults to half a second. A write inside that
+window reaches a sign whose serial port is off and is lost, and the controller's
+suppression cache then believes it succeeded, so nothing retries it until the next
+periodic re-push.
+
+This is recorded rather than fixed, deliberately: it is a behaviour change to a command
+already under review, and it wants a regression test that can actually observe a dropped
+write rather than one that merely asserts a delay.
 
 ## Constraints the frame builders honour
 
