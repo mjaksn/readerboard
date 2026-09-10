@@ -110,10 +110,12 @@ class TestRestart:
         self, alerts, transport, store, clock, caplog
     ):
         # The HTTP surface refuses an empty alert now, but a state file written
-        # before it did still holds one, and restoring it wrote the release
-        # sequence while leaving the service reporting an alert nothing was
-        # displaying. Raised here through the service, which is what the older
-        # version's HTTP layer reached.
+        # before it did still holds one, and restoring it put a blank priority
+        # message on the sign, which the sign displays rather than treating as a
+        # release. The sign sat blank with the rotation suppressed behind it
+        # while the service reported an alert nobody could read. Raised here
+        # through the service, which is what the older version's HTTP layer
+        # reached.
         await raise_alert(alerts, "")
 
         restored = self.rebuild(transport, store, clock)
@@ -124,6 +126,55 @@ class TestRestart:
         assert "no message" in caplog.text
         # And it stays gone: the state file is what the next restart reads.
         assert store.load().alert is None
+
+    async def test_an_alert_that_outgrew_the_priority_file_is_let_go(
+        self, alerts, transport, store, clock, caplog
+    ):
+        # A stored alert is re-rendered leniently so that a markup token this
+        # version no longer knows cannot stop it coming back. That leniency can
+        # make it longer: the unknown tag returns as its own literal text, which
+        # is more bytes than the control code it used to render to. Enough of
+        # those and the alert no longer fits the sign's fixed priority file.
+        #
+        # Letting that raise would be far worse than losing the alert. The
+        # exception is a ValueError rather than a TransportError, so it escapes
+        # the startup path that tolerates an unreachable sign, and the service
+        # then refuses to start on every attempt until somebody edits the state
+        # file by hand on the machine.
+        await raise_alert(alerts, "<red>" + "A" * 100)
+
+        # Rewrite the state file to name a token this version has removed,
+        # which is exactly what an upgrade from the previous release looks like.
+        state = store.load()
+        assert state.alert is not None
+        state.alert.message = "<dbl_height_on>" * 8 + "A" * 100
+        store.save(state)
+
+        restored = self.rebuild(transport, store, clock)
+        with caplog.at_level("WARNING"):
+            await restored.restore()  # must not raise
+
+        assert restored.active is None
+        assert "no longer fits" in caplog.text
+        assert store.load().alert is None
+        assert transport.last_packet == frames.packet(frames.clear_priority_file())
+
+    async def test_reasserting_an_alert_that_no_longer_fits_does_not_raise(
+        self, alerts, transport, store, clock, caplog
+    ):
+        # reassert runs on a timer and on every reconnect, so this would be a
+        # crash every refresh rather than a one-off failure at startup.
+        await raise_alert(alerts, "<red>" + "A" * 100)
+        state = store.load()
+        assert state.alert is not None
+        state.alert.message = "<dbl_height_on>" * 8 + "A" * 100
+        store.save(state)
+
+        restored = self.rebuild(transport, store, clock)
+        with caplog.at_level("WARNING"):
+            assert await restored.reassert() is False
+
+        assert "no longer fits" in caplog.text
 
     async def test_starting_with_no_alert_still_releases_the_priority_file(
         self, transport, store, clock

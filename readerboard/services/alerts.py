@@ -1,9 +1,14 @@
 """Taking the whole sign over, and giving it back.
 
 An alert is written to the sign's priority file, which by protocol suppresses
-every other file until it is released. Releasing means writing an empty priority
-file, at which point the sign resumes its run sequence by itself. Nothing has to
-rebuild the rotation afterwards.
+every other file until it is released. Releasing means a *bare* write to that
+file, carrying the label and nothing else, at which point the sign resumes its
+run sequence by itself and nothing has to rebuild the rotation.
+
+An ordinary write with an empty body is not a release and was measured not to
+be: it still carries a Start-of-Message byte, a position and a mode, which the
+sign reads as a blank priority message and displays, keeping the screen rather
+than handing it back. See :meth:`SignController.clear_priority`.
 
 The release deadline is persisted. A service that restarted during an alert and
 forgot about it would leave the sign stuck showing that alert forever, with the
@@ -95,6 +100,29 @@ class AlertService:
             await self.release()
             return
 
+        if not self._still_fits(alert):
+            # It fitted when it was accepted, and it does not now. Re-rendering
+            # a stored alert is deliberately lenient, so a markup token this
+            # version no longer knows comes back as its own literal text, which
+            # is longer than the two or three bytes it used to render to. Enough
+            # of those and the alert outgrows the priority file.
+            #
+            # Letting that raise would be worse than it sounds. The exception is
+            # a ValueError rather than a TransportError, so it would escape the
+            # startup path that tolerates an unreachable sign, and the service
+            # would refuse to start at all until somebody edited the state file
+            # by hand. The alert is not recoverable either way, so say so and
+            # give the sign back.
+            logger.warning(
+                "the stored alert no longer fits the sign's priority file, which holds "
+                "%d bytes; releasing it. It probably used a markup token this version "
+                "has removed. The text was: %r",
+                c.PRIORITY_FILE_CAPACITY,
+                alert.message,
+            )
+            await self.release()
+            return
+
         logger.info("restoring the alert that was active before the restart")
         await self._write(alert)
 
@@ -113,6 +141,17 @@ class AlertService:
         async with self._lock:
             alert = self._state.alert
             if alert is None:
+                return False
+            if not self._still_fits(alert):
+                # See restore() for how a stored alert outgrows the file. This
+                # runs on a timer and on every reconnect, so raising here would
+                # be a warning every fifteen minutes for something nobody can
+                # act on from a log line.
+                logger.warning(
+                    "the active alert no longer fits the sign's priority file; not "
+                    "re-asserting it. The text was: %r",
+                    alert.message,
+                )
                 return False
             # Forced, because what is in doubt here is precisely whether the
             # sign still holds what the controller believes it does. Left to
@@ -184,6 +223,15 @@ class AlertService:
         logger.info("alert reached its deadline")
         await self.release()
         return True
+
+    def _still_fits(self, alert: AlertState) -> bool:
+        """Whether a stored alert still fits the priority file when re-rendered.
+
+        Asked before writing back anything that was accepted by an earlier
+        version, because the lenient re-render below can be longer than the
+        strict one that was measured when the alert was raised.
+        """
+        return len(render(alert.message, strict=False)) <= c.PRIORITY_FILE_CAPACITY
 
     async def _write(self, alert: AlertState, *, force: bool = False) -> None:
         await self._controller.write_priority(

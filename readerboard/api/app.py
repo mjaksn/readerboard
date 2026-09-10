@@ -161,6 +161,20 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
                 await clock.sync_quietly()
         except TransportError as err:
             logger.warning("could not restore the sign's contents yet: %s", err)
+        except Exception:
+            # Nothing in a state file written by an older version should be able
+            # to stop this version starting. The specific case that reached here
+            # was an alert which no longer fitted the priority file once a markup
+            # token it used had been removed, raising a ProtocolError, which is a
+            # ValueError and so walked straight past the handler above and out of
+            # the lifespan. The service then failed to start on every attempt,
+            # and the only fix was editing the state file by hand on the machine.
+            # Coming up with a blank sign and a logged traceback is recoverable;
+            # not coming up is not.
+            logger.exception(
+                "could not restore the sign's contents; starting anyway. The sign may "
+                "be blank until the next write or refresh."
+            )
 
         # Only now, so that opening the link above does not fire hooks that
         # duplicate the work just done. Registering them earlier meant every
