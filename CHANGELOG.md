@@ -15,6 +15,24 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **Ten more of the sign's own characters can be written.** `₧`, `ƒ`, `ª`, `º`,
+  `θ`, `Θ`, a single column space at U+2009, and the accented capitals `Á`, `Ê`
+  and `Í`. Write the character itself in a message; there is no token for these,
+  the same as for the accented letters that already worked.
+
+  The sign holds sixty-six characters beyond ASCII and only forty-two of them
+  could be reached, so a message containing `Á` was answered with "the sign
+  cannot display 'Á'" by a service talking to a sign that could. What had held
+  the rest back was that the protocol document draws its character column as
+  pictures rather than text, so nothing established which mark a code held.
+  Reading those pages as images settled it, and each of the ten was drawn on the
+  sign beside the character it is mapped from before the mapping was written.
+
+  Fourteen are still out. Codes B0H to B9H look like a Croatian or Serbian set
+  and the diacritics at BBH to BDH cannot be told apart at five dots by seven,
+  and a wrong mapping would be accepted and silently drawn where an absent one
+  is refused with a message saying so.
+
 - **Seven markup tokens for the ways this sign can actually draw text.**
   `<font_normal>`, `<font_half_height>` and `<font_wide>` choose a character
   set; `<bold_on>`/`<bold_off>` and `<extra_wide_on>`/`<extra_wide_off>` switch

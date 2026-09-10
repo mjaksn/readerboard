@@ -29,21 +29,58 @@ class MarkupError(ValueError):
     """A message could not be rendered exactly as written."""
 
 
+# The Unicode character a caller writes to ask for the sign's single column
+# space. U+2009 THIN SPACE is the closest thing Unicode has to it.
+THIN_SPACE = "\u2009"
+
+
 # Characters outside plain ASCII that the sign can render, mapped to the single
 # byte that renders them. Taken from the extended character table in the
 # protocol document.
+#
+# This map is the only way to reach a character the sign has, so a code missing
+# from it is a glyph nobody can draw. Forty-two of the sixty-six were mapped
+# here and the rest were not, which is why a message containing Á was answered
+# with "the sign cannot display 'Á'" by a service talking to a sign that can.
+#
+# What held the rest back was that the document draws its character column as
+# vector outlines, so nothing established which mark a code held. That was
+# settled on 2026-09-10 by reading the three table pages as images, and the ten
+# added below are the ones whose glyph is unambiguous at that resolution. Each
+# was then drawn on the sign beside the character it is mapped from, because a
+# mapping asserts an identity and a scan read wrongly would put a silently
+# different glyph on the display.
+#
+# The rest of the table stays unmapped on purpose. Codes B0H to B9H look like a
+# Croatian or Serbian set and the diacritics at BBH to BDH cannot be told apart
+# at five by seven, and guessing one would be worse than leaving it out: an
+# unmapped character is refused with a message saying so, while a wrong one is
+# accepted and drawn.
 EXTENDED_CHARACTERS: dict[str, bytes] = {
     "°": c.DEGREES,
     "¢": c.CENTS,
     "£": c.POUNDS,
     "¥": c.YEN,
+    "₧": c.PESETA,
+    "ƒ": c.SLANT_F,
     "¿": c.INVERT_QUESTION,
     "¡": c.INVERT_EXCLAIM,
+    "ª": c.SUPER_a,
+    "º": c.SUPER_o,
+    "θ": c.theta,
+    "Θ": c.THETA,
+    # A single column space, narrower than the half space at 7EH. Named rather
+    # than written as itself, because a space character sitting in a dict key is
+    # invisible to whoever reads this next.
+    THIN_SPACE: c.SINGLE_COL_SPACE,
+    "Á": c.A_ACCENT,
     "Ä": c.A_UMLAUT,
     "Å": c.A_CIRCLE,
     "Æ": c.AE_LIGATURE,
     "Ç": c.C_TAIL,
     "É": c.E_ACCENT,
+    "Ê": c.E_ACCENT_HAT,
+    "Í": c.I_ACCENT,
     "Ñ": c.N_TILDE,
     "Õ": c.O_TILDE,
     "Ö": c.O_UMLAUT,

@@ -3,7 +3,7 @@
 import pytest
 
 from readerboard.protocol import constants as c
-from readerboard.protocol.markup import MarkupError, render
+from readerboard.protocol.markup import THIN_SPACE, MarkupError, render
 from readerboard.protocol.tokens import MARKUP_TOKENS
 
 
@@ -161,6 +161,58 @@ class TestNonAscii:
         # which the sign renders as garbage rather than as an accented letter.
         assert render("é") == c.e_ACCENT
         assert render("é") != "é".encode()
+
+
+class TestTheCharactersReadOffThePrintedTable:
+    """The ten added once the document's Character column was read as an image.
+
+    Each was drawn on the sign before being mapped. They are asserted one at a
+    time rather than in a loop over ``EXTENDED_CHARACTERS``, because a loop over
+    the map compares the map to itself and would pass with every byte in it
+    wrong. That is the same shape of mistake as comparing the token table to
+    itself, which ``tests/test_constant_values.py`` exists to catch.
+    """
+
+    def test_the_accented_capitals_a_message_in_spanish_needs(self):
+        # These are the ones that made the service answer "the sign cannot
+        # display 'Á'" while talking to a sign that could.
+        assert render("Á") == c.A_ACCENT
+        assert render("Ê") == c.E_ACCENT_HAT
+        assert render("Í") == c.I_ACCENT
+
+    def test_a_whole_word_that_used_to_be_refused(self):
+        assert render("ÁGUILA") == c.A_ACCENT + b"GUILA"
+
+    def test_the_currency_and_ordinal_marks(self):
+        assert render("₧") == c.PESETA
+        assert render("ƒ") == c.SLANT_F
+        assert render("1ª") == b"1" + c.SUPER_a
+        assert render("1º") == b"1" + c.SUPER_o
+
+    def test_the_theta_pair(self):
+        assert render("θ") == c.theta
+        assert render("Θ") == c.THETA
+
+    def test_the_thin_space_is_narrower_than_the_half_space(self):
+        # Three widths of space reach the sign: an ordinary ASCII one, the half
+        # space the <half_space> token sends, and this one. All three are
+        # different bytes, which is the whole reason for offering it.
+        assert render(THIN_SPACE) == c.SINGLE_COL_SPACE
+        assert c.SINGLE_COL_SPACE != c.HALF_SPACE
+        assert c.SINGLE_COL_SPACE != b" "
+
+    def test_an_ordinary_space_is_still_an_ordinary_space(self):
+        # THIN_SPACE is U+2009 and an ASCII space is U+0020. Mapping the first
+        # must not disturb the second, which every message contains.
+        assert render("a b") == b"a b"
+
+    def test_the_ones_deliberately_left_out_are_still_refused(self):
+        # B0H to B9H and the diacritics at BBH to BDH were not readable at five
+        # by seven and are not guessed at. Strict refusal is the correct answer
+        # for them: a wrong mapping would be accepted and silently drawn.
+        for character in ("š", "ž", "Đ", "Â"):
+            with pytest.raises(MarkupError, match="cannot display"):
+                render(character)
 
 
 def test_newline_becomes_a_carriage_return():

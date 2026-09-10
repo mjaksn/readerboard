@@ -71,7 +71,7 @@ MARKUP_TOKENS: tuple[Token, ...] = (
     Token("<proportional>", c.FIXED_WIDTH_OFF, "Return to proportionally spaced text"),
     Token("<degree>", c.XC_DEGREES, "Degree symbol"),
     Token("<block>", c.BLOCK_CHAR, "A solid square block character"),
-    Token("<half_space>", c.TILDE, "A half width space"),
+    Token("<half_space>", c.HALF_SPACE, "A half width space"),
     Token("<time>", c.CURTIME_INSERT, "Insert the sign's current time"),
     Token("<week_day>", c.CURDATE_WEEKDAYY, "Insert the current day of the week"),
     # There is deliberately no token for the sign's date, and this is the one

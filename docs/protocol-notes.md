@@ -275,6 +275,91 @@ the thing being looked for, and "it looked the same" is only evidence when it co
 looked different. Four tokens were removed on that kind of evidence above; this one shows
 how close that reasoning came to removing a fifth that works.
 
+## The extended character set ends at C1H, whatever the table says
+
+Control code 08H plus an offset, or a single byte from 80H, reaches a second character
+table beyond ASCII: accented letters, currency marks and a few symbols. The document
+tabulates it three columns wide, a code, the character, and the control code combination,
+across pages 84 to 87.
+
+The middle column is the problem. It is drawn as vector outlines rather than set as text,
+so it survives neither extraction nor a search, and for a long time the names in
+`constants.py` were the one part of that module with no citation behind them. On
+2026-09-10 the three pages were read as images, which is exactly what
+`tests/test_constant_values.py` had been asking for in the docstring of the test that
+recorded the gap.
+
+### What the reading changed
+
+**9EH is the peseta sign**, a `Pt` ligature, and had been called `PERCENT` on a guess.
+Nothing depended on the name, so the rename was free.
+
+**Codes 80H to A8H are IBM CP437 exactly**, all forty-one of them. That is independent
+corroboration of every identity in that run, arrived at from a different direction than
+the scan. It is also the boundary of the corroboration: CP437 puts a reversed-not sign at
+A9H and this table has a degree sign there, which the sign has been drawing after the
+outdoor temperature for years. So the agreement is a stretch of the range and not the
+whole of it, and filling any later gap from CP437 would be wrong.
+
+**7EH is a half space, not a tilde.** Table 33 on page 50 annotates it `1/2 sp` and closes
+with the note `1/2 sp = 1/2 space`. The `<half_space>` token was right and the `TILDE`
+constant under it was not; it is `HALF_SPACE` now.
+
+### Twenty-four characters were unreachable, and ten now are not
+
+The table holds sixty-six characters and `markup.py` mapped forty-two of them. The other
+twenty-four had no route in at all: no token, no Unicode mapping, nothing. The service
+answered a message containing `Á` with "the sign cannot display 'Á'", which is prose the
+service emits, and it was false.
+
+Ten were added, the ones whose glyph is unambiguous at the scan's resolution: `₧`, `ƒ`,
+`ª`, `º`, `θ`, `Θ`, a single column space, and the accented capitals `Á`, `Ê` and `Í`.
+Each was then drawn on the sign beside the character it is mapped from before the mapping
+was written, because a mapping asserts an identity and a scan read wrongly would put a
+silently different glyph on the display.
+
+The remaining fourteen stay out on purpose. Codes B0H to B9H look like a Croatian or
+Serbian set, and the diacritics at BBH to BDH cannot be told apart at five dots by seven.
+Guessing one would be worse than leaving it out: an unmapped character is refused with a
+message saying so, while a wrongly mapped one is accepted and drawn.
+
+### The twenty-four pictographs the document promises and the sign does not have
+
+This is the part worth knowing before anybody "fixes" the range.
+
+The running header reads `Extended character set (80 - C1H)` over pages whose table
+carries twenty-four further rows, C2H through D9H. They are pictographs, and their
+characters are printed as words rather than drawn, which is why they survive extraction
+when nothing else in that column does: an Euro symbol, four arrows, then Packman,
+Sailboat, Ball, Telephone, Heart, Car, Handicap, Rhino, Mug, Satellite dish, Copyright,
+Male, Female, Bottle, Diskette, Printer, Musical note and Infinity.
+
+Footnote 1 against them reads: "Only applies to Betabrite 1036, Alpha Premiere 9000, and
+AlphaEclipse signs." That names this sign first, and every other exclusion in the document
+runs the other way, so the reasonable reading was that `constants.py` stopping at C1H was
+an artifact of the contradictory header.
+
+It is not. All twenty-four went to the sign on 2026-09-10, in both documented encodings,
+the bare byte and 08H plus an offset, with the degree sign sent first on each pass as a
+positive control. The control drew correctly both times. Every one of the twenty-four came
+back as a question mark, which is the sign's own unknown-character glyph rather than
+anything this service substituted: the test wrote the raw byte between brackets and read
+back `C4[?]`.
+
+So the header is right, the footnote is wrong, and the ceiling in `constants.py` is
+correct as it stands. This is the fourth thing the document promises that this hardware
+does not do, after double height, the wide character set, and the programmable tone's
+frequency byte.
+
+`tests/test_constant_values.py::test_the_pictographs_past_the_range_are_absent_on_purpose`
+fails if anybody adds one, because the absence looks exactly like an oversight and the
+obvious repair is to read the table to its end.
+
+One incidental finding is worth keeping. The sign substitutes `?` for a character it does
+not have, which happens to be the byte `markup.py` already uses as `REPLACEMENT` on its
+lenient path. The service and the hardware agree on what an unrenderable character looks
+like, by coincidence rather than by design.
+
 ## The sign's date has no century, so no token offers it
 
 Table 15 gives `;` (3BH) as Set Date, six ASCII characters `mmddyy`, and Table 16 reads it

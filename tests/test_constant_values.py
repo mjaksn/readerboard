@@ -625,22 +625,76 @@ def test_every_extended_character_used_by_markup_has_both_forms():
         )
 
 
-def test_extended_character_identities_are_not_verified_here():
-    """State the limit of this file plainly, so nobody mistakes its coverage.
+def test_extended_character_identities_come_from_the_printed_table():
+    """The identities were read off the document, which is what this asked for.
 
     Which glyph each extended byte draws is given in the document only as a
-    picture in a Character column. That column does not survive text extraction,
-    so nothing above establishes that A9H is a degree sign rather than some
-    other mark.
+    picture in a Character column, and that column survives neither text
+    extraction nor a search. This test used to say so and to name the one thing
+    that would settle it: "these identities are the part that needs a human
+    looking at the printed document". On 2026-09-10 that happened, the three
+    table pages were read as images, and every name in the table was checked
+    against the glyph beside its code.
 
-    The evidence for the identities is that this sign has been showing a degree
-    symbol after the outdoor temperature for years, driven by A9H. That is
-    empirical, and good enough to rely on, but it is not a citation and is not
-    presented as one. If the extended table is ever rewritten, these identities
-    are the part that needs a human looking at the printed document.
+    Two of the assertions below are what that reading changed.
+
+    9EH was called PERCENT on a guess and is a "Pt" ligature, the peseta sign.
+    Nothing depended on the old name, which is the only reason a rename was
+    cheap; it is pinned here so that it cannot drift back.
+
+    A9H is the degree sign, which matters more than it looks. Codes 80H to A8H
+    are IBM CP437 exactly, all forty-one of them, and that is the independent
+    corroboration of the whole first run. CP437 puts a reversed-not sign at A9H.
+    This table does not follow it there, so the agreement is a stretch of the
+    range rather than the whole of it, and a future reader tempted to fill gaps
+    from CP437 should stop at A8H.
     """
     assert EXTENDED_CHARACTERS["°"] == c.DEGREES
-    assert "°" in EXTENDED_CHARACTERS
+    assert c.DEGREES == b"\xa9"
+    assert EXTENDED_CHARACTERS["₧"] == c.PESETA
+    assert c.PESETA == b"\x9e"
+    assert not hasattr(c, "PERCENT"), "the peseta sign was renamed; nothing may reintroduce PERCENT"
+
+
+def test_the_pictographs_past_the_range_are_absent_on_purpose():
+    """C2H to D9H are in the document, are not in this module, and must not be.
+
+    The document contradicts itself here. Its running header reads "Extended
+    character set (80 - C1H)" over pages whose table carries twenty-four further
+    rows, C2H through D9H: an Euro symbol, four arrows, and pictographs from a
+    Telephone and a Heart to a Rhino. Footnote 1 against them reads "Only
+    applies to Betabrite 1036, Alpha Premiere 9000, and AlphaEclipse signs",
+    which names this sign first.
+
+    It is wrong. All twenty-four went to the sign on 2026-09-10, in both
+    documented encodings, the bare byte and 08H plus an offset, with the degree
+    sign as a positive control on each pass. Every one came back as the sign's
+    own unknown-character glyph, a question mark, while the control drew
+    correctly. The header is right and the footnote is not.
+
+    This exists because the absence looks exactly like an oversight, and the
+    obvious repair is to read the table to its end and add twenty-four dead
+    characters. Anybody doing that fails here and finds out why.
+
+    The module is scanned directly rather than through ``_extended_constants``,
+    which filters to 80H through C1H and so could never see a constant added
+    above it. A test that cannot observe the thing it forbids is not a test.
+    """
+    offenders = []
+    for name, value in vars(c).items():
+        if name.startswith("_") or not isinstance(value, bytes):
+            continue
+        if len(value) == 1 and 0xC2 <= value[0] <= 0xD9:
+            offenders.append("%s (%02XH)" % (name, value[0]))
+        # The same characters in their other form, 08H plus an offset, which for
+        # C2H to D9H runs from 62H to 79H.
+        if len(value) == 2 and value[0] == 0x08 and 0x62 <= value[1] <= 0x79:
+            offenders.append("%s (08H %02XH)" % (name, value[1]))
+
+    assert not offenders, (
+        "these are pictographs the sign draws as a question mark: %s. See the "
+        "docstring above before adding them" % ", ".join(sorted(offenders))
+    )
 
 
 # ===========================================================================

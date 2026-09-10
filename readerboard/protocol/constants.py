@@ -434,12 +434,27 @@ CHAR_ATTRIB_FNCY_OFF = b"\x1d\x35\x30"
 # The document also notes that this set "is not available with the 5-high
 # character set".
 #
-# What cannot be established from the document is which mark each code actually
-# draws. The character column is drawn as vector outlines rather than set as
-# text, so it survives neither text extraction nor a search. The names below are
-# therefore the one part of this module not backed by a citation; see
-# ``test_extended_character_identities_are_not_verified_here``, which says so in
-# the suite rather than leaving it to be discovered.
+# The character column is drawn as vector outlines rather than set as text, so
+# it survives neither text extraction nor a search, and for a long time the
+# names below were the one part of this module not backed by a citation. They
+# are now. The three table pages were read as images on 2026-09-10, which is
+# what the suite had been asking for, and every name here was checked against
+# the glyph beside its code.
+#
+# Two things came out of that reading. 9EH is the peseta sign, a "Pt" ligature,
+# and was called PERCENT here on a guess. And codes 80H through A8H are IBM
+# CP437 exactly, all forty-one of them, which is independent corroboration of
+# that whole run; the agreement stops at A9H, where CP437 has a reversed-not
+# sign and this table has the degree sign that A9H has been drawing for years.
+#
+# The range genuinely ends at C1H, and the document is at odds with itself about
+# that. Its running header reads "Extended character set (80 - C1H)" over pages
+# whose table carries twenty-four further rows, C2H to D9H, a set of pictographs
+# from an up arrow to a Rhino, and footnote 1 against them names "Betabrite
+# 1036" as a model that draws them. It does not. All twenty-four were sent to
+# the sign on 2026-09-10, in both documented encodings, and every one came back
+# as the sign's own unknown-character glyph, a question mark. The header is
+# right and the footnote is wrong. See docs/protocol-notes.md.
 
 XC_C_TAIL = b"\x08\x20"
 XC_u_UMLAUT = b"\x08\x21"
@@ -471,7 +486,7 @@ XC_U_UMLAUT = b"\x08\x3a"
 XC_CENTS = b"\x08\x3b"
 XC_POUNDS = b"\x08\x3c"
 XC_YEN = b"\x08\x3d"
-XC_PERCENT = b"\x08\x3e"
+XC_PESETA = b"\x08\x3e"
 XC_SLANT_F = b"\x08\x3f"
 XC_a_ACCENT = b"\x08\x40"
 XC_i_ACCENT = b"\x08\x41"
@@ -513,16 +528,19 @@ XC_o_TILDE = b"\x08\x61"
 # ==========================================================================
 # The same characters as the section above, addressed by their own code from
 # 80H to C1H rather than by the control code combination. Same document pages,
-# same caveat about the identities.
+# and the identities were read off the same three scans.
 #
 # Where a mark has both cases, the two are named for the case they draw, so
 # ``A_UMLAUT`` and ``a_UMLAUT`` are different codes rather than two spellings of
 # one.
 #
-# ``TILDE`` (7EH) and ``BLOCK_CHAR`` (7FH) sit just below the extended range and
-# are ordinary members of the standard set on document page 83.
+# ``HALF_SPACE`` (7EH) and ``BLOCK_CHAR`` (7FH) sit just below the extended
+# range and are ordinary members of the standard set on document page 83. The
+# first was called TILDE here, which the document contradicts: Table 33 on page
+# 50 annotates 7EH as "1/2 sp" and closes with "1/2 sp = 1/2 space". The
+# ``<half_space>`` token built on it was right about what it draws all along.
 
-TILDE = b"~"
+HALF_SPACE = b"~"
 BLOCK_CHAR = b"\x7f"
 C_TAIL = b"\x80"
 u_UMLAUT = b"\x81"
@@ -554,7 +572,7 @@ U_UMLAUT = b"\x9a"
 CENTS = b"\x9b"
 POUNDS = b"\x9c"
 YEN = b"\x9d"
-PERCENT = b"\x9e"
+PESETA = b"\x9e"
 SLANT_F = b"\x9f"
 a_ACCENT = b"\xa0"
 i_ACCENT = b"\xa1"
