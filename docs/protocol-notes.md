@@ -709,16 +709,16 @@ The tone command carries two footnotes that the implementation does not honour.
 
 > **4** Wait a minimum of 3 seconds before transmitting more data to the sign.
 
-`SOUND` does not settle. `readerboard/api/routes.py` passes `settle=resets_the_sign(...)`
-and `_RESETTING` holds only `SOFT_RESET`, so after a tone the next write goes out once
-`inter_packet_delay` has passed, which defaults to half a second. A write inside that
-window reaches a sign whose serial port is off and is lost, and the controller's
-suppression cache then believes it succeeded, so nothing retries it until the next
-periodic re-push.
+`SOUND` did not settle. A soft reset was the only command that asked for a wait, so after
+a tone the next write went out once `inter_packet_delay` had passed, which defaults to half
+a second. A write inside that window reached a sign whose serial port was off and was lost,
+and the controller's suppression cache then believed it had succeeded, so nothing retried
+it until the next periodic re-push.
 
 This is fixed. `SOUND` now asks for `SOUND_SETTLE_SECONDS`, three, and the controller holds
 the sign's lock across the send and the wait, so another writer queues rather than writing
-into the gap.
+into the gap. The wait is governed by `settle_delays_enabled` alone, so pacing the line
+differently cannot take it away.
 
 The property that made the fix worth generalising is that a tone is not a reset and deafens
 the sign anyway, so `resets_the_sign` became `quiet_seconds_after`: it asks how long the
