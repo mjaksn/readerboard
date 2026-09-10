@@ -41,14 +41,32 @@ MARKUP_TOKENS: tuple[Token, ...] = (
     Token("<color_auto>", c.TEXT_COLOR_AUTO, "Cycle through the colour modes"),
     Token("<flash_on>", c.CHAR_FLASH_ON, "Characters after this token flash"),
     Token("<flash_off>", c.CHAR_FLASH_OFF, "Characters after this token stop flashing"),
-    Token("<wide_on>", c.WIDE_CHARS_ON, "Characters after this token are wide"),
-    Token("<wide_off>", c.WIDE_CHARS_OFF, "Characters after this token are normal width"),
-    Token(
-        "<dbl_height_on>",
-        c.DBL_HEIGHT_CHARS_ON,
-        "Characters after this token are double height",
-    ),
-    Token("<dbl_height_off>", c.DBL_HEIGHT_CHARS_OFF, "Return to single height characters"),
+    # No wide token either, and for the same reason as double height rather
+    # than a different one. The protocol's own "enable wide characters" (12H)
+    # drew text identical to plain on the sign. What a person reads as wider
+    # text here comes from the character set and the attributes below, which
+    # were measured doing something.
+    #
+    # No double height token. A Betabrite is "always 7 dots (or pixels) high",
+    # and on seven rows there is nothing for double height to do: both the 05H
+    # form this used to offer and the 1DH+2 attribute rendered pixel-identical
+    # to plain text on the sign. See docs/protocol-notes.md.
+    #
+    # These three are what a person actually sees on this hardware, out of the
+    # twenty character sets and attributes the protocol offers. Named for their
+    # appearance rather than for the document's labels, which contradict
+    # themselves here: it calls 1AH+6 "ten high standard" and also "seven stroke
+    # fancy", and on seven rows it is neither, it is ordinary text.
+    #
+    # The three font tokens are a choice rather than a switch, so returning from
+    # one means selecting another; <font_normal> is the way back.
+    Token("<font_normal>", c.CHARSET_7_NORMAL, "The ordinary character set, and the way back"),
+    Token("<font_half_height>", c.CHARSET_5_NORMAL, "Short characters, five rows rather than seven"),
+    Token("<font_wide>", c.CHARSET_7_FANCY, "Wider characters, full height"),
+    Token("<bold_on>", c.CHAR_ATTRIB_WIDE_ON, "Characters after this token are bold"),
+    Token("<bold_off>", c.CHAR_ATTRIB_WIDE_OFF, "Return to characters of ordinary weight"),
+    Token("<extra_wide_on>", c.CHAR_ATTRIB_DBLW_ON, "Characters after this token are extra wide"),
+    Token("<extra_wide_off>", c.CHAR_ATTRIB_DBLW_OFF, "Return to characters of ordinary width"),
     Token("<fixed_width>", c.FIXED_WIDTH_ON, "Left justify and make text fixed width; put this first"),
     Token("<proportional>", c.FIXED_WIDTH_OFF, "Return to proportionally spaced text"),
     Token("<degree>", c.XC_DEGREES, "Degree symbol"),

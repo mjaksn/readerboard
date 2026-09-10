@@ -15,6 +15,20 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **Seven markup tokens for the ways this sign can actually draw text.**
+  `<font_normal>`, `<font_half_height>` and `<font_wide>` choose a character
+  set; `<bold_on>`/`<bold_off>` and `<extra_wide_on>`/`<extra_wide_off>` switch
+  a character attribute. The `font_` three are a selection rather than a
+  switch, so `<font_normal>` is the way back from half height.
+
+  These are what survived putting all twenty of the protocol's character sets
+  and attributes on the sign and photographing each: twenty codes collapsed
+  into five appearances, because a seven-pixel display cannot express the
+  difference between seven slim, seven stroke and seven fancy. They are named
+  for what a person sees rather than for the document's labels, which
+  contradict themselves here, calling `1AH+6` both "ten high standard" and
+  "seven stroke fancy" when on seven rows it is ordinary text.
+
 - **A `SPEAKER` control command mutes the sign.** `ON` and `OFF` write the
   sign's speaker enable register, and `OFF` is a mute: `SOUND` is still
   accepted and makes no noise. The setting lives on the sign and survives a
@@ -158,6 +172,16 @@ library, and the names inside it may move without that being a breaking change.
   and simply stop opening a tab, which is not the sort of thing anybody reports.
 
 ### Removed
+
+- **The `<wide_on>`, `<wide_off>`, `<dbl_height_on>` and `<dbl_height_off>`
+  markup tokens**, replaced by ones that do something. All four were put on the
+  real sign and drew text pixel-identical to no markup at all. A Betabrite is
+  seven pixels high: nothing can be twice as tall as the whole display, and the
+  protocol's own "enable wide characters" turns out to draw plain text on it
+  too. See **Added** above for the seven tokens that took their place, and
+  `docs/protocol-notes.md` for the measurement. A message still containing one
+  is not rejected: restored content is re-rendered leniently, so the tag comes
+  back as literal text, and the sign simulator still annotates the codes.
 
 - **The `<date>`, `<date_dmy>` and `<date_long>` markup tokens.** They inserted
   the sign's own date, and on this hardware that date cannot be made correct.

@@ -200,6 +200,51 @@ sent into that window is not refused, it simply is not there afterwards. The con
 command route waits the reset out before answering, so a 204 means the sign is listening
 again rather than that bytes were sent.
 
+## Twenty ways to draw text, five of which look different
+
+Control code 1AH selects a character set and 1DH switches a character attribute. Between
+them the document offers fourteen character sets and six attributes, and the service
+originally exposed none of either while offering three tokens of its own for overlapping
+ideas: `<wide_on>` (12H), `<dbl_height_on>` (05H) and `<fixed_width>` (1EH).
+
+On 2026-09-09 all of them were put on the real sign one at a time, held for eight seconds
+each in a single colour, and photographed so that identical ones could be told from
+nearly-identical ones. Twenty distinct codes collapsed into **five** appearances:
+
+| Look | Code | Also identical to |
+| --- | --- | --- |
+| plain | none | see below |
+| half height | `1AH+1` | |
+| wide | `1AH+5` | `1AH+8` |
+| bold | `1DH+0` | |
+| extra wide | `1DH+1` | |
+
+Everything else drew text pixel-identical to plain: character sets `1AH+2`, `+3`, `+4`,
+`+6`, `+7`, `+9`, `+:`, `+;`, `+<`, `+=`, `+>`, the attributes `1DH+2` (double high),
+`1DH+3` (true descenders) and `1DH+5` (fancy), and the protocol's own `12H` wide and `05H`
+double height that two of the service's tokens were built on.
+
+The reason is the display. A Betabrite is "always 7 dots (or pixels) high", and most of
+these variants differ only in stroke weight or in height above seven rows. Seven rows
+cannot express the difference between seven slim, seven stroke and seven fancy, and
+nothing at all can be twice as tall as the whole sign. The sign accepts every one of these
+codes and reports no error; it simply draws the same dots.
+
+So `<wide_on>`, `<wide_off>`, `<dbl_height_on>` and `<dbl_height_off>` were removed, and
+`<font_normal>`, `<font_half_height>`, `<font_wide>`, `<bold_on>`, `<bold_off>`,
+`<extra_wide_on>` and `<extra_wide_off>` were added in their place. The three `font_`
+tokens are a selection rather than a switch, which is why there is a `<font_normal>`: it is
+the only way back from half height.
+
+They are named for what a person sees, not for the document's labels, because those
+contradict themselves on this hardware. The table calls `1AH+6` "ten high standard" and
+also "seven stroke fancy" on a Betabrite, and on seven rows it is neither: it is ordinary
+text. A name taken from that table would have described something nobody can see.
+
+The constants for every one of these stay in `constants.py` with their citations, and the
+sign simulator annotates them all, so a message written by an older version stays
+readable.
+
 ## The sign's date has no century, so no token offers it
 
 Table 15 gives `;` (3BH) as Set Date, six ASCII characters `mmddyy`, and Table 16 reads it

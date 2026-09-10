@@ -44,6 +44,44 @@ def test_no_token_inserts_the_signs_date():
     assert not (offered & date_values)
 
 
+def test_no_token_claims_to_double_the_character_height():
+    # A Betabrite is seven pixels high, and on seven rows both the 05H form and
+    # the 1DH+2 attribute drew text identical to plain. Pinned as an absence for
+    # the same reason the date one is: the constants are still there.
+    offered = {token.value for token in MARKUP_TOKENS}
+    assert c.DBL_HEIGHT_CHARS_ON not in offered
+    assert c.DBL_HEIGHT_CHARS_OFF not in offered
+    assert c.CHAR_ATTRIB_DBLH_ON not in offered
+
+
+def test_the_looks_that_survived_the_sign_are_offered():
+    # Twenty character sets and attributes were put on the sign and collapsed
+    # into these. Anything not here rendered identically to plain text, so it
+    # would be a second name for nothing.
+    offered = {token.value for token in MARKUP_TOKENS}
+    for value in (
+        c.CHARSET_7_NORMAL,
+        c.CHARSET_5_NORMAL,
+        c.CHARSET_7_FANCY,
+        c.CHAR_ATTRIB_WIDE_ON,
+        c.CHAR_ATTRIB_DBLW_ON,
+    ):
+        assert value in offered
+
+
+def test_no_token_offers_a_look_the_sign_draws_as_plain_text():
+    # Measured on the sign: these render pixel-identical to no markup at all.
+    offered = {token.value for token in MARKUP_TOKENS}
+    for value in (
+        c.CHARSET_10_NORMAL,
+        c.CHAR_ATTRIB_FNCY_ON,
+        c.CHAR_ATTRIB_DESC_ON,
+        c.WIDE_CHARS_ON,
+        c.WIDE_CHARS_OFF,
+    ):
+        assert value not in offered
+
+
 def test_the_time_and_day_of_week_are_still_offered():
     # Both are registers the clock sync writes, so unlike the date they are
     # right. Removing the date tokens must not take these with them.

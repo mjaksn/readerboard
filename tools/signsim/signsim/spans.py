@@ -111,6 +111,13 @@ def _build_table() -> dict[bytes, tuple[SpanKind, str, str]]:
             "attrib_descenders_off",
             "Character attribute: true descenders off",
         ),
+        # The service offers no token for these: on a seven-row Betabrite they
+        # all draw ordinary text. Still decoded, because the codes are real and
+        # an older message may carry one.
+        (c.DBL_HEIGHT_CHARS_ON, "dbl_height_on", "Double height characters on"),
+        (c.DBL_HEIGHT_CHARS_OFF, "dbl_height_off", "Double height characters off"),
+        (c.WIDE_CHARS_ON, "wide_on", "Wide characters on"),
+        (c.WIDE_CHARS_OFF, "wide_off", "Wide characters off"),
         (c.CHAR_ATTRIB_FIX_ON, "attrib_fixed_width_on", "Character attribute: fixed width on"),
         (c.CHAR_ATTRIB_FIX_OFF, "attrib_fixed_width_off", "Character attribute: fixed width off"),
         (c.CHAR_ATTRIB_FNCY_ON, "attrib_fancy_on", "Character attribute: fancy on"),
