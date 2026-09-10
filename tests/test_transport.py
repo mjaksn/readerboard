@@ -162,6 +162,34 @@ class TestBackoff:
         with pytest.raises(TransportError, match="next attempt in"):
             transport.write(b"HELLO")
 
+    def test_a_long_outage_does_not_break_the_backoff(self):
+        """The delay must survive far more failures than a weekend can produce.
+
+        It did not. The delay was recomputed as ``initial * 2 ** (failures - 1)``
+        from an unbounded counter, and at attempt 1025 that is ``1.0 * 2 ** 1024``,
+        which raises OverflowError rather than returning infinity because the base
+        is a float. An ArithmeticError is not what any caller here was catching, so
+        it escaped ``ensure_open`` and killed the reconnect task, which this branch
+        made the only thing able to reopen the link. The service then answered 503
+        until it was restarted, however healthy the sign became.
+
+        At the sixty second cap, attempt 1025 is about seventeen hours away: one
+        weekend with the sign or its adapter switched off.
+        """
+        clock = Clock()
+        transport = self.unopenable(clock)
+
+        for _ in range(1200):
+            with pytest.raises(TransportError):
+                transport.ensure_open()
+            clock.advance(transport.seconds_until_retry())
+
+        # Still capped, still finite, still telling the truth about the wait.
+        assert transport.seconds_until_retry() == 0.0
+        with pytest.raises(TransportError, match="could not open"):
+            transport.ensure_open()
+        assert transport.seconds_until_retry() == pytest.approx(8.0)
+
     def test_a_successful_open_clears_the_backoff(self):
         clock = Clock()
         transport = SerialTransport("loop://", monotonic=clock)

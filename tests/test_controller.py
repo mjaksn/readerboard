@@ -324,6 +324,57 @@ class TestNothingElseWritesWhileTheSignIsResetting:
         ]
 
 
+class TestTheLinkWatcherSurvives:
+    """It is the only thing that opens the link, so nothing may kill it.
+
+    A write used to open one lazily and no longer does. If this task dies the
+    service answers 503 until somebody restarts it, however healthy the sign
+    becomes. It died once on an arithmetic error out of the transport's own
+    backoff, which is not a TransportError and so matched nothing that was being
+    caught on the way out.
+    """
+
+    def exploding(self, error: Exception) -> FakeTransport:
+        transport = FakeTransport()
+
+        def ensure_open() -> None:
+            raise error
+
+        transport.ensure_open = ensure_open  # type: ignore[method-assign]
+        return transport
+
+    async def test_startup_survives_an_unexpected_error_from_the_link(self, caplog):
+        controller = SignController(
+            self.exploding(OverflowError("int too large to convert to float")),
+            inter_packet_delay=0,
+        )
+
+        with caplog.at_level("ERROR"):
+            await controller.start()  # must not raise
+        try:
+            assert controller._reconnect_task is not None
+            assert not controller._reconnect_task.done()
+        finally:
+            await controller.stop()
+
+    async def test_the_watcher_keeps_going_after_an_unexpected_error(self, caplog):
+        controller = SignController(
+            self.exploding(OverflowError("int too large to convert to float")),
+            inter_packet_delay=0,
+        )
+
+        with caplog.at_level("ERROR"):
+            await controller.start()
+            # Long enough for the loop to take at least one turn and raise.
+            await asyncio.sleep(0.05)
+        try:
+            task = controller._reconnect_task
+            assert task is not None
+            assert not task.done(), "the watcher died, so the link can never reopen"
+        finally:
+            await controller.stop()
+
+
 class TestFailures:
     async def test_a_failed_write_raises_rather_than_reporting_success(self):
         # Reported as a 200 with an error string in the body, a dead link is

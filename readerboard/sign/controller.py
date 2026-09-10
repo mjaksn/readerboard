@@ -118,6 +118,11 @@ class SignController:
             # Not fatal. The service should come up with the sign unplugged and
             # start working when it is plugged back in.
             logger.warning("sign not reachable at startup: %s", err)
+        except Exception:
+            # Nor is anything else. Whatever the first open did, the watcher
+            # below is what brings the link back, and refusing to start the
+            # service is a worse answer than starting it without a sign.
+            logger.exception("opening the sign at startup failed unexpectedly")
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def stop(self) -> None:
@@ -358,13 +363,25 @@ class SignController:
                     logger.exception("a reconnect hook failed")
 
     async def _reconnect_loop(self) -> None:
-        """Keep trying to bring the link back while the service is running."""
+        """Keep trying to bring the link back while the service is running.
+
+        This is the only thing that opens the link. A write used to open one
+        lazily and no longer does, so if this task ever dies the service is
+        down until it is restarted, however healthy the sign becomes. It
+        therefore survives anything a single attempt can raise, not merely the
+        failure the transport is expected to report. It died once on an
+        arithmetic error from its own backoff.
+        """
         while not self._stopping.is_set():
             if not self._transport.is_open:
                 try:
                     await self._connect()
                 except TransportError as err:
                     logger.debug("reconnect attempt failed: %s", err)
+                except Exception:
+                    logger.exception(
+                        "reconnect attempt failed unexpectedly; still watching the link"
+                    )
 
             delay = max(1.0, self._seconds_until_retry())
             try:

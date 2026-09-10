@@ -202,6 +202,24 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
+- **A sign left off over a weekend could leave the service answering 503 until
+  it was restarted.** The reconnect backoff computed its delay as
+  `backoff_initial * 2 ** (failures - 1)` from a counter that never stopped
+  rising. At the sixty second cap that reaches attempt 1025 in about seventeen
+  hours, where `1.0 * 2 ** 1024` raises `OverflowError` rather than returning
+  infinity, because the base is a float and the result cannot be represented.
+  An `ArithmeticError` was not what anything on the way out was catching, so it
+  escaped and killed the task watching the link.
+
+  That task became load bearing in this release: a write used to open the link
+  lazily and now refuses when it is down, which is what makes a write to an
+  unreachable sign a 503 instead of a long hang. So the watcher is the only
+  thing left that opens anything, and with it dead the service stayed down
+  after the sign came back, with `/health` stuck at degraded and a 503 body
+  claiming the next attempt was due in `0.0s`. The delay is now carried forward
+  and doubled rather than recomputed from the count, and neither the watcher
+  nor startup can be killed by anything a single open attempt raises.
+
 - **A write sent while the sign was restarting was silently lost.** The sign is
   deaf from the moment a reset reaches it until its power-up diagnostics finish,
   and a write arriving in that window is not refused: the adapter takes it, the

@@ -55,6 +55,7 @@ class SerialTransport:
         self._lock = threading.Lock()
         self._failures = 0
         self._retry_after = 0.0
+        self._retry_delay = backoff_initial
         self._last_error: str | None = None
 
     @property
@@ -151,12 +152,22 @@ class SerialTransport:
             logger.info("link to %s is open", self._url)
         self._failures = 0
         self._retry_after = 0.0
+        self._retry_delay = self._backoff_initial
         self._last_error = None
 
     def _record_failure(self, err: Exception) -> None:
+        # The delay is carried forward and doubled rather than recomputed as
+        # ``initial * 2 ** (failures - 1)``, because that exponent grows without
+        # bound while the count does. A sign switched off over a weekend reaches
+        # attempt 1025 in about seventeen hours at the sixty second cap, and
+        # ``1.0 * 2 ** 1024`` raises OverflowError rather than returning
+        # infinity: the base is a float, so the result cannot be represented.
+        # That escaped as an ArithmeticError, which nothing on the way out
+        # caught, and killed the one task able to reopen the link.
         self._failures += 1
         self._last_error = str(err)
-        delay = min(self._backoff_max, self._backoff_initial * (2 ** (self._failures - 1)))
+        delay = min(self._backoff_max, self._retry_delay)
+        self._retry_delay = min(self._backoff_max, self._retry_delay * 2)
         self._retry_after = self._monotonic() + delay
         logger.warning(
             "link to %s failed (attempt %d): %s; backing off %.1fs",
