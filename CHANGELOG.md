@@ -197,6 +197,22 @@ library, and the names inside it may move without that being a breaking change.
   dependency, for the reason `pyproject.toml` gives, so uvicorn polls the tree
   instead and a save takes a moment to be noticed.
 
+- **A `settle_delays_enabled` setting, for saying the far end is not a sign.**
+  The service waits out the windows in which the sign cannot listen, after a
+  reset or a tone. This turns that off, and should be left on for a real sign;
+  the sign simulator has no power-up diagnostics to run and no speaker to switch
+  its port off for, so its launcher sets it false and saves twelve seconds on
+  every start.
+
+  It is a setting of its own rather than a reading of `inter_packet_delay`,
+  which is what governed the wait when it was first written. The two are not the
+  same question. Pacing is how fast this end may talk; a settle is how long the
+  far end is deaf, and no amount of pacing changes that. Since
+  `inter_packet_delay` is documented, adjustable and accepts zero, anyone who
+  measured their sign as needing no pacing and set it there would have lost the
+  three second wait after a tone without being told, along with the writes that
+  landed in it.
+
 ### Changed
 
 - **A message write is refused with a 503 when the sign is unreachable, rather
@@ -295,7 +311,8 @@ library, and the names inside it may move without that being a breaking change.
 
   `SOUND` now holds the sign's lock for three seconds, so other writers queue
   rather than write into the gap, and the request returns when the sign is
-  listening again.
+  listening again. That wait is governed by `settle_delays_enabled` above and
+  by nothing else, so pacing the line differently cannot take it away.
 
 - **A sign left off over a weekend could leave the service answering 503 until
   it was restarted.** The reconnect backoff computed its delay as

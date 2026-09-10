@@ -104,10 +104,20 @@ class SignController:
         transport: Transport,
         *,
         inter_packet_delay: float = 0.5,
+        settle: bool = True,
         now: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         """Wrap a transport. Nothing is sent until :meth:`start`.
+
+        ``settle`` is whether to sit out the windows in which the sign cannot
+        listen, after a reset or a tone. Turn it off only for something that is
+        not a sign: the simulator has no diagnostics to run and no speaker to
+        switch its port off for, so waiting for it is twelve seconds of nothing
+        on every start. It is deliberately not the same knob as
+        ``inter_packet_delay``. That one is how fast this end may talk; a settle
+        is how long the other end is deaf, which is a fact about the hardware
+        and not about pacing.
 
         ``sleep`` is injected for the same reason ``now`` is: so a test can ask
         what the controller waited for rather than how long it actually took.
@@ -118,6 +128,7 @@ class SignController:
         """
         self._transport = transport
         self._inter_packet_delay = inter_packet_delay
+        self._settle = settle
         self._now = now
         self._sleep = sleep
 
@@ -302,10 +313,8 @@ class SignController:
             await self._send_locked(frames.clear_memory())
             # Let the reset the clear triggers finish before the configuration
             # lands, or the configuration arrives while the sign is deaf and is
-            # lost. Gated on the same delay as the per-packet wait: a link told
-            # to pace nothing is a fake or a simulator, which has no reset to
-            # wait through.
-            if self._inter_packet_delay:
+            # lost.
+            if self._settle:
                 await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
             await self._send_locked(frames.set_memory_config(allocations))
             # The configuration buffers through the reset, but message content
@@ -313,7 +322,7 @@ class SignController:
             # to hold one buffered write. Whoever rebuilds the display next is
             # holding this lock's queue, so waiting here is what stops their
             # writes landing on a sign that cannot say it missed them.
-            if self._inter_packet_delay:
+            if self._settle:
                 await self._sleep(RESET_SETTLE_SECONDS)
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
@@ -330,13 +339,16 @@ class SignController:
         which the protocol says the serial port is switched off. The wait is
         taken with the lock held, so the send and the wait are one
         uninterruptible step and another caller's write queues instead of being
-        thrown at a sign that is deaf and cannot say so. Gated on
-        ``inter_packet_delay``, which a fake or a simulator sets to zero because
-        neither has anything to sit through.
+        thrown at a sign that is deaf and cannot say so.
+
+        Skipped only when the controller was built with ``settle`` false, which
+        says the thing on the other end is not a sign. It is not tied to
+        ``inter_packet_delay``: a sign paced as fast as the line allows is deaf
+        for exactly as long after a tone as a slowly paced one.
         """
         async with self._lock:
             await self._send_locked(payload)
-            if settle_seconds and self._inter_packet_delay:
+            if settle_seconds and self._settle:
                 await self._sleep(settle_seconds)
 
     async def read_special(self, payload: bytes) -> bytes:

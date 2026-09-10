@@ -30,6 +30,9 @@ def settings(tmp_path) -> Settings:
         state_path=tmp_path / "state.json",
         serial_url="loop://",
         inter_packet_delay=0,
+        # Nothing here is a sign, so there is no deaf window to sit out and a
+        # reset settle would cost every test in this file ten seconds.
+        settle_delays_enabled=False,
         slot_count=3,
         slot_capacity=256,
         clock_sync_enabled=False,
@@ -718,6 +721,7 @@ class TestNoApiKeyConfigured:
             api_key="",
             state_path=tmp_path / "state.json",
             inter_packet_delay=0,
+            settle_delays_enabled=False,
             clock_sync_enabled=False,
         )
         with TestClient(create_app(settings, transport=sign)) as client:

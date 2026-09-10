@@ -130,7 +130,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         logger.info("readerboard %s starting; sign at %s", __version__, settings.serial_url)
 
         link = transport if transport is not None else build_transport(settings)
-        controller = SignController(link, inter_packet_delay=settings.inter_packet_delay)
+        controller = SignController(
+            link,
+            inter_packet_delay=settings.inter_packet_delay,
+            settle=settings.settle_delays_enabled,
+        )
         store = StateStore(settings.state_path)
         state = store.load()
         layout = Layout(settings.slot_count, settings.slot_capacity)

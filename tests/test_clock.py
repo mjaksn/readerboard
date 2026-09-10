@@ -117,7 +117,7 @@ class TestFailure:
 async def test_it_syncs_when_the_link_comes_back():
     """The reconnect trigger is the one a schedule alone cannot provide."""
     transport = FakeTransport(open_fails_with="no route to host")
-    controller = SignController(transport, inter_packet_delay=0)
+    controller = SignController(transport, inter_packet_delay=0, settle=False)
     moment = datetime(2026, 8, 25, 9, 5, tzinfo=UTC)
     clock = ClockService(controller, now=lambda: moment)
     controller.on_reconnect(clock.sync_quietly)

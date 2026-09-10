@@ -259,6 +259,11 @@ def _start_service(args: argparse.Namespace, address: str) -> subprocess.Popen[s
             # There is no serial line to be gentle with, so waiting half a second
             # between packets only makes the log arrive slowly.
             "READERBOARD_INTER_PACKET_DELAY": "0",
+            # And no sign, so nothing goes deaf: the simulator has no power-up
+            # diagnostics to run and no speaker to switch its port off for.
+            # Left on, every start would sit through twelve seconds of settle
+            # after the memory configuration this launcher forces each run.
+            "READERBOARD_SETTLE_DELAYS_ENABLED": "false",
         }
     )
     # The default config file is a system path that will not exist in a

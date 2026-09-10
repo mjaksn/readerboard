@@ -83,7 +83,7 @@ class TestSuppression:
 class TestMemoryConfiguration:
     async def test_it_is_written_and_forgets_what_the_sign_held(self):
         transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
 
         await controller.write_text_file(b"A", b"HI")
         await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
@@ -96,7 +96,7 @@ class TestMemoryConfiguration:
         # read it back correctly, and displayed nothing from it until a bare E$
         # clear was sent first. So the clear is not optional and it comes first.
         transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
 
         allocations = [frames.FileAllocation(b"A", 256)]
         await controller.apply_memory_config(allocations)
@@ -108,7 +108,7 @@ class TestMemoryConfiguration:
 
     async def test_it_warns_that_the_sign_will_be_cleared(self, caplog):
         transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
 
         await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
 
@@ -206,12 +206,33 @@ class TestWaitingForAReset:
 
         assert RESET_SETTLE_SECONDS not in slept
 
-    async def test_no_settle_is_requested_when_pacing_is_configured_away(self):
-        # A zero delay is a fake or a simulator, which has no reset to wait
-        # through, so the recovery path must not stall a test for ten seconds.
+    async def test_pacing_configured_away_does_not_take_the_settle_with_it(self):
+        """How fast this end may talk says nothing about how long the sign is deaf.
+
+        The settle used to be gated on ``inter_packet_delay``, on the reasoning
+        that a link told to pace nothing is a simulator. But that setting is
+        documented and adjustable, and its own description invites tuning it
+        down against a real sign. Anyone who measured their sign as needing no
+        pacing and set it to zero would have silently lost the three second wait
+        after a tone, which is the deaf window this exists for, and the writes
+        lost in it fail without saying so.
+        """
         slept: list[float] = []
         controller = SignController(
             FakeTransport(), inter_packet_delay=0, sleep=recording_sleep(slept)
+        )
+
+        await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
+
+        assert slept == [RESET_SETTLE_SECONDS]
+
+    async def test_a_controller_told_it_faces_no_sign_skips_the_settle(self):
+        # The simulator has no diagnostics to run and no speaker to switch its
+        # port off for, so this is the one thing that may skip the wait, and it
+        # has to be asked for by name rather than inferred from pacing.
+        slept: list[float] = []
+        controller = SignController(
+            FakeTransport(), inter_packet_delay=0, settle=False, sleep=recording_sleep(slept)
         )
 
         await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)

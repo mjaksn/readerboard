@@ -111,9 +111,11 @@ configuration written a second or more after the clear was seen to display once 
 came back, so the sign buffers it through the reset and applies it on the way back. One
 second is the shortest gap that was tried. `apply_memory_config` waits
 `MEMORY_CLEAR_SETTLE_SECONDS`, two, which sits a little above the shortest gap that was
-tried rather than at its edge. The wait is skipped when `inter_packet_delay` is zero,
-which is how the simulator and the test transport are run, because neither has a reset to
-sit through.
+tried rather than at its edge. The wait is skipped only when `settle_delays_enabled` is
+false, which is how the simulator and the test transport are run, because neither has a
+reset to sit through. It used to be skipped when `inter_packet_delay` was zero, which
+conflated how fast this end may talk with how long the sign is deaf; a real sign paced as
+fast as the line allows takes just as long to come back.
 
 ### The start and stop times
 

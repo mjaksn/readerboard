@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -39,9 +40,23 @@ def transport() -> FakeTransport:
     return FakeTransport()
 
 
+async def instant_sleep(seconds: float) -> None:
+    """Take no time, but still give the loop a chance to run something else.
+
+    The yield is not decoration. A settle is taken with the sign's lock held,
+    and a test that never yields inside it would let a task hold that lock from
+    beginning to end, so a missing lock would look exactly like a held one.
+    """
+    await asyncio.sleep(0)
+
+
 @pytest.fixture
 def controller(transport: FakeTransport) -> SignController:
-    return SignController(transport, inter_packet_delay=0)
+    # Settles are real durations, ten seconds in the case of a reset. The
+    # controller under test keeps them switched on, because that is what a sign
+    # gets; it is the waiting that is skipped, by handing it a sleep that does
+    # not.
+    return SignController(transport, inter_packet_delay=0, sleep=instant_sleep)
 
 
 @pytest.fixture

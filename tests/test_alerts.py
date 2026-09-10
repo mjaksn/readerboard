@@ -74,7 +74,7 @@ class TestTimedRelease:
 
 class TestRestart:
     def rebuild(self, transport, store, clock) -> AlertService:
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
         return AlertService(controller, store, store.load(), now=clock)
 
     async def test_an_alert_still_within_its_deadline_comes_back(

@@ -43,6 +43,15 @@ serial_timeout = 10.0
 # sign actually needs rather than guessing high forever.
 inter_packet_delay = 0.5
 
+# Whether to wait out the windows in which the sign cannot listen, after a reset
+# or a tone. Leave this on for a real sign. It is a separate setting from the
+# pacing above on purpose: that one is how fast this end may talk, while a settle
+# is how long the far end is deaf, which no amount of pacing changes. Turn it off
+# only when the far end is not a sign, such as the sign simulator; against a real
+# one it costs the writes that arrive while it is not listening, and those fail
+# without saying so.
+settle_delays_enabled = true
+
 # Reconnection backoff, in seconds, doubling from the first to the second.
 backoff_initial = 1.0
 backoff_max = 60.0
