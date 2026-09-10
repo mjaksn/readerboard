@@ -185,12 +185,15 @@ class MessageRegistry:
         touch; the caller re-asserts it.
         """
         async with self._lock:
+            # apply_memory_config holds the sign's lock through the clear, the
+            # configuration and the sign's power-up diagnostics, so it returns
+            # only once the sign is listening again and the rewrite below cannot
+            # land on a deaf sign.
             await self._controller.apply_memory_config(self._layout.allocations())
             self._state.layout = self._layout.as_applied()
-            await self._controller.wait_for_reset()
-            # apply_memory_config already forgot the sign's contents, but the
-            # rewrite forces every write regardless, because after a reset the
-            # cache is exactly what cannot be trusted.
+            # apply_memory_config already forgot the sign's contents. Doing it
+            # again is belt and braces: after a reset the cache is exactly what
+            # cannot be trusted, and the rewrite below must not be suppressed.
             self._controller.forget_sign_contents()
             await self._rewrite_all(force=True)
             self._dirty = False

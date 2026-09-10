@@ -39,13 +39,20 @@ logger = logging.getLogger(__name__)
 # operation.
 MEMORY_CLEAR_SETTLE_SECONDS = 2.0
 
-# How long to wait for an "E$" clear's reset to finish before re-pushing message
-# content. apply_memory_config lets the configuration itself buffer through the
-# reset, which the sign applies as it comes back, but writing message content
-# needs the sign actually back and listening rather than merely able to hold one
-# buffered write. The clear puts the sign through a reset it is deaf through for
-# several seconds; this waits that out. Only the reboot recovery path pays it,
-# and only against real hardware.
+# How long to wait for a reset to finish before writing to the sign again. Both
+# of the protocol's resets pay it: the "E$" clear inside apply_memory_config, and
+# the "E," soft reset a caller asks for by name through SOFT_RESET.
+#
+# apply_memory_config lets the configuration itself buffer through the reset,
+# which the sign applies as it comes back, but message content needs the sign
+# actually back and listening rather than merely able to hold one buffered write.
+#
+# The wait is always taken with the sign's lock held. That is the whole point of
+# it: a write arriving while the sign is deaf is not refused, it is lost, because
+# the transport accepts it, the suppression cache records it as delivered and the
+# caller is told it worked. Holding the lock makes other writers queue instead.
+# Paid only against real hardware, since a link told to pace nothing is a fake or
+# a simulator, and neither has a reset to sit through.
 RESET_SETTLE_SECONDS = 10.0
 
 ReconnectHook = Callable[[], Awaitable[None]]
@@ -187,7 +194,13 @@ class SignController:
         position: bytes = c.TEXT_POS_MIDDLE,
         force: bool = False,
     ) -> bool:
-        """Take the display over with an alert, or release it if ``body`` is empty."""
+        """Take the display over with an alert.
+
+        This never releases the display, whatever ``body`` holds. An empty body
+        still carries the Start-of-Message byte, a position and a mode, and the
+        sign reads that as a blank priority message it should show, so it keeps
+        the screen. :meth:`clear_priority` sends the bare write a release needs.
+        """
         return await self.write_text_file(
             c.FILE_PRIORITY, body, mode=mode, position=position, force=force
         )
@@ -241,38 +254,51 @@ class SignController:
         # erases the sign, which is why this whole method is the one dangerous
         # operation, so clearing first reaches the same empty sign by a
         # different door. See docs/protocol-notes.md.
-        await self._send(frames.clear_memory())
-        # Let the reset the clear triggers finish before the configuration lands,
-        # or the configuration arrives while the sign is deaf and is lost. Gated
-        # on the same delay as the per-packet wait below: a link told to pace
-        # nothing is a fake or a simulator, which has no reset to wait through.
-        if self._inter_packet_delay:
-            await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
-        await self._send(frames.set_memory_config(allocations))
+        # The whole sequence runs under one acquisition of the lock. The sign is
+        # deaf from the moment the clear reaches it until its diagnostics
+        # finish, and a write arriving in that window is not refused, it is
+        # simply gone: the transport accepts it, the suppression cache records
+        # it as delivered, and the caller is told 200. Holding the lock makes
+        # every other writer queue behind the reset instead. That is why the
+        # sends below are ``_send_locked``; ``asyncio.Lock`` is not reentrant.
+        async with self._lock:
+            await self._send_locked(frames.clear_memory())
+            # Let the reset the clear triggers finish before the configuration
+            # lands, or the configuration arrives while the sign is deaf and is
+            # lost. Gated on the same delay as the per-packet wait: a link told
+            # to pace nothing is a fake or a simulator, which has no reset to
+            # wait through.
+            if self._inter_packet_delay:
+                await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
+            await self._send_locked(frames.set_memory_config(allocations))
+            # The configuration buffers through the reset, but message content
+            # needs the sign actually back and listening rather than merely able
+            # to hold one buffered write. Whoever rebuilds the display next is
+            # holding this lock's queue, so waiting here is what stops their
+            # writes landing on a sign that cannot say it missed them.
+            if self._inter_packet_delay:
+                await self._sleep(RESET_SETTLE_SECONDS)
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
 
-    async def wait_for_reset(self) -> None:
-        """Pause for an E$ clear's reset to finish before writing content again.
-
-        :meth:`apply_memory_config` sends the clear and lets the configuration
-        buffer through the reset, but re-pushing message content needs the sign
-        actually back and listening, not merely able to hold one buffered write.
-        Gated on ``inter_packet_delay`` for the same reason the memory-clear
-        settle is: a link told to pace nothing is a fake or a simulator, which
-        has no reset to wait through.
-        """
-        if self._inter_packet_delay:
-            await self._sleep(RESET_SETTLE_SECONDS)
-
-    async def send_special(self, payload: bytes) -> None:
+    async def send_special(self, payload: bytes, *, settle: bool = False) -> None:
         """Send a special function such as a clock command.
 
         Never suppressed. Setting the clock to the same value it already holds
         is still worth doing, because the point is to correct drift we cannot
         see.
+
+        ``settle`` is for a command that restarts the sign. It holds the lock
+        through the sign's power-up diagnostics, so the send and the wait are
+        one uninterruptible step and another caller's write queues rather than
+        being thrown at a sign that is deaf and cannot say so. Gated on
+        ``inter_packet_delay``, which a fake or a simulator sets to zero because
+        neither has a reset to sit through.
         """
-        await self._send(payload)
+        async with self._lock:
+            await self._send_locked(payload)
+            if settle and self._inter_packet_delay:
+                await self._sleep(RESET_SETTLE_SECONDS)
 
     # == internals ==========================================================
 
@@ -290,24 +316,35 @@ class SignController:
         return True
 
     async def _send(self, payload: bytes) -> None:
-        packet = frames.packet(payload)
         async with self._lock:
-            try:
-                await asyncio.to_thread(self._transport.write, packet)
-            except TransportError as err:
-                self.last_error = str(err)
-                # What we believed about the sign's contents may not have
-                # survived a failed write, so stop believing it.
-                self.forget_sign_contents()
-                raise
+            await self._send_locked(payload)
 
-            self.writes += 1
-            self.last_write_at = self._now()
-            self.last_error = None
-            logger.debug("wrote %d bytes: %s", len(packet), packet.hex())
+    async def _send_locked(self, payload: bytes) -> None:
+        """Send one payload. The caller must already hold the lock.
 
-            if self._inter_packet_delay:
-                await self._sleep(self._inter_packet_delay)
+        Split out of :meth:`_send` so that a sequence which must not be
+        interleaved, such as the clear and configuration either side of a
+        memory reset, can hold the lock across the whole of it.
+        ``asyncio.Lock`` is not reentrant, so those callers cannot simply call
+        :meth:`_send` again.
+        """
+        packet = frames.packet(payload)
+        try:
+            await asyncio.to_thread(self._transport.write, packet)
+        except TransportError as err:
+            self.last_error = str(err)
+            # What we believed about the sign's contents may not have
+            # survived a failed write, so stop believing it.
+            self.forget_sign_contents()
+            raise
+
+        self.writes += 1
+        self.last_write_at = self._now()
+        self.last_error = None
+        logger.debug("wrote %d bytes: %s", len(packet), packet.hex())
+
+        if self._inter_packet_delay:
+            await self._sleep(self._inter_packet_delay)
 
     async def _connect(self) -> None:
         was_open = self._transport.is_open

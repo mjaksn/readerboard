@@ -179,9 +179,10 @@ async def send_command(body: ControlCommandRequest, controller: ControllerDep) -
     a 204 means the sign is listening again. Reach for `POST /sign/reboot` only
     when a soft reset is not enough: that one erases the sign and rebuilds it.
     """
-    await controller.send_special(commands.build(body.command, body.parameter))
-    if commands.resets_the_sign(body.command):
-        await controller.wait_for_reset()
+    await controller.send_special(
+        commands.build(body.command, body.parameter),
+        settle=commands.resets_the_sign(body.command),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
