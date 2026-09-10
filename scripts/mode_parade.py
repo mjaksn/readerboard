@@ -33,8 +33,12 @@ Then each candidate, labelled with its own code. By default that is the four the
 document still rules out for a Betabrite. Pass --include-undocumented to also
 sweep the codes the document does not mention at all, between Table 66's last
 entry and Table 67's first, where an undocumented Betabrite mode would be
-hiding. Pass --only to watch particular labels for longer, beside the control
-each has to be told apart from:
+hiding. That gap was swept on 2026-09-10 and is empty: all sixteen drew
+INTERLOCK, which is also how this sign answers any special mode specifier it does
+not recognise. It is not refused, it is quietly drawn wrong.
+
+Pass --only to watch particular labels for longer, beside the control each has to
+be told apart from:
 
     python scripts/mode_parade.py --only HOLD,AUTO,AUTO_COLOR --hold 30
 

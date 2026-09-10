@@ -4,7 +4,7 @@ import pytest
 
 from readerboard.protocol import constants as c
 from readerboard.protocol.markup import THIN_SPACE, MarkupError, render
-from readerboard.protocol.tokens import MARKUP_TOKENS
+from readerboard.protocol.tokens import DISPLAY_MODES, MARKUP_TOKENS
 
 
 def test_plain_text_is_ascii():
@@ -80,6 +80,33 @@ def test_no_token_offers_a_look_the_sign_draws_as_plain_text():
         c.WIDE_CHARS_OFF,
     ):
         assert value not in offered
+
+
+def test_no_mode_claims_a_specifier_the_sign_falls_back_from():
+    """The gap between the two special mode tables is empty, and was measured.
+
+    Table 66 runs its specifiers to "C" and Table 67 starts at "S", skipping
+    "T". Nothing says what lives between them, and after 64H turned out to be a
+    real mode under the word "reserved", the gap looked worth sweeping.
+
+    All sixteen went to the sign on 2026-09-10 and every one drew INTERLOCK.
+    That is a fallback rather than a refusal: the sign accepted each write and
+    displayed the message in a mode nobody asked for.
+
+    Pinned as an absence for the same reason the date and double height ones
+    are. Offering one of these would look like filling a gap, and would in fact
+    be a second name for INTERLOCK.
+    """
+    offered = {token.value for token in DISPLAY_MODES}
+    gap = [b"n" + bytes([code]) for code in [*range(ord("D"), ord("S")), ord("T")]]
+
+    assert len(gap) == 16
+    for value in gap:
+        assert value not in offered, "%r draws INTERLOCK on this sign" % value
+
+    # The thing they all fall back to is offered under its own name, which is
+    # what makes any of them redundant rather than merely undocumented.
+    assert c.MODE_INTERLOCK in offered
 
 
 def test_the_time_and_day_of_week_are_still_offered():

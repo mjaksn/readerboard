@@ -573,6 +573,28 @@ a stronger reason to look than a row that says no.
 the byte, and says in its docstring that it is the one value in that file with no
 citation behind it, because the document has none to give.
 
+### The gap between the two special mode tables is empty, and was checked
+
+Table 66 runs its specifiers from `0` to `C` and Table 67 begins at `S`, skipping `T`.
+Nothing in the document says what, if anything, lives in between. After 64H turned out to
+be a real mode hiding under the word "reserved", that gap looked worth a sweep.
+
+It is empty. All sixteen codes, `nD` through `nR` and `nT`, went to the sign on 2026-09-10
+and every one of them drew INTERLOCK.
+
+Two things follow, and the second is the more useful.
+
+The sweep is done and does not need repeating. This is recorded as a negative result on
+purpose: "nobody has looked" and "somebody looked and there is nothing there" are different
+states, and only one of them is worth spending four minutes of attention on again.
+
+**An unrecognised special mode specifier is not refused, it falls back to INTERLOCK.** The
+sign accepted every one of those writes and displayed the message; it simply drew it in a
+mode nobody asked for. So a message that interlocks for no apparent reason is worth
+suspecting a bad specifier byte, and the sign will never say so itself. Why INTERLOCK is
+the fallback rather than the first entry in the table is not known and the document does
+not say.
+
 ### Modes and positions are complete
 
 Table 65 has twenty-two standard mode codes and every one is accounted for. `d` (64H) is
