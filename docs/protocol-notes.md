@@ -548,10 +548,35 @@ Tables 65 to 67 (modes), the display position field, the whole control code tabl
 Appendix G, and the appendix index. What follows is the result, so that the next person
 asking "did we miss a feature?" can read it rather than derive it again.
 
+### One mode the document does not describe at all
+
+Table 65 has twenty-two rows and twenty-one of them carry a name and a
+description. The row for `d` (64H) carries the word "reserved" and nothing else.
+
+On this sign it is a mode. Held for thirty seconds on 2026-09-10, against `AUTO`
+and against `HOLD` in the same run, it drew the message with a random transition
+and a random colour. `AUTO` shuffles the transition only, so the colour is what
+separates them, and nothing else in the table randomises colour. It is offered as
+`AUTO_COLOR`.
+
+The colour randomisation overrides the message. Every sample in that run was
+written with an explicit green in front of it, `1CH 32H`, and the sign drew it in
+changing colours anyway.
+
+This is the fifth thing the document has got wrong about this hardware, and the
+first where it was wrong by omission rather than by promising too much. The other
+four all over-promised: double height, the wide character set, the programmable
+tone's frequency byte, and the four text positions. An empty row turns out to be
+a stronger reason to look than a row that says no.
+
+`tests/test_constant_values.py::test_the_mode_the_document_calls_reserved` pins
+the byte, and says in its docstring that it is the one value in that file with no
+citation behind it, because the document has none to give.
+
 ### Modes and positions are complete
 
 Table 65 has twenty-two standard mode codes and every one is accounted for. `d` (64H) is
-reserved. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
+the mode the document calls reserved and this sign draws anyway, described above. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
 through. `m` (6DH) SCROLL is "New message line pushes the bottom line to the top line **if
 2-line sign**". `u` (75H) EXPLODE and `v` (76H) CLOCK are both marked Alpha 3.0, and Table
 3 gives a Betabrite as EZ KEY II and Alpha 1.0 only. The remaining seventeen are all

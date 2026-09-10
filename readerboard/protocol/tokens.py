@@ -129,6 +129,12 @@ DISPLAY_MODES: tuple[Token, ...] = (
     Token("WIPEOUT", c.MODE_WIPEOUT, "Wipe the new message outward over the old one"),
     Token("COMPRESSED_ROTATE", c.MODE_CMPRSROT, "Scroll the message at half width"),
     Token("AUTO", c.MODE_AUTO, "Let the sign pick a mode at random"),
+    Token(
+        "AUTO_COLOR",
+        c.MODE_AUTO_COLOR,
+        "Let the sign pick a mode and a colour at random. Like AUTO, and it "
+        "shuffles the colour too, so any colour set in the message is overridden",
+    ),
     Token("TWINKLE", c.MODE_TWINKLE, "Twinkle the message"),
     Token("SPARKLE", c.MODE_SPARKLE, "Sparkle the new message over the old one"),
     Token("SNOW", c.MODE_SNOW, "Snow the new message onto the sign"),

@@ -208,12 +208,21 @@ TEXT_POS_FILL = b"0"
 # field and decides how a message arrives on the display.
 #
 # Two entries of that table are absent here. EXPLODE (75H) and CLOCK (76H) are
-# both marked Alpha 3.0 protocol, which this sign does not speak. The reserved
-# code 64H is absent for the same reason it is reserved.
+# both marked Alpha 3.0 protocol, which this sign does not speak.
+#
+# The third, 64H, is present, and the document is the reason it nearly was not.
+# Table 65 gives it no name and no description; the row reads "reserved". On a
+# Betabrite it is not. Put on the sign on 2026-09-10 it drew the message with a
+# random transition and a random colour, held for thirty seconds against AUTO
+# and against HOLD, and the colour is what separates it: AUTO shuffles the
+# transition and leaves the colour alone. So the sign has a mode the document
+# declines to describe, and MODE_AUTO_COLOR below is it. See
+# docs/protocol-notes.md.
 
 MODE_ROTATE = b"a"
 MODE_HOLD = b"b"
 MODE_FLASH = b"c"
+MODE_AUTO_COLOR = b"d"
 MODE_ROLLUP = b"e"
 MODE_ROLLDOWN = b"f"
 MODE_ROLLLEFT = b"g"

@@ -327,6 +327,29 @@ def test_standard_modes(actual, expected, citation):
     assert actual == expected, "Table 64 page 88, %s" % citation
 
 
+def test_the_mode_the_document_calls_reserved():
+    """64H is the one mode here with no citation, because the document has none.
+
+    Its row in the Standard Modes table carries the word "reserved" and nothing
+    else: no name, no description. Every other value in this file is pinned
+    against something the document states. This one is pinned against the sign.
+
+    On 2026-09-10 it was held for thirty seconds against AUTO and against HOLD.
+    It draws the message with a random transition, which is what AUTO does, and
+    a random colour, which AUTO does not: the sample was written with an explicit
+    green in front of it and came back in changing colours, so the mode overrides
+    the colour the message asked for.
+
+    Kept as its own test rather than added to the table above so that nobody
+    reads it as a documented value.
+    """
+    assert c.MODE_AUTO_COLOR == b"d"
+    assert bytes([0x64]) == c.MODE_AUTO_COLOR
+    # Neighbours, so a transcription slip that shifted the letter is caught.
+    assert c.MODE_FLASH == b"c"
+    assert c.MODE_ROLLUP == b"e"
+
+
 # ===========================================================================
 # Special modes and special graphics
 #

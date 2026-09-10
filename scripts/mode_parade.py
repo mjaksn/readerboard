@@ -6,16 +6,22 @@ are offered by the service. The rest are absent because the document says they
 belong to other signs, and this asks the sign whether the document is right.
 
 That is not an idle question here. The document has been wrong about this
-hardware four times already: it promised double height and a wide character set
-that draw as ordinary text, a programmable tone on a fixed-pitch buzzer, and
-twenty-four pictographs the sign renders as question marks. It has also been
-wrong the other way, listing NEWS FLASH and TRUMPET as Betabrite-only when they
-work fine. So "the table says no" is a reason to look, not a conclusion.
+hardware five times: it promised double height and a wide character set that
+draw as ordinary text, a programmable tone on a fixed-pitch buzzer, twenty-four
+pictographs the sign renders as question marks, and four text positions that all
+draw the same thing. It has also been wrong the other way, listing NEWS FLASH
+and TRUMPET as Betabrite-only when they work fine.
+
+The fifth kind of wrong is what this script found. Table 65 gives 64H the word
+"reserved" and no description, and on this sign it draws a random transition in
+a random colour, which nothing else offers. It is the AUTO_COLOR token now. So
+"the table says no" is a reason to look, not a conclusion, and an empty row is
+the strongest reason of all.
 
 WHAT IT SHOWS
 
-Three reference samples first, HOLD, ROTATE and FLASH, so that the two answers
-that are not "it works" can be recognised on sight:
+Four reference samples first, HOLD, ROTATE, FLASH and AUTO, so that the two
+answers that are not "it works" can be recognised on sight:
 
   * a mode the sign does not know usually falls back to one of these, and
     without a reference beside it, a fallback looks exactly like a feature;
@@ -23,10 +29,14 @@ that are not "it works" can be recognised on sight:
     every sample carries its own label and an unchanged label means the write
     was refused rather than honoured.
 
-Then each candidate, labelled with its own code. By default that is the five the
-document rules out for a Betabrite. Pass --include-undocumented to also sweep
-the codes the document does not mention at all, between Table 66's last entry
-and Table 67's first, where an undocumented Betabrite mode would be hiding.
+Then each candidate, labelled with its own code. By default that is the four the
+document still rules out for a Betabrite. Pass --include-undocumented to also
+sweep the codes the document does not mention at all, between Table 66's last
+entry and Table 67's first, where an undocumented Betabrite mode would be
+hiding. Pass --only to watch particular labels for longer, beside the control
+each has to be told apart from:
+
+    python scripts/mode_parade.py --only HOLD,AUTO,AUTO_COLOR --hold 30
 
 SAFETY
 
@@ -60,16 +70,26 @@ COLOURS = {
 # holds it still can be told from one that scrolls it.
 SAMPLE = b"TEST"
 
-# The three a mode is most likely to be mistaken for, shown first.
+# The four a mode is most likely to be mistaken for, shown first.
+#
+# AUTO earns its place for a reason the other three do not have. It is already
+# offered, as the token AUTO, and the sign picks a mode at random under it. So it
+# is the control for any candidate that looks like a demo or a shuffle: a mode
+# that cannot be told apart from AUTO is not a new mode, it is a second name for
+# a token that already exists, which is exactly what retired <wide_on>.
 REFERENCES = [
     (c.MODE_HOLD, "HOLD", "the message sits still"),
     (c.MODE_ROTATE, "ROTATE", "it travels right to left"),
     (c.MODE_FLASH, "FLASH", "it sits still and blinks"),
+    (c.MODE_AUTO, "AUTO", "the sign picks a mode at random, and this one is already offered"),
 ]
 
 # Documented, and ruled out for a Betabrite. The reason is the document's own.
+#
+# 64H used to head this list and has been promoted: it is offered now, as
+# AUTO_COLOR. The parade is what found it, which is the argument for keeping the
+# parade. It is left reachable through --only so the measurement can be redone.
 DOCUMENTED = [
-    (b"d", "64H", "reserved, so the document gives it no meaning at all"),
     (b"m", "6DH", 'SCROLL: "pushes the bottom line to the top line if 2-line sign"'),
     (b"u", "75H", "EXPLODE, marked Alpha 3.0 protocol"),
     (b"v", "76H", "CLOCK, marked Alpha 3.0 protocol"),
@@ -81,6 +101,15 @@ DOCUMENTED = [
 UNDOCUMENTED = [
     (b"n" + bytes([code]), "6EH %02XH" % code, "not in either table")
     for code in [*range(ord("D"), ord("S")), ord("T")]
+]
+
+# Offered by the service, and here so --only can put one beside a candidate.
+OFFERED = [
+    (
+        c.MODE_AUTO_COLOR,
+        "AUTO_COLOR",
+        "random transition and random colour, the 64H the document calls reserved",
+    ),
 ]
 
 
@@ -135,6 +164,15 @@ def main() -> None:
         action="store_true",
         help="also sweep the mode codes neither table mentions",
     )
+    parser.add_argument(
+        "--only",
+        default="",
+        help=(
+            "show just these labels, comma separated, in the order given. Takes "
+            "references and offered modes as well as candidates, so --only "
+            "HOLD,AUTO,AUTO_COLOR watches one against the controls that matter to it"
+        ),
+    )
     args = parser.parse_args()
 
     colour = COLOURS[args.colour]
@@ -149,6 +187,34 @@ def main() -> None:
     candidates = list(DOCUMENTED)
     if args.include_undocumented:
         candidates += UNDOCUMENTED
+
+    if args.only:
+        # One flat list, in the order asked for, so a candidate can be watched
+        # back to back with the control it has to be told apart from. A long
+        # look at one mode is worth more than a short look at all of them once
+        # the parade has narrowed the field.
+        catalogue = {name: (mode, why) for mode, name, why in REFERENCES + OFFERED}
+        catalogue.update(
+            {mode.decode("latin-1"): (mode, why) for mode, _hex, why in candidates}
+        )
+        wanted = [name.strip() for name in args.only.split(",") if name.strip()]
+        unknown = [name for name in wanted if name not in catalogue]
+        if unknown:
+            raise SystemExit(
+                "no such label: %s. Known: %s" % (", ".join(unknown), ", ".join(catalogue))
+            )
+
+        print("Watching %d sample(s) at %.0fs each, in %s.\n" % (len(wanted), args.hold, args.colour))
+        try:
+            for name in wanted:
+                mode, why = catalogue[name]
+                print("  %-8s %s" % (name, why))
+                show(name.encode("latin-1"), mode)
+        finally:
+            released = link.send(frames.packet(frames.clear_priority_file()), attempts=6)
+            link.close()
+            print("\nPriority file released: %s" % ("yes" if released else "NO, RERUN THE RELEASE"))
+        return
 
     try:
         print("Watch the sign. Each sample reads its own label then %r." % SAMPLE.decode())

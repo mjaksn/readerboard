@@ -15,6 +15,21 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **A display mode the protocol document declines to describe: `AUTO_COLOR`.**
+  The sign draws the message with a random transition and a random colour. It is
+  not `AUTO` with extra steps: `AUTO` shuffles the transition and leaves the
+  colour alone, and nothing else offered randomises colour at all.
+
+  Its row in the Standard Modes table reads "reserved" and carries no name and no
+  description, which is why the service never offered it and why nothing in this
+  project had looked at it. Put on the sign for thirty seconds beside `AUTO` and
+  beside `HOLD`, it turned out to be a real mode. `scripts/mode_parade.py` is the
+  test that found it and is kept for the next time the table says no.
+
+  One consequence worth knowing before using it: the mode overrides the colour
+  the message asks for. The sample was written with an explicit green in front of
+  it and came back in changing colours.
+
 - **`GET /sign/information` asks the sign what it is and how it is doing.** The
   firmware build and revision letter, the month that firmware was released, the
   sign's own clock and whether it draws a 12 or 24 hour one, whether its speaker
