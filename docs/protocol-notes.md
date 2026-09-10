@@ -655,9 +655,16 @@ window reaches a sign whose serial port is off and is lost, and the controller's
 suppression cache then believes it succeeded, so nothing retries it until the next
 periodic re-push.
 
-This is recorded rather than fixed, deliberately: it is a behaviour change to a command
-already under review, and it wants a regression test that can actually observe a dropped
-write rather than one that merely asserts a delay.
+This is fixed. `SOUND` now asks for `SOUND_SETTLE_SECONDS`, three, and the controller holds
+the sign's lock across the send and the wait, so another writer queues rather than writing
+into the gap.
+
+The property that made the fix worth generalising is that a tone is not a reset and deafens
+the sign anyway, so `resets_the_sign` became `quiet_seconds_after`: it asks how long the
+sign cannot listen rather than why. The regression test drives a write at a controller that
+is mid-tone and asserts the write does not complete, which is a test that could have shown
+the failure; asserting that the settle map contains three seconds would only have compared
+the map to itself.
 
 ## Constraints the frame builders honour
 

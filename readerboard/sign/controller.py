@@ -55,6 +55,27 @@ MEMORY_CLEAR_SETTLE_SECONDS = 2.0
 # a simulator, and neither has a reset to sit through.
 RESET_SETTLE_SECONDS = 10.0
 
+# How long the sign cannot hear anything after it has been asked to make a
+# noise. The document is unusually direct about this, in two footnotes to the
+# tone command in Table 15:
+#
+#   "the tone generation command must be the last transmission frame because the
+#   sign's serial port is disabled (and cannot receive any data) while a tone is
+#   generated"
+#
+#   "Wait a minimum of 3 seconds before transmitting more data to the sign"
+#
+# Both fixed sounds this service offers, the continuous tone and the three
+# beeps, run for about two seconds, and the footnote asks for three. So a beep
+# is not a reset and still leaves the sign deaf, which is why the wait below is
+# not about restarting at all.
+#
+# Without it the next write goes out one inter_packet_delay later, half a second
+# by default, into a sign that is not listening. It is not refused: the
+# transport accepts it, the suppression cache records the file as holding those
+# bytes, and nothing writes them again until the next periodic re-push.
+SOUND_SETTLE_SECONDS = 3.0
+
 ReconnectHook = Callable[[], Awaitable[None]]
 
 
@@ -284,24 +305,26 @@ class SignController:
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
 
-    async def send_special(self, payload: bytes, *, settle: bool = False) -> None:
+    async def send_special(self, payload: bytes, *, settle_seconds: float = 0.0) -> None:
         """Send a special function such as a clock command.
 
         Never suppressed. Setting the clock to the same value it already holds
         is still worth doing, because the point is to correct drift we cannot
         see.
 
-        ``settle`` is for a command that restarts the sign. It holds the lock
-        through the sign's power-up diagnostics, so the send and the wait are
-        one uninterruptible step and another caller's write queues rather than
-        being thrown at a sign that is deaf and cannot say so. Gated on
+        ``settle_seconds`` is for a command that leaves the sign unable to
+        listen: a reset running its power-up diagnostics, or a tone, during
+        which the protocol says the serial port is switched off. The wait is
+        taken with the lock held, so the send and the wait are one
+        uninterruptible step and another caller's write queues instead of being
+        thrown at a sign that is deaf and cannot say so. Gated on
         ``inter_packet_delay``, which a fake or a simulator sets to zero because
-        neither has a reset to sit through.
+        neither has anything to sit through.
         """
         async with self._lock:
             await self._send_locked(payload)
-            if settle and self._inter_packet_delay:
-                await self._sleep(RESET_SETTLE_SECONDS)
+            if settle_seconds and self._inter_packet_delay:
+                await self._sleep(settle_seconds)
 
     # == internals ==========================================================
 

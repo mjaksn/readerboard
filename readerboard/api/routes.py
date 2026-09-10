@@ -178,7 +178,7 @@ async def send_command(body: ControlCommandRequest, controller: ControllerDep) -
     """
     await controller.send_special(
         commands.build(body.command, body.parameter),
-        settle=commands.resets_the_sign(body.command),
+        settle_seconds=commands.quiet_seconds_after(body.command),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

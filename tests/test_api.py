@@ -11,6 +11,7 @@ from readerboard.api.app import create_app
 from readerboard.config import Settings
 from readerboard.protocol import frames
 from readerboard.services import commands
+from readerboard.sign.controller import RESET_SETTLE_SECONDS, SOUND_SETTLE_SECONDS
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
@@ -354,10 +355,13 @@ class TestSignCommands:
         assert response.status_code == 400
         assert "TONE" in response.json()["detail"]
 
-    def test_sounding_the_speaker_does_not_wait(self):
-        # Only a restart makes the sign deaf. A beep must not hold the request
-        # open for the ten seconds a reset needs.
-        assert not commands.resets_the_sign("SOUND")
+    def test_sounding_the_speaker_waits_but_not_as_long_as_a_reset(self):
+        # A beep is not a restart and still leaves the sign deaf: the protocol
+        # switches its serial port off for the length of the tone and asks for
+        # three seconds before anything else is sent. So SOUND waits, and waits
+        # for its own duration rather than borrowing the reset's ten seconds.
+        assert commands.quiet_seconds_after("SOUND") == SOUND_SETTLE_SECONDS
+        assert SOUND_SETTLE_SECONDS < RESET_SETTLE_SECONDS
 
     def test_a_soft_reset(self, client, sign):
         client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
@@ -382,14 +386,14 @@ class TestSignCommands:
         assert frames.packet(frames.clear_memory()) not in sign.packets
         assert client.get("/messages").json()[0]["key"] == "one"
 
-    def test_only_a_reset_makes_the_route_wait(self):
-        # The wait is what stops a write landing while the sign is deaf through
-        # its diagnostics. Spelled out so that a command which restarts the sign
-        # has to declare itself here rather than quietly not waiting.
-        assert commands.resets_the_sign("SOFT_RESET")
-        assert commands.resets_the_sign("  soft_reset  ")
-        for name in ("SET_TIME", "SET_DAY_OF_WEEK", "SET_TIME_FORMAT"):
-            assert not commands.resets_the_sign(name)
+    def test_only_the_two_deafening_commands_make_the_route_wait(self):
+        # The wait is what stops a write landing while the sign cannot hear it.
+        # Spelled out so that a command which deafens the sign has to declare
+        # itself here rather than quietly not waiting.
+        assert commands.quiet_seconds_after("SOFT_RESET") == RESET_SETTLE_SECONDS
+        assert commands.quiet_seconds_after("  soft_reset  ") == RESET_SETTLE_SECONDS
+        for name in ("SET_TIME", "SET_DAY_OF_WEEK", "SET_TIME_FORMAT", "SPEAKER"):
+            assert commands.quiet_seconds_after(name) == 0.0
 
     def test_a_soft_reset_with_a_parameter_is_400(self, client):
         # Refused rather than ignored: the caller meant something by it.

@@ -243,6 +243,23 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
+- **A write sent just after `SOUND` could be swallowed by the sign.** The
+  protocol switches the sign's serial port off for the length of a tone and asks
+  for three seconds before anything else is sent: "the tone generation command
+  must be the last transmission frame because the sign's serial port is disabled
+  (and cannot receive any data) while a tone is generated."
+
+  Only `SOFT_RESET` waited. A beep is not a restart, so `SOUND` asked for no
+  wait and the next write went out one `inter_packet_delay` later, half a second
+  by default, into a sign that was not listening. Nothing failed loudly: the
+  transport accepted it, the controller's suppression cache recorded the file as
+  holding those bytes, and the message stayed missing until the next periodic
+  re-push up to fifteen minutes later.
+
+  `SOUND` now holds the sign's lock for three seconds, so other writers queue
+  rather than write into the gap, and the request returns when the sign is
+  listening again.
+
 - **A sign left off over a weekend could leave the service answering 503 until
   it was restarted.** The reconnect backoff computed its delay as
   `backoff_initial * 2 ** (failures - 1)` from a counter that never stopped

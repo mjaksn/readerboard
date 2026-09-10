@@ -10,6 +10,7 @@ from readerboard.protocol.markup import render
 from readerboard.sign.controller import (
     MEMORY_CLEAR_SETTLE_SECONDS,
     RESET_SETTLE_SECONDS,
+    SOUND_SETTLE_SECONDS,
     SignController,
 )
 from readerboard.transport.base import TransportError
@@ -190,7 +191,7 @@ class TestWaitingForAReset:
             FakeTransport(), inter_packet_delay=0.05, sleep=recording_sleep(slept)
         )
 
-        await controller.send_special(frames.soft_reset(), settle=True)
+        await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
 
         assert RESET_SETTLE_SECONDS in slept
 
@@ -213,7 +214,7 @@ class TestWaitingForAReset:
             FakeTransport(), inter_packet_delay=0, sleep=recording_sleep(slept)
         )
 
-        await controller.send_special(frames.soft_reset(), settle=True)
+        await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
 
         assert slept == []
 
@@ -305,7 +306,7 @@ class TestNothingElseWritesWhileTheSignIsResetting:
         controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
 
         reset = asyncio.create_task(
-            controller.send_special(frames.soft_reset(), settle=True)
+            controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
         )
         await entered.wait()  # the sign is running its diagnostics
 
@@ -323,6 +324,42 @@ class TestNothingElseWritesWhileTheSignIsResetting:
             frames.packet(frames.write_text_file(b"A", b"HI")),
         ]
 
+
+    async def test_a_write_cannot_land_while_the_sign_is_making_a_noise(self):
+        """A tone is not a reset and still deafens the sign.
+
+        The protocol switches the serial port off for the length of the tone,
+        and asks for three seconds before anything else is sent: "the tone
+        generation command must be the last transmission frame because the
+        sign's serial port is disabled (and cannot receive any data) while a
+        tone is generated."
+
+        This shipped without the wait. SOUND asked for no settle, so the next
+        write went out one inter_packet_delay later, half a second by default,
+        into a sign that was not listening. Nothing failed: the transport
+        accepted it, the suppression cache recorded the file as holding those
+        bytes, and the message stayed missing until the next periodic re-push.
+        """
+        sleep, entered, release = self.held_at(SOUND_SETTLE_SECONDS)
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+
+        beep = asyncio.create_task(
+            controller.send_special(frames.sound_beeps(), settle_seconds=SOUND_SETTLE_SECONDS)
+        )
+        await entered.wait()  # the sign is beeping, and deaf
+
+        write = asyncio.create_task(controller.write_text_file(b"A", b"HI"))
+
+        assert not await self.completes(write)
+        assert transport.packets == [frames.packet(frames.sound_beeps())]
+
+        release.set()
+        await asyncio.gather(beep, write)
+        assert transport.packets == [
+            frames.packet(frames.sound_beeps()),
+            frames.packet(frames.write_text_file(b"A", b"HI")),
+        ]
 
 class TestTheLinkWatcherSurvives:
     """It is the only thing that opens the link, so nothing may kill it.
