@@ -11,6 +11,28 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## Unreleased
+
+### Added
+
+- **The client can load a stored message back into the form to edit it.**
+  Register or replace a message now carries a **Load From Sign** button under the
+  message caption. It calls `GET /messages/{key}` for the key in the box above
+  and fills the form from what comes back: the message text with its markup, the
+  display mode, the order and the source. Changing a message that is already on
+  the sign no longer means retyping it out of the slot table.
+
+  A key with nothing under it answers 404, and that answer is shown the way every
+  other failure is. No field changes, so a half-written message survives a
+  mistyped key.
+
+  `ttl_seconds` is left alone, because the response does not carry it. What comes
+  back is `expires_at`, an absolute time, and converting it to a duration would
+  drift for as long as the editing took. The box keeps whatever it held, which is
+  worth knowing: the service reads a PUT with no `ttl_seconds` as a message with
+  no deadline, so loading one that expires and sending it back unchanged makes it
+  permanent.
+
 ## [0.4.0] - 2026-09-10
 
 **This is the release that met the hardware.** Everything in it comes from

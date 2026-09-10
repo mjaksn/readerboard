@@ -110,6 +110,50 @@ def test_the_markup_fields_are_the_ones_that_take_markup():
     }
 
 
+def test_the_only_field_that_loads_from_the_sign_is_the_message_being_replaced():
+    loaders = {
+        (operation.id, item.name, item.fill_from)
+        for operation in catalogue.OPERATIONS
+        for item in operation.body
+        if item.fill_from
+    }
+    assert loaders == {("put_message", "message", "get_message")}
+
+
+def test_a_field_loads_from_an_operation_that_exists():
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if item.fill_from:
+                assert item.fill_from in catalogue.BY_ID, item.fill_from
+
+
+def test_a_field_loads_from_an_operation_that_reads_rather_than_writes():
+    # The button is a way of seeing what is stored before replacing it. Wiring
+    # it to anything but a GET would make it change the thing it is reporting.
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if item.fill_from:
+                assert catalogue.BY_ID[item.fill_from].method == "GET"
+
+
+def test_a_field_loads_from_an_operation_taking_the_same_path_parameters():
+    """The key on screen is handed to the read, so both must want the same one.
+
+    The window passes the form's own path values straight to the other
+    operation, which is only meaningful while the two agree about what those
+    values are. A read taking a different parameter would be sent the wrong
+    thing, or nothing, and answer for a resource nobody asked about.
+    """
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if not item.fill_from:
+                continue
+            source = catalogue.BY_ID[item.fill_from]
+            assert [i.name for i in source.path_inputs] == [
+                i.name for i in operation.path_inputs
+            ], item.fill_from
+
+
 def test_only_clearing_every_message_is_marked_destructive():
     destructive = {operation.id for operation in catalogue.OPERATIONS if operation.destructive}
     assert destructive == {"clear_messages"}

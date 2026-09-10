@@ -278,12 +278,39 @@ class OperationForm(QWidget):
 
         layout.addStretch(1)
 
-    def _label(self, item: Input, where: str) -> QLabel:
-        """Return the caption for a field, marking the required ones."""
+    def _label(self, item: Input, where: str) -> QWidget:
+        """Return the caption for a field, marking the required ones.
+
+        A field with ``fill_from`` gets its loader button here, under the
+        caption, rather than beside the field. The field's own row is already
+        spoken for: a markup textarea carries Insert token beneath it, and a
+        second button there would read as another way to edit the text rather
+        than a way to replace all of it.
+        """
         text = item.label + (" *" if item.required else "")
         label = QLabel(text)
         label.setToolTip("%s (%s)" % (item.description or item.name, where))
-        return label
+        if not item.fill_from:
+            return label
+
+        source = catalogue.BY_ID[item.fill_from]
+        load = QPushButton("Load From Sign")
+        load.setToolTip(
+            "Call %s for the key above and fill this form from what comes back"
+            % source.signature
+        )
+        load.clicked.connect(
+            lambda _checked=False, op=item.fill_from: self._window.load_from_sign(op)
+        )
+
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(label)
+        column.addWidget(load)
+        column.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(column)
+        return holder
 
     def _path_widget(self, item: Input) -> QWidget:
         """Build a path parameter, with the slot key loader when it is one."""
@@ -439,6 +466,23 @@ class OperationForm(QWidget):
                 else:
                     widget.setCurrentIndex(-1)
 
+    def fill_from(self, payload: dict[str, object]) -> None:
+        """Put a stored resource into the body fields, for editing rather than retyping.
+
+        Only fields the response actually carries a value for are touched. That
+        is what keeps ``ttl_seconds`` alone: the response says ``expires_at``,
+        an absolute time, and there is no honest conversion to a duration that
+        does not drift for as long as somebody spends editing.
+        """
+        for item in self.operation.body:
+            if item.name not in payload:
+                continue
+            widget = self._body.get(item.name)
+            if widget is None:
+                continue
+            value = payload[item.name]
+            _set_text(widget, "" if value is None else str(value))
+
     def path_values(self) -> dict[str, str]:
         """Return what has been typed into the path parameters."""
         return {name: _text_of(widget) for name, widget in self._path.items()}
@@ -453,6 +497,16 @@ def _placeholder(combo: QComboBox, text: str) -> None:
     line = combo.lineEdit()
     if line is not None:
         line.setPlaceholderText(text)
+
+
+def _set_text(widget: QWidget, value: str) -> None:
+    """Put text into a field widget, whichever kind it is. The mirror of ``_text_of``."""
+    if isinstance(widget, QPlainTextEdit):
+        widget.setPlainText(value)
+    elif isinstance(widget, QComboBox):
+        widget.setCurrentText(value)
+    elif isinstance(widget, QLineEdit):
+        widget.setText(value)
 
 
 def _text_of(widget: QWidget) -> str:
@@ -503,6 +557,7 @@ class MainWindow(QMainWindow):
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
         self._pending_slot_keys = False
+        self._pending_fill: tuple[OperationForm, str, dict[str, str]] | None = None
         self._started_at = datetime.now()
 
         self.setCentralWidget(self._build())
@@ -677,10 +732,21 @@ class MainWindow(QMainWindow):
 
     # == sending ==========================================================
 
-    def _prepare(self, operation: Operation) -> request_module.Prepared | None:
-        """Build the request for an operation, reporting what stopped it if anything did."""
+    def _prepare(
+        self,
+        operation: Operation,
+        path_values: dict[str, str] | None = None,
+    ) -> request_module.Prepared | None:
+        """Build the request for an operation, reporting what stopped it if anything did.
+
+        ``path_values`` is given when the operation being sent is not the one on
+        screen, which is how a form borrows another operation's read of the same
+        resource. The body is still taken from the form only when the form is
+        this operation's, because another operation's fields are not this one's.
+        """
         form = self._form
-        path_values = form.path_values() if form and form.operation is operation else {}
+        if path_values is None:
+            path_values = form.path_values() if form and form.operation is operation else {}
         body_values = form.body_values() if form and form.operation is operation else {}
         try:
             return request_module.build(
@@ -700,7 +766,12 @@ class MainWindow(QMainWindow):
             return
         self.run(self._form.operation)
 
-    def run(self, operation: Operation) -> bool:
+    def run(
+        self,
+        operation: Operation,
+        *,
+        path_values: dict[str, str] | None = None,
+    ) -> bool:
         """Send one operation, confirming first if it is disruptive to run.
 
         Two operations ask first, and for different reasons: clearing every
@@ -734,7 +805,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return False
 
-        prepared = self._prepare(operation)
+        prepared = self._prepare(operation, path_values)
         if prepared is None:
             return False
 
@@ -776,6 +847,28 @@ class MainWindow(QMainWindow):
         """
         if self.run(catalogue.BY_ID["list_messages"]):
             self._pending_slot_keys = True
+
+    def load_from_sign(self, operation_id: str) -> None:
+        """Read what is already stored under the key on screen, to edit rather than retype.
+
+        The key is passed across explicitly, because the operation being sent is
+        not the one the form is showing and the form's own values are only
+        offered for its own operation.
+
+        What is remembered is the form object, not its name. ``_selected``
+        builds a fresh form on every swap, so identity is what says the answer
+        is still going to the fields that asked for it, and a form that has
+        since been replaced is one this must not write into. The key asked for
+        is remembered with it for the same reason: a reply is matched to the
+        question by nothing but arriving next, so a key retyped while the call
+        was out would otherwise be answered with the previous key's message.
+        """
+        form = self._form
+        if form is None:
+            return
+        asked = form.path_values()
+        if self.run(catalogue.BY_ID[operation_id], path_values=asked):
+            self._pending_fill = (form, operation_id, asked)
 
     def _copy_curl(self) -> None:
         """Put the current form's call on the clipboard as a curl command."""
@@ -838,6 +931,20 @@ class MainWindow(QMainWindow):
             # about one unreachable service helps nobody. The address is the one
             # this call went to, which is not always the one in the box now.
             self._check_surface(result.prepared.origin)
+
+        pending = self._pending_fill
+        if pending is not None and operation.id == pending[1]:
+            form, _, asked = pending
+            # Cleared whatever happened, so a refusal does not leave this armed
+            # for somebody else's call to satisfy.
+            self._pending_fill = None
+            if (
+                ok
+                and isinstance(payload, dict)
+                and self._form is form
+                and form.path_values() == asked
+            ):
+                form.fill_from(payload)
 
         if self._pending_slot_keys and operation.id == "list_messages":
             self._pending_slot_keys = False

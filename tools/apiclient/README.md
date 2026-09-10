@@ -49,6 +49,25 @@ beside a set is unambiguous. All four answer the same shape, `name` and
 objects but not *this* list of objects is refused rather than quietly producing
 a set of empty names, which on screen looks exactly like a healthy one.
 
+**A message already on the sign can be loaded back to edit it.** Register or
+replace a message carries a **Load From Sign** button under the message caption.
+It calls `GET /messages/{key}` for whatever key is in the box above and fills the
+form from the answer: the message text with its markup intact, the display mode,
+the order and the source. Editing a message that is already up is then reading it
+first rather than retyping it from the slot table.
+
+A key with nothing stored under it answers 404, which is shown like any other
+failure and changes no field, so a half-written message survives a mistyped key.
+Nothing about the failure is special-cased; it is the ordinary response display.
+
+`ttl_seconds` is the one field it leaves alone, and deliberately. The response
+does not carry it: what comes back is `expires_at`, an absolute time, and the
+only way to turn that into a duration is to subtract the current one, which
+drifts for as long as the editing takes. So the box keeps whatever it held. Worth
+knowing, because an empty one is not "leave the deadline as it is": the service
+reads a PUT with no `ttl_seconds` as a message with no deadline at all, so
+loading a message that expires and sending it straight back makes it permanent.
+
 **Responses are read, not dumped.** Every shape the service answers with has a
 formatter: the health breakdown, the slot table, the alert, the clock, the
 enumerations, and a 204 rendered as the success it is rather than as an empty

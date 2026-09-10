@@ -45,6 +45,13 @@ class Input:
     ``test_no_prefill_is_offered_that_the_schema_does_not_back`` in
     ``tools/apiclient/tests/test_catalogue.py`` refuses one that does not, so
     the client promises the caller nothing the service has not.
+
+    ``fill_from`` names an operation that reads the same resource this one
+    writes, and does two things at once: it puts a button under this field's
+    label, and it says what that button calls. Pressing it fills every body
+    field the response has a value for, not only this one; the field owns the
+    button because that is where it is worth having, next to the content
+    somebody is about to edit.
     """
 
     name: str
@@ -54,6 +61,7 @@ class Input:
     enum_set: str | None = None
     markup: bool = False
     slot_keys: bool = False
+    fill_from: str | None = None
     description: str = ""
 
     @property
@@ -141,6 +149,7 @@ OPERATIONS: tuple[Operation, ...] = (
                 kind="textarea",
                 required=True,
                 markup=True,
+                fill_from="get_message",
                 description="the message, including markup tokens such as <red> and <degree>",
             ),
             _DISPLAY_MODE,
