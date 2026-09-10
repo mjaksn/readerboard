@@ -445,10 +445,15 @@ def _write_text(payload: bytes, offset: int) -> Command:
             )
     else:
         body = rest
-        complaints.append(
-            "no start of mode after the file label, so the sign would take the whole "
-            "remainder as the message and keep the mode the file already had"
-        )
+        if body:
+            complaints.append(
+                "no start of mode after the file label, so the sign would take the whole "
+                "remainder as the message and keep the mode the file already had"
+            )
+        # A bare write with no start of mode and no body is not ambiguous: there
+        # is no message for the missing mode to apply to. To the priority file
+        # it is the release, which is exactly this shape, and to any other file
+        # it blanks it. Neither is worth a complaint.
 
     body_offset = offset + len(payload) - len(body)
     body_spans = annotate(body, offset=body_offset)

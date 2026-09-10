@@ -155,10 +155,11 @@ class MessageRegistry:
         Refreshing drops what the controller believes about the sign's contents
         and writes it all again. It runs on a timer, and on every reconnect.
 
-        If the spike shows the sign answers read commands through the adapter,
-        this can become a read-back comparison that only writes on a real
-        mismatch. The frame builders for those reads already exist; what is
-        unproven is whether two-way traffic works over that path at all.
+        This could become a read-back comparison that only writes on a real
+        mismatch: the frame builders for those reads exist, and the sign has
+        since been shown to answer them through the Ethernet adapter. Nothing
+        here depends on that yet. See "Reading state back" in
+        docs/protocol-notes.md.
         """
         async with self._lock:
             self._controller.forget_sign_contents()
@@ -166,6 +167,41 @@ class MessageRegistry:
             self._dirty = False
 
         logger.debug("re-pushed %d slot(s) to the sign", len(self._state.slots))
+
+    async def reboot(self) -> int:
+        """Reset the sign to recover it, then restore the rotation from record.
+
+        This is the recovery path for a sign that has stopped showing what it
+        was told, the wedged-decoder state a BetaBrite mounted out of reach can
+        fall into when a stray bit corrupts what it is displaying and it cannot
+        be power cycled by hand. It sends the same memory clear the one
+        dangerous operation does, which erases every file on the sign and puts
+        it through a reset, waits for that reset to finish, then re-pushes every
+        slot and the run sequence.
+
+        The service's own record is left untouched, so the sign comes back
+        showing what it should rather than blank. Returns how many slots were
+        restored. An alert lives in the priority file, which this does not
+        touch; the caller re-asserts it.
+        """
+        async with self._lock:
+            # apply_memory_config holds the sign's lock through the clear, the
+            # configuration and the sign's power-up diagnostics, so it returns
+            # only once the sign is listening again and the rewrite below cannot
+            # land on a deaf sign.
+            await self._controller.apply_memory_config(self._layout.allocations())
+            self._state.layout = self._layout.as_applied()
+            # apply_memory_config already forgot the sign's contents. Doing it
+            # again is belt and braces: after a reset the cache is exactly what
+            # cannot be trusted, and the rewrite below must not be suppressed.
+            self._controller.forget_sign_contents()
+            await self._rewrite_all(force=True)
+            self._dirty = False
+            self._save()
+
+        count = len(self._state.slots)
+        logger.warning("sign rebooted; %d slot(s) restored", count)
+        return count
 
     @property
     def in_sync(self) -> bool:
@@ -199,6 +235,7 @@ class MessageRegistry:
 
         async with self._lock:
             existed = key in self._state.slots
+            previous = self._state.slots.get(key)
             label = self._layout.assign(key)  # raises LayoutFull when the pool is full
 
             now = self._now()
@@ -221,26 +258,19 @@ class MessageRegistry:
                 )
                 if not existed:
                     await self._apply_run_sequence()
-            except TransportError as err:
-                # The registry is the durable record of what should be on the
-                # sign, so a request that validated is a request we can satisfy
-                # even with the sign unplugged. Keep it, and converge when the
-                # link is back, rather than making Home Assistant hold the retry
-                # logic this service exists to take off it. /health says the
-                # sign is out of sync in the meantime.
-                self._dirty = True
-                logger.warning(
-                    "slot %r accepted but the sign is unreachable (%s); it will be "
-                    "written when the link is back",
-                    key,
-                    err,
-                )
             except Exception:
-                # Something other than the link is wrong, so this slot is not
-                # something we can promise to deliver. Give its file back rather
-                # than leaking one per failed request.
-                del self._state.slots[key]
-                if not existed:
+                # The write did not land, so the slot is not on the sign, and
+                # keeping it would promise what the sign is not showing. Put the
+                # registry back exactly as it was, then let the error surface: a
+                # sign that cannot be reached becomes the 503 that tells a client
+                # it cannot write right now rather than a 200 that hides it. A new
+                # message is theirs to retry when the link is back, and a failed
+                # update leaves the previous one in place. The slots already on
+                # the sign are re-pushed on reconnect regardless of this.
+                if previous is not None:
+                    self._state.slots[key] = previous
+                else:
+                    del self._state.slots[key]
                     self._layout.release(key)
                 raise
 

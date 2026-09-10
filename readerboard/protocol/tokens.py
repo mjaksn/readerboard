@@ -41,24 +41,56 @@ MARKUP_TOKENS: tuple[Token, ...] = (
     Token("<color_auto>", c.TEXT_COLOR_AUTO, "Cycle through the colour modes"),
     Token("<flash_on>", c.CHAR_FLASH_ON, "Characters after this token flash"),
     Token("<flash_off>", c.CHAR_FLASH_OFF, "Characters after this token stop flashing"),
-    Token("<wide_on>", c.WIDE_CHARS_ON, "Characters after this token are wide"),
-    Token("<wide_off>", c.WIDE_CHARS_OFF, "Characters after this token are normal width"),
-    Token(
-        "<dbl_height_on>",
-        c.DBL_HEIGHT_CHARS_ON,
-        "Characters after this token are double height",
-    ),
-    Token("<dbl_height_off>", c.DBL_HEIGHT_CHARS_OFF, "Return to single height characters"),
+    # No wide token either, and for the same reason as double height rather
+    # than a different one. The protocol's own "enable wide characters" (12H)
+    # drew text identical to plain on the sign. What a person reads as wider
+    # text here comes from the character set and the attributes below, which
+    # were measured doing something.
+    #
+    # No double height token. A Betabrite is "always 7 dots (or pixels) high",
+    # and on seven rows there is nothing for double height to do: both the 05H
+    # form this used to offer and the 1DH+2 attribute rendered pixel-identical
+    # to plain text on the sign. See docs/protocol-notes.md.
+    #
+    # These three are what a person actually sees on this hardware, out of the
+    # twenty character sets and attributes the protocol offers. Named for their
+    # appearance rather than for the document's labels, which contradict
+    # themselves here: it calls 1AH+6 "ten high standard" and also "seven stroke
+    # fancy", and on seven rows it is neither, it is ordinary text.
+    #
+    # The three font tokens are a choice rather than a switch, so returning from
+    # one means selecting another; <font_normal> is the way back.
+    Token("<font_normal>", c.CHARSET_7_NORMAL, "The ordinary character set, and the way back"),
+    Token("<font_half_height>", c.CHARSET_5_NORMAL, "Short characters, five rows rather than seven"),
+    Token("<font_wide>", c.CHARSET_7_FANCY, "Wider characters, full height"),
+    Token("<bold_on>", c.CHAR_ATTRIB_WIDE_ON, "Characters after this token are bold"),
+    Token("<bold_off>", c.CHAR_ATTRIB_WIDE_OFF, "Return to characters of ordinary weight"),
+    Token("<extra_wide_on>", c.CHAR_ATTRIB_DBLW_ON, "Characters after this token are extra wide"),
+    Token("<extra_wide_off>", c.CHAR_ATTRIB_DBLW_OFF, "Return to characters of ordinary width"),
     Token("<fixed_width>", c.FIXED_WIDTH_ON, "Left justify and make text fixed width; put this first"),
     Token("<proportional>", c.FIXED_WIDTH_OFF, "Return to proportionally spaced text"),
     Token("<degree>", c.XC_DEGREES, "Degree symbol"),
     Token("<block>", c.BLOCK_CHAR, "A solid square block character"),
-    Token("<half_space>", c.TILDE, "A half width space"),
+    Token("<half_space>", c.HALF_SPACE, "A half width space"),
     Token("<time>", c.CURTIME_INSERT, "Insert the sign's current time"),
     Token("<week_day>", c.CURDATE_WEEKDAYY, "Insert the current day of the week"),
-    Token("<date>", c.CURDATE_MMDDYY_SLASH, "Insert the current date as MM/DD/YY"),
-    Token("<date_dmy>", c.CURDATE_DDMMYY_SLASH, "Insert the current date as DD/MM/YY"),
-    Token("<date_long>", c.CURDATE_MMMDDYYYY, "Insert the current date as MMM.DD, YYYY"),
+    # There is deliberately no token for the sign's date, and this is the one
+    # place in the table where something the sign can draw is withheld.
+    #
+    # The sign stores a two-digit year. The windowing that would read "26" as
+    # 2026 is gated by Table 15's footnote 15 to "Alpha protocol version 2.0 and
+    # greater", and Table 3 lists a Betabrite as EZ KEY II and Alpha 1.0 only.
+    # So this sign applies no century at all, and no amount of setting its date
+    # makes it show the right one. A date token would render a confidently wrong
+    # date, which is worse than offering nothing, and the whole point of the
+    # strict renderer is that a caller is never shown what it did not ask for.
+    #
+    # The time and the day of week above are a different matter and stay: both
+    # are registers of their own, and ClockService writes them at startup,
+    # hourly, and on every reconnect, so they are right. The protocol's date
+    # control codes are still named in constants.py, and the sign simulator
+    # still annotates them, so a message stored by an older version remains
+    # readable. See docs/protocol-notes.md.
     Token("<newline>", c.CR, "Start a new line"),
     Token("<new_page>", c.NEW_PAGE, "Start the next display page"),
     Token("<no_hold_speed>", c.NO_HOLD_SPEED, "Do not pause after the mode finishes"),
@@ -140,6 +172,28 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
         c.CMD_SET_DAY_OF_WEEK,
         "Set the sign's day of the week. The parameter is a single ASCII digit, "
         "1 for Sunday through 7 for Saturday",
+    ),
+    Token(
+        "SPEAKER",
+        c.CMD_SPEAKER_ENABLE,
+        "Enable or silence the sign's speaker. The parameter is 'ON' or 'OFF'. Turning it "
+        "off mutes the sign: SOUND is still accepted and makes no noise. The setting "
+        "lives on the sign and survives a restart",
+    ),
+    Token(
+        "SOUND",
+        c.CMD_SPEAKER_TONE,
+        "Sound the sign's speaker. The parameter is 'TONE' for one continuous tone of "
+        "about two seconds or 'BEEPS' for three short beeps. The sign has a fixed-pitch "
+        "buzzer, so there is no pitch to choose and no other sound to make",
+    ),
+    Token(
+        "SOFT_RESET",
+        c.CMD_SOFT_RESET,
+        "Restart the sign, which runs its power-up diagnostics and comes back showing "
+        "what it was showing. Nothing is erased and no parameter is taken. Use it first "
+        "on a sign that has stopped responding; the display is blank for a few seconds "
+        "while it restarts",
     ),
 )
 

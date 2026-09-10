@@ -1,5 +1,5 @@
 {
-    // Four ways to start the service from the editor, and the tests.
+    // Five ways to start the service from the editor, and the tests.
     //
     // "readerboard and the sign simulator" is the one to reach for. It runs
     // both, with the service already pointed at the simulator, so every
@@ -40,6 +40,24 @@
     // config.local.toml in the workspace root, which .gitignore covers:
     // that file carries a real serial URL and a real API key, and anyone
     // holding the key can write to the sign.
+    //
+    // "readerboard against the real sign and the client" is that same sign
+    // with the client beside it, through scripts/run_against_a_sign.py. The
+    // sign's address is an argument rather than a setting in a file, so that
+    // it can be edited in a run configuration dialog; the API key still comes
+    // from config.local.toml, because an argument here is a tracked file and
+    // on a command line is a shell history. It keeps a state file of its own,
+    // .local-sign-state.json, and never discards it. That last part is the
+    // safety one: the service reallocates the sign's memory when it has no
+    // record of the configuration already applied, and that erases every
+    // message on it. Expected on the first run against a sign, wrong on every
+    // one after.
+    //
+    // It runs on port 5002 rather than 5001, so that a second checkout of this
+    // repository on the same machine can run beside it. The launcher checks
+    // the port before starting anything and says so rather than letting the
+    // service bind, fail and stop after the client has been pointed at
+    // whatever else answered.
     //
     // Every configuration that starts the service sets READERBOARD_OPEN_DOCS,
     // which opens the documentation page once the port answers. The service
@@ -103,6 +121,23 @@
             "env": {
                 "READERBOARD_CONFIG_FILE": "${workspaceFolder}/config.local.toml",
                 "READERBOARD_LOG_LEVEL": "DEBUG",
+                "READERBOARD_OPEN_DOCS": "1"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "readerboard against the real sign and the client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/run_against_a_sign.py",
+            "args": [
+                "--serial-url",
+                "socket://192.168.2.154:23",
+                "--api-port",
+                "5002"
+            ],
+            "console": "integratedTerminal",
+            "env": {
                 "READERBOARD_OPEN_DOCS": "1"
             },
             "justMyCode": false

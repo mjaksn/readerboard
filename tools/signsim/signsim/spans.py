@@ -111,6 +111,13 @@ def _build_table() -> dict[bytes, tuple[SpanKind, str, str]]:
             "attrib_descenders_off",
             "Character attribute: true descenders off",
         ),
+        # The service offers no token for these: on a seven-row Betabrite they
+        # all draw ordinary text. Still decoded, because the codes are real and
+        # an older message may carry one.
+        (c.DBL_HEIGHT_CHARS_ON, "dbl_height_on", "Double height characters on"),
+        (c.DBL_HEIGHT_CHARS_OFF, "dbl_height_off", "Double height characters off"),
+        (c.WIDE_CHARS_ON, "wide_on", "Wide characters on"),
+        (c.WIDE_CHARS_OFF, "wide_off", "Wide characters off"),
         (c.CHAR_ATTRIB_FIX_ON, "attrib_fixed_width_on", "Character attribute: fixed width on"),
         (c.CHAR_ATTRIB_FIX_OFF, "attrib_fixed_width_off", "Character attribute: fixed width off"),
         (c.CHAR_ATTRIB_FNCY_ON, "attrib_fancy_on", "Character attribute: fancy on"),
@@ -126,6 +133,12 @@ def _build_table() -> dict[bytes, tuple[SpanKind, str, str]]:
         (c.COUNTER_3, "counter_3", "Insert the current value of counter 3"),
         (c.COUNTER_4, "counter_4", "Insert the current value of counter 4"),
         (c.COUNTER_5, "counter_5", "Insert the current value of counter 5"),
+        # The service offers no date token, because this sign applies no century
+        # to its two-digit year. These are still decoded: the codes are real, and
+        # a message stored by a version that did offer them has to stay readable.
+        (c.CURDATE_MMDDYY_SLASH, "date_mmddyy_slash", "Insert the current date as MM/DD/YY"),
+        (c.CURDATE_DDMMYY_SLASH, "date_ddmmyy_slash", "Insert the current date as DD/MM/YY"),
+        (c.CURDATE_MMMDDYYYY, "date_mmmddyyyy", "Insert the current date as MMM.DD, YYYY"),
         (c.CURDATE_MMDDYY_DASH, "date_mmddyy_dash", "Insert the current date as MM-DD-YY"),
         (c.CURDATE_DDMMYY_DASH, "date_ddmmyy_dash", "Insert the current date as DD-MM-YY"),
         (c.CURDATE_MMDDYY_DOT, "date_mmddyy_dot", "Insert the current date as MM.DD.YY"),

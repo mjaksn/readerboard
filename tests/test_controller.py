@@ -7,7 +7,11 @@ import pytest
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.protocol.markup import render
-from readerboard.sign.controller import SignController
+from readerboard.sign.controller import (
+    MEMORY_CLEAR_SETTLE_SECONDS,
+    RESET_SETTLE_SECONDS,
+    SignController,
+)
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -86,6 +90,21 @@ class TestMemoryConfiguration:
         # The sign has just been erased, so the same bytes must go again.
         assert await controller.write_text_file(b"A", b"HI") is True
 
+    async def test_memory_is_cleared_before_it_is_configured(self):
+        # A BetaBrite Classic on an Ethernet adapter stored a configuration,
+        # read it back correctly, and displayed nothing from it until a bare E$
+        # clear was sent first. So the clear is not optional and it comes first.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+
+        allocations = [frames.FileAllocation(b"A", 256)]
+        await controller.apply_memory_config(allocations)
+
+        assert transport.packets == [
+            frames.packet(frames.clear_memory()),
+            frames.packet(frames.set_memory_config(allocations)),
+        ]
+
     async def test_it_warns_that_the_sign_will_be_cleared(self, caplog):
         transport = FakeTransport()
         controller = SignController(transport, inter_packet_delay=0)
@@ -147,6 +166,213 @@ class TestConcurrency:
         await controller.write_text_file(b"A", b"TWO")
 
         assert slept == []
+
+
+def recording_sleep(recorded: list[float]):
+    """Build a sleep that records what it was asked for and yields to the loop.
+
+    The yield is what makes the locking tests below mean anything: without it a
+    task holding the lock never gives another task the chance to try for it, so
+    a missing lock would look exactly like a held one.
+    """
+
+    async def sleep(seconds: float) -> None:
+        recorded.append(seconds)
+        await asyncio.sleep(0)
+
+    return sleep
+
+
+class TestWaitingForAReset:
+    async def test_a_resetting_command_waits_for_the_sign_to_come_back(self):
+        slept: list[float] = []
+        controller = SignController(
+            FakeTransport(), inter_packet_delay=0.05, sleep=recording_sleep(slept)
+        )
+
+        await controller.send_special(frames.soft_reset(), settle=True)
+
+        assert RESET_SETTLE_SECONDS in slept
+
+    async def test_an_ordinary_command_does_not_wait(self):
+        # Setting the clock does not restart the sign, so nothing should stall.
+        slept: list[float] = []
+        controller = SignController(
+            FakeTransport(), inter_packet_delay=0.05, sleep=recording_sleep(slept)
+        )
+
+        await controller.send_special(frames.set_time(9, 30))
+
+        assert RESET_SETTLE_SECONDS not in slept
+
+    async def test_no_settle_is_requested_when_pacing_is_configured_away(self):
+        # A zero delay is a fake or a simulator, which has no reset to wait
+        # through, so the recovery path must not stall a test for ten seconds.
+        slept: list[float] = []
+        controller = SignController(
+            FakeTransport(), inter_packet_delay=0, sleep=recording_sleep(slept)
+        )
+
+        await controller.send_special(frames.soft_reset(), settle=True)
+
+        assert slept == []
+
+    async def test_a_reconfiguration_waits_for_the_sign_before_it_returns(self):
+        # Otherwise whoever rebuilds the display next writes into the reset.
+        slept: list[float] = []
+        controller = SignController(
+            FakeTransport(), inter_packet_delay=0.05, sleep=recording_sleep(slept)
+        )
+
+        await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
+
+        assert MEMORY_CLEAR_SETTLE_SECONDS in slept
+        assert RESET_SETTLE_SECONDS in slept
+
+
+class TestNothingElseWritesWhileTheSignIsResetting:
+    """A reset holds the lock throughout, not merely around each packet.
+
+    The sign is deaf from the moment a reset reaches it until its diagnostics
+    finish, and a write arriving in that window is not refused: the transport
+    accepts it, the suppression cache records it as delivered, and the caller is
+    told it worked. The message is simply never on the sign. So a reset has to
+    make every other writer queue behind it, which means holding the lock across
+    the settle rather than only across each send.
+    """
+
+    async def completes(self, task, seconds: float = 0.5) -> bool:
+        """Whether ``task`` finishes within ``seconds``, telling blocked from slow.
+
+        A couple of ``asyncio.sleep(0)`` yields is not enough to answer this:
+        the write goes through ``asyncio.to_thread``, which needs real thread
+        scheduling, so an unblocked write is still unfinished after two ticks
+        and the test would pass with the lock removed. That version of this test
+        was written, checked against the broken code, and did pass. Waiting on
+        the task is what actually separates "the lock stopped it" from "the
+        thread had not got there yet".
+        """
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=seconds)
+            return True
+        except TimeoutError:
+            return False
+
+    def held_at(self, target: float):
+        """Build a sleep that parks inside the settle for ``target`` until released.
+
+        Asserting on packet order alone would prove nothing here: a lock-free
+        settle produces the same order, because the reset's own packet still
+        goes first. What differs is whether a write can *complete* while the
+        sign is deaf, so the test has to stop time inside that window and look.
+        """
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def sleep(seconds: float) -> None:
+            if seconds == target:
+                entered.set()
+                await release.wait()
+            else:
+                await asyncio.sleep(0)
+
+        return sleep, entered, release
+
+    async def test_a_write_cannot_land_between_the_clear_and_the_configuration(self):
+        sleep, entered, release = self.held_at(MEMORY_CLEAR_SETTLE_SECONDS)
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+
+        reset = asyncio.create_task(
+            controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
+        )
+        await entered.wait()  # the clear has gone; the sign is resetting
+
+        write = asyncio.create_task(controller.write_text_file(b"A", b"HI"))
+
+        assert not await self.completes(write)
+        assert transport.packets == [frames.packet(frames.clear_memory())]
+
+        release.set()
+        await asyncio.gather(reset, write)
+        assert transport.packets[-1] == frames.packet(
+            frames.write_text_file(b"A", b"HI")
+        )
+
+    async def test_a_write_cannot_land_during_a_soft_reset(self):
+        sleep, entered, release = self.held_at(RESET_SETTLE_SECONDS)
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+
+        reset = asyncio.create_task(
+            controller.send_special(frames.soft_reset(), settle=True)
+        )
+        await entered.wait()  # the sign is running its diagnostics
+
+        write = asyncio.create_task(controller.write_text_file(b"A", b"HI"))
+
+        # This is the regression. Without the lock the write goes out here, the
+        # sign drops it, and the suppression cache records it as delivered.
+        assert not await self.completes(write)
+        assert transport.packets == [frames.packet(frames.soft_reset())]
+
+        release.set()
+        await asyncio.gather(reset, write)
+        assert transport.packets == [
+            frames.packet(frames.soft_reset()),
+            frames.packet(frames.write_text_file(b"A", b"HI")),
+        ]
+
+
+class TestTheLinkWatcherSurvives:
+    """It is the only thing that opens the link, so nothing may kill it.
+
+    A write used to open one lazily and no longer does. If this task dies the
+    service answers 503 until somebody restarts it, however healthy the sign
+    becomes. It died once on an arithmetic error out of the transport's own
+    backoff, which is not a TransportError and so matched nothing that was being
+    caught on the way out.
+    """
+
+    def exploding(self, error: Exception) -> FakeTransport:
+        transport = FakeTransport()
+
+        def ensure_open() -> None:
+            raise error
+
+        transport.ensure_open = ensure_open  # type: ignore[method-assign]
+        return transport
+
+    async def test_startup_survives_an_unexpected_error_from_the_link(self, caplog):
+        controller = SignController(
+            self.exploding(OverflowError("int too large to convert to float")),
+            inter_packet_delay=0,
+        )
+
+        with caplog.at_level("ERROR"):
+            await controller.start()  # must not raise
+        try:
+            assert controller._reconnect_task is not None
+            assert not controller._reconnect_task.done()
+        finally:
+            await controller.stop()
+
+    async def test_the_watcher_keeps_going_after_an_unexpected_error(self, caplog):
+        controller = SignController(
+            self.exploding(OverflowError("int too large to convert to float")),
+            inter_packet_delay=0,
+        )
+
+        with caplog.at_level("ERROR"):
+            await controller.start()
+            # Long enough for the loop to take at least one turn and raise.
+            await asyncio.sleep(0.05)
+        try:
+            task = controller._reconnect_task
+            assert task is not None
+            assert not task.done(), "the watcher died, so the link can never reopen"
+        finally:
+            await controller.stop()
 
 
 class TestFailures:

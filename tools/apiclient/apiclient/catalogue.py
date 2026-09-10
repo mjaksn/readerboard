@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from fifteen hand-written
+The window builds its forms from this table rather than from sixteen hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -66,7 +66,15 @@ class Input:
 
 @dataclass(frozen=True, slots=True)
 class Operation:
-    """One callable endpoint."""
+    """One callable endpoint.
+
+    ``destructive`` and ``confirm`` both gate a send behind a yes/no prompt, and
+    they say different things. ``destructive`` marks an operation that throws
+    work away, such as clearing every message, and asks a plain question before
+    it. ``confirm`` carries the text for a warning-coloured prompt in front of an
+    operation that is not about losing data but is disruptive to run, such as
+    rebooting the sign. An operation sets one or the other, not both.
+    """
 
     id: str
     group: str
@@ -79,6 +87,7 @@ class Operation:
     formatter: str = "generic"
     loads: str | None = None
     destructive: bool = False
+    confirm: str = ""
     note: str = ""
 
     @property
@@ -259,6 +268,25 @@ OPERATIONS: tuple[Operation, ...] = (
             ),
         ),
         formatter="empty",
+    ),
+    Operation(
+        id="reboot_sign",
+        group="Sign",
+        method="POST",
+        path="/sign/reboot",
+        summary="Reboot the sign to recover it",
+        needs_key=True,
+        formatter="empty",
+        confirm=(
+            "Rebooting resets the sign and blanks it for about ten seconds "
+            "before the messages come back. Use it only to recover a sign that "
+            "has stopped responding, not to clear messages. Send it?"
+        ),
+        note=(
+            "A recovery tool. It resets a wedged sign and restores the display "
+            "from the service's record; the sign goes blank for about ten "
+            "seconds first."
+        ),
     ),
     # == Enumerations =====================================================
     Operation(

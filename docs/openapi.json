@@ -12,7 +12,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It cannot be empty: an empty priority file is the protocol's own release sequence, so the sign would hand itself back while the service went on reporting an alert",
+            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -108,7 +108,7 @@
         "description": "A command aimed at the sign itself rather than at a message.",
         "properties": {
           "command": {
-            "description": "one of SET_DAY_OF_WEEK, SET_TIME, SET_TIME_FORMAT",
+            "description": "one of SET_DAY_OF_WEEK, SET_TIME, SET_TIME_FORMAT, SOFT_RESET, SOUND, SPEAKER",
             "title": "Command",
             "type": "string"
           },
@@ -161,7 +161,7 @@
             "$ref": "#/components/schemas/LinkHealth"
           },
           "sign_in_sync": {
-            "description": "false when a registered message has been accepted but not yet written to the sign, which is what a write during an outage looks like",
+            "description": "false when the sign is behind the service's record, which is a removal or an expiry that could not reach the sign yet; a message write that cannot reach the sign is refused with a 503 rather than held",
             "title": "Sign In Sync",
             "type": "boolean"
           },
@@ -876,7 +876,7 @@
     },
     "/sign/command": {
       "post": {
-        "description": "Send one of the sign's own control commands.",
+        "description": "Send one of the sign's own control commands.\n\n`SOFT_RESET` restarts the sign. It erases nothing, the sign comes back\nshowing what it was showing, and it is the first thing to try on a sign that\nhas stopped responding. The display is blank for a few seconds while it runs\nits power-up diagnostics, and this call waits that out before answering, so\na 204 means the sign is listening again. Reach for `POST /sign/reboot` only\nwhen a soft reset is not enough: that one erases the sign and rebuilds it.",
         "operationId": "send_command_sign_command_post",
         "requestBody": {
           "content": {
@@ -909,6 +909,26 @@
           }
         ],
         "summary": "Send a control command to the sign",
+        "tags": [
+          "Sign"
+        ]
+      }
+    },
+    "/sign/reboot": {
+      "post": {
+        "description": "Reset the sign to recover it, then put everything back.\n\n**A recovery tool, not a routine operation, and it is disruptive.** It sends\nthe memory clear that resets the sign, which erases every file on it and\ntakes the display blank for several seconds while the sign restarts. The\nservice then waits for the reset to finish and re-pushes every message and\nthe run sequence from its own record, so the sign comes back showing what it\nwas showing before rather than empty. Any active alert is re-asserted as\npart of that restore.\n\nUse it for a sign that has stopped responding to writes or is showing\ngarbage, the wedged-decoder state a unit mounted out of reach can fall into\nfrom a stray bit and that cannot be fixed by power cycling it by hand. Do\nnot use it to clear the sign: `DELETE /messages` takes every message off\nwithout resetting anything, and this puts them all straight back. Expect a\nblank display for roughly ten seconds before the rotation returns.\n\n503 if the sign cannot be reached, since a sign that is not answering cannot\nbe rebooted.",
+        "operationId": "reboot_sign_sign_reboot_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Reboot the sign to recover it, then restore the display",
         "tags": [
           "Sign"
         ]

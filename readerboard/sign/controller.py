@@ -29,6 +29,32 @@ from readerboard.transport.base import Transport, TransportError
 
 logger = logging.getLogger(__name__)
 
+# How long to wait after clearing memory before writing the new configuration.
+# An "E$" clear puts the BetaBrite Classic through a reset. The configuration
+# that follows is accepted through it, apparently buffered and applied when the
+# sign comes back. A configuration written a second or more after the clear was
+# seen to display once the sign returned; one second was the shortest gap tried,
+# so this sits a little above it for margin rather than at an edge. It is only
+# paid on a reconfiguration, which is rare and already the one dangerous
+# operation.
+MEMORY_CLEAR_SETTLE_SECONDS = 2.0
+
+# How long to wait for a reset to finish before writing to the sign again. Both
+# of the protocol's resets pay it: the "E$" clear inside apply_memory_config, and
+# the "E," soft reset a caller asks for by name through SOFT_RESET.
+#
+# apply_memory_config lets the configuration itself buffer through the reset,
+# which the sign applies as it comes back, but message content needs the sign
+# actually back and listening rather than merely able to hold one buffered write.
+#
+# The wait is always taken with the sign's lock held. That is the whole point of
+# it: a write arriving while the sign is deaf is not refused, it is lost, because
+# the transport accepts it, the suppression cache records it as delivered and the
+# caller is told it worked. Holding the lock makes other writers queue instead.
+# Paid only against real hardware, since a link told to pace nothing is a fake or
+# a simulator, and neither has a reset to sit through.
+RESET_SETTLE_SECONDS = 10.0
+
 ReconnectHook = Callable[[], Awaitable[None]]
 
 
@@ -92,6 +118,11 @@ class SignController:
             # Not fatal. The service should come up with the sign unplugged and
             # start working when it is plugged back in.
             logger.warning("sign not reachable at startup: %s", err)
+        except Exception:
+            # Nor is anything else. Whatever the first open did, the watcher
+            # below is what brings the link back, and refusing to start the
+            # service is a worse answer than starting it without a sign.
+            logger.exception("opening the sign at startup failed unexpectedly")
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
     async def stop(self) -> None:
@@ -168,14 +199,34 @@ class SignController:
         position: bytes = c.TEXT_POS_MIDDLE,
         force: bool = False,
     ) -> bool:
-        """Take the display over with an alert, or release it if ``body`` is empty."""
+        """Take the display over with an alert.
+
+        This never releases the display, whatever ``body`` holds. An empty body
+        still carries the Start-of-Message byte, a position and a mode, and the
+        sign reads that as a blank priority message it should show, so it keeps
+        the screen. :meth:`clear_priority` sends the bare write a release needs.
+        """
         return await self.write_text_file(
             c.FILE_PRIORITY, body, mode=mode, position=position, force=force
         )
 
-    async def clear_priority(self) -> bool:
-        """Release a priority takeover so the run sequence resumes."""
-        return await self.write_priority(b"")
+    async def clear_priority(self, *, force: bool = False) -> bool:
+        """Release a priority takeover so the run sequence resumes.
+
+        Deliberately not ``write_priority(b"")``. An ordinary write to the
+        priority file, even with an empty body, carries the Start-of-Message
+        byte and a position and mode, and the sign reads that as a blank
+        priority message it should display, keeping the screen instead of
+        handing it back. The release is the bare write ``clear_priority_file``
+        builds, and it goes through the same suppression cache under the
+        priority label so a repeated release is not re-sent.
+        """
+        payload = frames.clear_priority_file()
+        if force:
+            await self._send(payload)
+            self._file_contents[c.FILE_PRIORITY] = payload
+            return True
+        return await self._send_if_changed(c.FILE_PRIORITY, payload)
 
     async def set_run_sequence(self, labels: list[bytes]) -> bool:
         """Choose which files play and in what order. Returns False if unchanged."""
@@ -197,18 +248,62 @@ class SignController:
         """
         labels = ", ".join(entry.label.decode("ascii") for entry in allocations)
         logger.warning("reallocating sign memory (%s); this clears every message", labels)
-        await self._send(frames.set_memory_config(allocations))
+        # Clear memory outright first. A BetaBrite Classic on an Ethernet to
+        # RS-232 adapter was measured accepting a memory configuration, storing
+        # it, echoing it back correctly on a read, and then displaying nothing
+        # from any file it named. The one thing that made the files play was a
+        # bare "E$" clear ahead of the configuration; with it the sign showed
+        # the rotation, without it the sign stayed blank, on writes identical to
+        # the byte. So the clear is not tidiness here, it is what makes the
+        # configuration take. It adds no risk: writing a configuration already
+        # erases the sign, which is why this whole method is the one dangerous
+        # operation, so clearing first reaches the same empty sign by a
+        # different door. See docs/protocol-notes.md.
+        # The whole sequence runs under one acquisition of the lock. The sign is
+        # deaf from the moment the clear reaches it until its diagnostics
+        # finish, and a write arriving in that window is not refused, it is
+        # simply gone: the transport accepts it, the suppression cache records
+        # it as delivered, and the caller is told 200. Holding the lock makes
+        # every other writer queue behind the reset instead. That is why the
+        # sends below are ``_send_locked``; ``asyncio.Lock`` is not reentrant.
+        async with self._lock:
+            await self._send_locked(frames.clear_memory())
+            # Let the reset the clear triggers finish before the configuration
+            # lands, or the configuration arrives while the sign is deaf and is
+            # lost. Gated on the same delay as the per-packet wait: a link told
+            # to pace nothing is a fake or a simulator, which has no reset to
+            # wait through.
+            if self._inter_packet_delay:
+                await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
+            await self._send_locked(frames.set_memory_config(allocations))
+            # The configuration buffers through the reset, but message content
+            # needs the sign actually back and listening rather than merely able
+            # to hold one buffered write. Whoever rebuilds the display next is
+            # holding this lock's queue, so waiting here is what stops their
+            # writes landing on a sign that cannot say it missed them.
+            if self._inter_packet_delay:
+                await self._sleep(RESET_SETTLE_SECONDS)
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
 
-    async def send_special(self, payload: bytes) -> None:
+    async def send_special(self, payload: bytes, *, settle: bool = False) -> None:
         """Send a special function such as a clock command.
 
         Never suppressed. Setting the clock to the same value it already holds
         is still worth doing, because the point is to correct drift we cannot
         see.
+
+        ``settle`` is for a command that restarts the sign. It holds the lock
+        through the sign's power-up diagnostics, so the send and the wait are
+        one uninterruptible step and another caller's write queues rather than
+        being thrown at a sign that is deaf and cannot say so. Gated on
+        ``inter_packet_delay``, which a fake or a simulator sets to zero because
+        neither has a reset to sit through.
         """
-        await self._send(payload)
+        async with self._lock:
+            await self._send_locked(payload)
+            if settle and self._inter_packet_delay:
+                await self._sleep(RESET_SETTLE_SECONDS)
 
     # == internals ==========================================================
 
@@ -226,24 +321,35 @@ class SignController:
         return True
 
     async def _send(self, payload: bytes) -> None:
-        packet = frames.packet(payload)
         async with self._lock:
-            try:
-                await asyncio.to_thread(self._transport.write, packet)
-            except TransportError as err:
-                self.last_error = str(err)
-                # What we believed about the sign's contents may not have
-                # survived a failed write, so stop believing it.
-                self.forget_sign_contents()
-                raise
+            await self._send_locked(payload)
 
-            self.writes += 1
-            self.last_write_at = self._now()
-            self.last_error = None
-            logger.debug("wrote %d bytes: %s", len(packet), packet.hex())
+    async def _send_locked(self, payload: bytes) -> None:
+        """Send one payload. The caller must already hold the lock.
 
-            if self._inter_packet_delay:
-                await self._sleep(self._inter_packet_delay)
+        Split out of :meth:`_send` so that a sequence which must not be
+        interleaved, such as the clear and configuration either side of a
+        memory reset, can hold the lock across the whole of it.
+        ``asyncio.Lock`` is not reentrant, so those callers cannot simply call
+        :meth:`_send` again.
+        """
+        packet = frames.packet(payload)
+        try:
+            await asyncio.to_thread(self._transport.write, packet)
+        except TransportError as err:
+            self.last_error = str(err)
+            # What we believed about the sign's contents may not have
+            # survived a failed write, so stop believing it.
+            self.forget_sign_contents()
+            raise
+
+        self.writes += 1
+        self.last_write_at = self._now()
+        self.last_error = None
+        logger.debug("wrote %d bytes: %s", len(packet), packet.hex())
+
+        if self._inter_packet_delay:
+            await self._sleep(self._inter_packet_delay)
 
     async def _connect(self) -> None:
         was_open = self._transport.is_open
@@ -257,13 +363,25 @@ class SignController:
                     logger.exception("a reconnect hook failed")
 
     async def _reconnect_loop(self) -> None:
-        """Keep trying to bring the link back while the service is running."""
+        """Keep trying to bring the link back while the service is running.
+
+        This is the only thing that opens the link. A write used to open one
+        lazily and no longer does, so if this task ever dies the service is
+        down until it is restarted, however healthy the sign becomes. It
+        therefore survives anything a single attempt can raise, not merely the
+        failure the transport is expected to report. It died once on an
+        arithmetic error from its own backoff.
+        """
         while not self._stopping.is_set():
             if not self._transport.is_open:
                 try:
                     await self._connect()
                 except TransportError as err:
                     logger.debug("reconnect attempt failed: %s", err)
+                except Exception:
+                    logger.exception(
+                        "reconnect attempt failed unexpectedly; still watching the link"
+                    )
 
             delay = max(1.0, self._seconds_until_retry())
             try:

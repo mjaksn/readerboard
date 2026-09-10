@@ -45,16 +45,23 @@ tested.
 from __future__ import annotations
 
 import argparse
-import contextlib
-import importlib.util
 import os
 import re
 import subprocess
 import sys
-import threading
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parent.parent
+_HERE = Path(__file__).resolve().parent
+_ROOT = _HERE.parent
+
+# ``scripts/`` is not a package, so the half this shares with
+# ``run_against_a_sign.py`` has to be found by path before it can be imported.
+# ``tools/signsim/run.py`` does the same thing for the same reason.
+if str(_HERE) not in sys.path:
+    sys.path.insert(0, str(_HERE))
+
+import _supervise  # noqa: E402 (the path has to be set up first)
+
 _SIMULATOR = _ROOT / "tools" / "signsim" / "run.py"
 _CLIENT = _ROOT / "tools" / "apiclient" / "run.py"
 
@@ -158,28 +165,17 @@ def main(argv: list[str] | None = None) -> int:
     """Start them, stream them, stop them."""
     args = build_parser().parse_args(argv)
 
-    if importlib.util.find_spec("PySide6") is None:
-        blocked = (
-            "neither the simulator nor the client can start"
-            if args.with_client
-            else "the simulator cannot start"
-        )
-        # The two tools pin Qt separately, so the one that is wanted is the one
-        # named. They hold the same versions today and need not tomorrow.
-        locks = ["tools/signsim/requirements.lock"]
-        if args.with_client:
-            locks.append("tools/apiclient/requirements.lock")
-        print(
-            "PySide6 is not installed in %s, so %s.\nInstall it with:\n%s"
-            % (
-                sys.executable,
-                blocked,
-                "\n".join(
-                    "    pip install --require-hashes -r %s" % lock for lock in locks
-                ),
-            ),
-            file=sys.stderr,
-        )
+    blocked = (
+        "neither the simulator nor the client can start"
+        if args.with_client
+        else "the simulator cannot start"
+    )
+    # The two tools pin Qt separately, so the one that is wanted is the one
+    # named. They hold the same versions today and need not tomorrow.
+    locks = ["tools/signsim/requirements.lock"]
+    if args.with_client:
+        locks.append("tools/apiclient/requirements.lock")
+    if not _supervise.require_qt(blocked, locks):
         return 1
 
     if not args.keep_state:
@@ -198,20 +194,20 @@ def main(argv: list[str] | None = None) -> int:
 
     children = {"sim": process, "api": service}
     streams = [
-        _stream(process.stdout, "sim"),
-        _stream(service.stdout, "api"),
+        _supervise.stream(process.stdout, "sim"),
+        _supervise.stream(service.stdout, "api"),
     ]
 
     if args.with_client:
         client = _start_client(base_url)
         children["client"] = client
-        streams.append(_stream(client.stdout, "client"))
+        streams.append(_supervise.stream(client.stdout, "client"))
         print("[run] client pointed at %s, and the API key to paste is %s"
               % (base_url, args.api_key))
 
     print("[run] Ctrl+C stops everything")
 
-    return _wait(children, streams, fatal=frozenset({"sim", "api"}))
+    return _supervise.wait(children, streams, fatal=frozenset({"sim", "api"}))
 
 
 # ===========================================================================
@@ -228,7 +224,7 @@ def _start_simulator(port: int) -> tuple[subprocess.Popen[str], str] | None:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        env=_child_env(),
+        env=_supervise.child_env(),
     )
 
     assert process.stdout is not None
@@ -251,7 +247,7 @@ def _start_simulator(port: int) -> tuple[subprocess.Popen[str], str] | None:
 
 def _start_service(args: argparse.Namespace, address: str) -> subprocess.Popen[str]:
     """Start the service with everything it needs to reach the simulator."""
-    env = _child_env()
+    env = _supervise.child_env()
     env.update(
         {
             "READERBOARD_SERIAL_URL": "socket://%s" % address,
@@ -295,17 +291,8 @@ def _start_client(base_url: str) -> subprocess.Popen[str]:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        env=_child_env(),
+        env=_supervise.child_env(),
     )
-
-
-def _child_env() -> dict[str, str]:
-    """Build the environment every child starts from."""
-    env = dict(os.environ)
-    # Without this a child's output sits in its buffer and the streams
-    # interleave in an order that has nothing to do with what happened.
-    env["PYTHONUNBUFFERED"] = "1"
-    return env
 
 
 def _api_host() -> str:
@@ -326,89 +313,6 @@ def _discard_state(path: Path) -> None:
         print("[run] could not remove %s: %s" % (path, err), file=sys.stderr)
         return
     print("[run] discarded %s, so the sign is configured from scratch" % path.name)
-
-
-# ===========================================================================
-# Running until something stops.
-# ===========================================================================
-
-
-def _stream(pipe: object, tag: str) -> threading.Thread:
-    """Print one child's output, prefixed, on a thread of its own."""
-
-    def pump() -> None:
-        assert hasattr(pipe, "__iter__")
-        for line in pipe:  # type: ignore[attr-defined]
-            print("[%s] %s" % (tag, line.rstrip()))
-
-    thread = threading.Thread(target=pump, name="stream-%s" % tag, daemon=True)
-    thread.start()
-    return thread
-
-
-def _wait(
-    children: dict[str, subprocess.Popen[str]],
-    streams: list[threading.Thread],
-    fatal: frozenset[str],
-) -> int:
-    """Wait until something ends, then stop whatever is still running.
-
-    Only a tag in ``fatal`` ends the run. The simulator or the service going
-    away leaves the other writing to a socket with nothing on it, so both
-    stop. The client is a window for poking the service with, and closing it
-    breaks nothing, so that is reported and the rest keeps running.
-    """
-    try:
-        while True:
-            for tag, child in list(children.items()):
-                if child.poll() is None:
-                    continue
-                if tag not in fatal:
-                    # Closing the window is how this one is meant to end, so it
-                    # is reported as an ordinary thing rather than as a status.
-                    if child.returncode == 0:
-                        print("[run] the %s was closed, leaving the rest running" % tag)
-                    else:
-                        print("[run] the %s exited with status %d, leaving the rest running"
-                              % (tag, child.returncode))
-                    del children[tag]
-                    continue
-                print("[run] the %s exited with status %d, stopping the rest"
-                      % (tag, child.returncode))
-                for name, running in children.items():
-                    if name != tag:
-                        _stop(running)
-                return child.returncode
-            # Waiting on one child at a time is enough: whichever it is, the
-            # loop comes back around and notices the others. There is always one
-            # to wait on, because a fatal tag is never dropped.
-            with contextlib.suppress(subprocess.TimeoutExpired):
-                next(iter(children.values())).wait(timeout=0.3)
-    except KeyboardInterrupt:
-        # Ctrl+C in a console reaches the children too, so they are usually
-        # already on their way out. Give them that chance before insisting.
-        print("\n[run] stopping")
-        for child in children.values():
-            _stop(child)
-        return 0
-    finally:
-        for thread in streams:
-            thread.join(timeout=1.0)
-
-
-def _stop(child: subprocess.Popen[str]) -> None:
-    """Let a child finish, then make it."""
-    if child.poll() is not None:
-        return
-    with contextlib.suppress(subprocess.TimeoutExpired):
-        child.wait(timeout=5.0)
-        return
-
-    child.terminate()
-    try:
-        child.wait(timeout=5.0)
-    except subprocess.TimeoutExpired:
-        child.kill()
 
 
 if __name__ == "__main__":

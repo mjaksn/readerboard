@@ -115,6 +115,21 @@ def test_only_clearing_every_message_is_marked_destructive():
     assert destructive == {"clear_messages"}
 
 
+def test_only_the_reboot_asks_for_a_warned_confirmation():
+    # The warning-coloured prompt is for an operation that is disruptive rather
+    # than data-destroying. Only the reboot is one today; spelled out so adding
+    # another has to be a deliberate change here.
+    confirmed = {operation.id for operation in catalogue.OPERATIONS if operation.confirm}
+    assert confirmed == {"reboot_sign"}
+
+
+def test_no_operation_is_both_destructive_and_warned():
+    # The two prompts are different dialogs, so an operation carrying both flags
+    # would ask twice. Nothing should.
+    for operation in catalogue.OPERATIONS:
+        assert not (operation.destructive and operation.confirm), operation.id
+
+
 def test_the_operations_that_need_a_key_are_the_ones_the_service_secures():
     # Diffed rather than restated. Two hand-written lists of ids agreeing with
     # each other is the self-comparison this module exists to avoid: if the

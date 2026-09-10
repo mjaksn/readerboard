@@ -27,9 +27,10 @@ until it is released, after which the rotation resumes.
 - **It does not redraw the sign for nothing.** A write of bytes the sign already holds is
   suppressed, so a source re-sending an unchanged temperature does not make the display
   flicker.
-- **It survives restarts and outages.** The registered messages are persisted, and a
-  write that arrives while the sign is unreachable is accepted and delivered when the
-  link returns.
+- **It survives restarts and outages.** The registered messages are persisted and
+  pushed to the sign again whenever the link returns, so a restart or a power cut leaves
+  the rotation intact. A write that arrives while the sign is unreachable is refused with
+  a 503 rather than silently held, so the caller learns it did not land.
 - **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
   render is a 400, each with the reason in the body. Nothing here reports a failure
   under a 200.
@@ -78,6 +79,73 @@ That starts the simulator and the service together, already pointed at each
 other, and stops both on Ctrl+C. The simulator decodes each transmission, says
 what every byte of it means, and shows what the sign would be holding as a
 result. `tools/signsim/README.md` has the details.
+
+## Running it against a real sign
+
+From a checkout, with the sign on a cable or on an Ethernet to RS-232 adapter:
+
+```
+pip install -e ".[dev]"
+pip install --require-hashes -r tools/apiclient/requirements.lock
+python scripts/run_against_a_sign.py --serial-url socket://192.168.2.51:4001
+```
+
+That starts the service and the client together, with no simulator. The service
+comes up on <http://127.0.0.1:5001> with `/docs` beside it, the client comes up
+pointed at that address, and the API key to paste into the client is printed in
+the same window. `--no-client` leaves the client out. Ctrl+C stops everything,
+and closing the client leaves the service running.
+
+Both editors carry it as a launch configuration named "readerboard against the
+real sign and the client". **The sign's address is an argument in those, not a
+setting in a file**, so changing which sign is driven means editing the
+Parameters field in PyCharm's run configuration dialog, or `args` in
+`.vscode/launch.json`. They also pass `--api-port 5002`, so a second checkout of
+this repository on the same machine can run beside them; the launcher checks
+that port before it starts anything rather than letting the service bind, fail
+and stop after the client has been pointed at whatever else answered.
+
+### Writing the address
+
+It is a pyserial URL, and **there is no slash between the host and the port**.
+`socket://192.168.2.51/:4001` looks close enough to right and is not: pyserial
+answers it with a bare `TypeError` from deep inside a connection attempt, naming
+neither the setting nor the value. The launcher checks the address before it
+opens anything and says which part is wrong. The four forms are:
+
+```
+socket://192.168.2.51:4001   an Ethernet to RS-232 adapter passing raw TCP
+rfc2217://192.168.2.51:23    an adapter speaking the telnet serial protocol
+COM3                         a cable on Windows
+/dev/ttyUSB0                 a cable on Linux
+```
+
+Most adapters pass raw TCP, so try `socket://` first. If the link opens but the
+sign shows nothing or shows rubbish, and the adapter answers on port 23, it is
+probably negotiating telnet rather than passing bytes through, and `rfc2217://`
+is the form that speaks that.
+
+### The API key, and config.local.toml
+
+The key is not an argument. A launch configuration is a tracked file and a
+command line is a shell history, and anyone holding the key can write to the
+sign. It lives in `config.local.toml` at the root of the checkout, which
+`.gitignore` covers and which the launcher writes with a generated key the first
+time it runs. Given no `--serial-url`, the address is read from there too.
+
+### The first run erases the sign
+
+Writing a memory configuration erases every message on the sign, and the service
+writes one whenever it has no record of the configuration already applied. The
+first run against a sign this machine has never driven therefore erases it,
+which is also the only way to allocate the files it then writes into. Every run
+after that reads the record and leaves the sign alone.
+
+That record is `.local-sign-state.json`, and it belongs to this launcher alone.
+`scripts/run_with_simulator.py` deletes its own `.local-state.json` on every
+launch, because the simulator starts empty every time and the service has to
+reconfigure it. If the two shared one file, a simulator session would throw the
+sign's record away and the next run against the sign would erase it.
 
 ## Installing it properly
 
@@ -161,6 +229,24 @@ curl -X POST http://localhost:5001/alerts \
      -d '{"message": "<red><flash_on>SMOKE ALARM", "ttl_seconds": 30}'
 ```
 
+Make a noise, which is worth pairing with an alert if the sign is somewhere nobody
+is watching it:
+
+```
+curl -X POST http://localhost:5001/sign/command \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"command": "SOUND", "parameter": "BEEPS"}'
+```
+
+`BEEPS` is three short beeps and `TONE` is one continuous tone of about two seconds.
+Those are the only two sounds there are: the sign has a fixed-pitch buzzer, so there
+is no pitch or volume to choose.
+
+Silence it with `{"command": "SPEAKER", "parameter": "OFF"}`, and turn it back on with
+`ON`. That is a real mute: `SOUND` is still accepted and makes no noise. The setting
+lives on the sign and survives a restart, so it is also the first thing to check if
+`SOUND` ever seems to do nothing.
+
 The full API is at `/docs`. Every markup token, display mode, text position and
 control command is listed by the `/enumerations` reads there, which answer at
 request time rather than being frozen into the description.
@@ -176,6 +262,39 @@ displays correctly. A character the sign cannot render is rejected with a 400, a
 unknown token: a write is told what the sign would have made of it rather than being
 shown something it did not ask for.
 
+### Recovering a sign that has stopped responding
+
+A sign mounted out of reach can wedge: a stray bit corrupts what its decoder is
+showing, it stops responding to writes, and there is no power switch within reach.
+There are two recoveries, and they are not interchangeable. Try the gentle one first.
+
+**A soft reset restarts the sign and erases nothing.** The sign runs the same power-up
+diagnostics it runs when you plug it in, then carries on showing what it was showing.
+Its memory, its file table and its messages all survive; this was verified on the sign
+by reading them back either side of a reset.
+
+```
+curl -X POST http://localhost:5001/sign/command \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"command": "SOFT_RESET"}'
+```
+
+The call waits out the diagnostics before answering, so a 204 means the sign is
+listening again rather than that the bytes went out.
+
+**`POST /sign/reboot` is the escalation, and it is destructive.** It clears the sign
+outright, waits for it to restart, then re-pushes every message and the run sequence
+from the service's own record, so the display still comes back to what it was.
+
+```
+curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'
+```
+
+Reach for it only when a soft reset was not enough. The sign is blank for about ten
+seconds while it resets. Neither is a way to clear messages: `DELETE /messages` does
+that without resetting anything. The client fronts the reboot with a warning-coloured
+confirmation for the same reason.
+
 ## Configuration
 
 Settings come from `/etc/readerboard/config.toml`, overridden by environment variables
@@ -187,8 +306,11 @@ and usually absent, which is not an error. `READERBOARD_CONFIG_FILE` moves the f
 you want it somewhere other than the default.
 
 The sign's address is a full pyserial URL in `serial_url`: `socket://192.168.2.51:4001`
-for an Ethernet to RS-232 adapter, `/dev/ttyUSB0` for a cable plugged straight in, or
-`loop://` to run the service with no sign attached.
+for an Ethernet to RS-232 adapter, `rfc2217://192.168.2.51:23` for one speaking the
+telnet serial protocol, `/dev/ttyUSB0` or `COM3` for a cable plugged straight in, or
+`loop://` to run the service with no sign attached. There is no slash between the host
+and the port, and pyserial's answer to one that has a slash names neither the setting
+nor the value.
 
 Two settings reallocate the sign's memory when changed, and **that erases every message
 on it**: `slot_count` and `slot_capacity`. The service will do it, and say so loudly in
@@ -272,6 +394,15 @@ Both editors carry it as a launch configuration under the same name, "readerboar
 the sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`, beside
 configurations for running the pieces separately. Both carry the three way one as
 "readerboard, the sign simulator and the client" as well.
+
+`scripts/run_against_a_sign.py` is the other one, for when the sign is real: the
+service and the client, no simulator, and the sign's address passed as an argument so
+that it can be edited in a run configuration dialog. Both editors carry it as
+"readerboard against the real sign and the client". The section above has the rest,
+including the one thing about it that is dangerous. The two launchers share their
+process supervision through `scripts/_supervise.py` and differ in what each child is
+given, which is the part that matters: the simulator launcher discards its state file
+on every run and this one never discards anything.
 
 Every one of those that starts the service sets `READERBOARD_OPEN_DOCS`, so `/docs`
 opens in a browser once the port answers. The service does the waiting and the

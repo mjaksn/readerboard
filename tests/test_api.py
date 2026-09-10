@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
+from readerboard.protocol import frames
+from readerboard.services import commands
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
@@ -132,6 +134,7 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
             ("/alerts", "delete"),
             ("/sign/sync-clock", "post"),
             ("/sign/command", "post"),
+            ("/sign/reboot", "post"),
         ]:
             assert schema["paths"][path][method]["security"] == [{"ApiKeyAuth": []}], (
                 "%s %s should be marked as needing the key" % (method.upper(), path)
@@ -267,10 +270,11 @@ class TestAlerts:
         assert "125" in response.json()["detail"]
 
     def test_an_empty_alert_is_rejected(self, client):
-        # An empty message renders to no bytes, and an empty priority file is
-        # the protocol's own release sequence. Accepted, it handed the sign back
-        # and then recorded an alert as active, so GET /alerts reported one that
-        # nothing was displaying.
+        # An empty message renders to no bytes, but the write still carries the
+        # formatting bytes around it, which the sign reads as a blank priority
+        # message and displays. Accepted, it left the sign blank with the
+        # rotation suppressed behind it and an alert recorded as active, so
+        # GET /alerts reported one that nothing was displaying.
         response = client.post("/alerts", json={"message": ""}, headers=HEADERS)
         assert response.status_code == 422
         assert client.get("/alerts").json() is None
@@ -303,6 +307,108 @@ class TestSignCommands:
             headers=HEADERS,
         )
         assert response.status_code == 204
+
+    @pytest.mark.parametrize(
+        ("parameter", "enabled"),
+        [("ON", True), ("OFF", False), ("off", False)],
+    )
+    def test_muting_and_unmuting_the_speaker(self, client, sign, parameter, enabled):
+        sign.packets.clear()
+
+        response = client.post(
+            "/sign/command", json={"command": "SPEAKER", "parameter": parameter}, headers=HEADERS
+        )
+
+        assert response.status_code == 204
+        assert sign.packets == [frames.packet(frames.set_speaker(enabled))]
+
+    def test_an_unknown_speaker_setting_is_400(self, client):
+        response = client.post(
+            "/sign/command", json={"command": "SPEAKER", "parameter": "MUTE"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "ON" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        ("parameter", "expected"),
+        [
+            ("TONE", frames.sound_tone),
+            ("BEEPS", frames.sound_beeps),
+            ("beeps", frames.sound_beeps),
+        ],
+    )
+    def test_sounding_the_speaker(self, client, sign, parameter, expected):
+        sign.packets.clear()
+
+        response = client.post(
+            "/sign/command", json={"command": "SOUND", "parameter": parameter}, headers=HEADERS
+        )
+
+        assert response.status_code == 204
+        assert sign.packets == [frames.packet(expected())]
+
+    def test_an_unknown_sound_is_400(self, client):
+        response = client.post(
+            "/sign/command", json={"command": "SOUND", "parameter": "SIREN"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "TONE" in response.json()["detail"]
+
+    def test_sounding_the_speaker_does_not_wait(self):
+        # Only a restart makes the sign deaf. A beep must not hold the request
+        # open for the ten seconds a reset needs.
+        assert not commands.resets_the_sign("SOUND")
+
+    def test_a_soft_reset(self, client, sign):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.packets.clear()
+
+        response = client.post(
+            "/sign/command", json={"command": "SOFT_RESET", "parameter": ""}, headers=HEADERS
+        )
+
+        assert response.status_code == 204
+        assert sign.packets == [frames.packet(frames.soft_reset())]
+
+    def test_a_soft_reset_erases_nothing(self, client, sign):
+        # The whole point of it. The destructive reset is POST /sign/reboot.
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.packets.clear()
+
+        client.post(
+            "/sign/command", json={"command": "SOFT_RESET", "parameter": ""}, headers=HEADERS
+        )
+
+        assert frames.packet(frames.clear_memory()) not in sign.packets
+        assert client.get("/messages").json()[0]["key"] == "one"
+
+    def test_only_a_reset_makes_the_route_wait(self):
+        # The wait is what stops a write landing while the sign is deaf through
+        # its diagnostics. Spelled out so that a command which restarts the sign
+        # has to declare itself here rather than quietly not waiting.
+        assert commands.resets_the_sign("SOFT_RESET")
+        assert commands.resets_the_sign("  soft_reset  ")
+        for name in ("SET_TIME", "SET_DAY_OF_WEEK", "SET_TIME_FORMAT"):
+            assert not commands.resets_the_sign(name)
+
+    def test_a_soft_reset_with_a_parameter_is_400(self, client):
+        # Refused rather than ignored: the caller meant something by it.
+        response = client.post(
+            "/sign/command", json={"command": "SOFT_RESET", "parameter": "9"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "takes no parameter" in response.json()["detail"]
+
+    def test_rebooting_the_sign(self, client, sign):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+
+        response = client.post("/sign/reboot", headers=HEADERS)
+
+        assert response.status_code == 204
+        # The clear went to the sign, and the message that was registered
+        # survives the reset in the service's record.
+        assert frames.packet(frames.clear_memory()) in sign.packets
+        assert client.get("/messages").json()[0]["key"] == "one"
 
     def test_an_unknown_command_is_400(self, client):
         response = client.post(
@@ -397,26 +503,36 @@ class TestEnumerations:
 
 
 class TestUnreachableSign:
-    """A validated registry write is satisfiable even with the sign unplugged.
+    """Every write that needs the sign returns 503 when it cannot be reached.
 
-    Alerts, the clock and control commands are not: immediacy is their point,
-    so those are the ones that get a 503.
+    Messages, alerts, the clock and control commands all put something on the
+    sign, so an unreachable sign fails each of them the same way rather than a
+    message quietly buffering while the rest report the outage.
     """
 
-    def test_a_registry_write_is_accepted(self, client, sign):
+    def test_a_registry_write_is_503(self, client, sign):
         sign.fail_with = "cable unplugged"
 
         response = client.put(
             "/messages/temperature", json={"message": "18.4"}, headers=HEADERS
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 503
+        # The transport's reason reaches the response, so a caller learns why
+        # from the 503 itself rather than from a log it cannot see.
+        assert "cable unplugged" in response.json()["detail"]
 
-    def test_health_says_the_sign_is_behind(self, client, sign):
+    def test_a_rejected_write_leaves_no_slot_behind(self, client, sign):
         sign.fail_with = "cable unplugged"
         client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
 
-        assert client.get("/health").json()["sign_in_sync"] is False
+        assert client.get("/messages").json() == []
+
+    def test_health_says_the_link_is_down(self, client, sign):
+        sign.fail_with = "cable unplugged"
+        client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
+
+        assert client.get("/health").json()["link"]["connected"] is False
 
     def test_an_alert_is_503(self, client, sign):
         sign.fail_with = "cable unplugged"
@@ -437,6 +553,12 @@ class TestUnreachableSign:
             headers=HEADERS,
         )
         assert response.status_code == 503
+
+    def test_a_reboot_is_503(self, client, sign):
+        # A sign that is not answering cannot be rebooted, so the recovery path
+        # says so rather than pretending it reset something.
+        sign.fail_with = "cable unplugged"
+        assert client.post("/sign/reboot", headers=HEADERS).status_code == 503
 
 
 class TestTheErrorTable:

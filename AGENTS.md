@@ -31,19 +31,21 @@ both are quiet when they are not.
   worktree's tests and imports the service from the main checkout, and passes
   or fails against code nobody is editing. This was measured rather than
   feared.
-- **`.local-state.json`, before the service is started at all.** It is one
-  machine's file, it is ignored, and the run configurations name
-  `$PROJECT_DIR$/.local-state.json`, which in a worktree is a file that is not
-  there. No state file means no record of which memory configuration was
-  applied, and `Layout.needs_reconfiguration` answers True to that. Against
-  the sign simulator it costs nothing. Against a real sign it is the one
-  dangerous operation described below, and it erases every message on it.
+- **The state file, before the service is started at all.** There are two,
+  `.local-state.json` for simulator runs and `.local-sign-state.json` for runs
+  against a real sign. Each is one machine's file, both are ignored, and
+  neither is in a fresh worktree. No state file means no record of which memory
+  configuration was applied, and `Layout.needs_reconfiguration` answers True to
+  that. Against the sign simulator it costs nothing. Against a real sign it is
+  the one dangerous operation described below, and it erases every message on
+  it.
 
-  Not having `config.local.toml` either is what saves a worktree today, since
-  the real-sign configuration cannot start without it. That protection lasts
-  exactly until somebody copies that file across and not the other one, which
-  is the order they will do it in. Copy both, or point the worktree at the
-  simulator.
+  `config.local.toml` no longer saves a worktree the way it used to, and this
+  is the change worth knowing about. The sign's address is an argument in the
+  run configurations now rather than a setting in that file, so a worktree that
+  copies the run configurations has an address and needs no file: it writes
+  itself one, with a key generated into it, and starts. Point a worktree at the
+  simulator, or take the address out of the Parameters field in the copy.
 
 Three kinds of work stay in the main checkout, and all three are work a
 worktree cannot see or cannot reach.
@@ -67,7 +69,7 @@ And being told to, which needs no reason.
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
 under `readerboard/protocol/`. It also lists the four questions the document
-cannot answer, which need the sign to settle.
+cannot answer, three of which a session with the sign has since settled.
 
 ## The one dangerous operation
 
@@ -80,6 +82,23 @@ its state file, and reconfigures only when the plan itself changes. Changing
 `slot_count` or `slot_capacity` is therefore destructive on the next start. It
 is done deliberately, it is logged at WARNING, and it must never become
 something an ordinary message update can trigger.
+
+Note that the protocol has a second reset which is nothing to do with this one.
+`E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,
+verified on hardware by reading everything back either side of it. It is the
+gentle recovery and carries none of the warnings below. The two are a byte
+apart, so read which one a change means.
+
+There is one place the dangerous one runs on demand: `POST /sign/reboot`, the
+recovery path for a sign whose decoder has wedged out of reach and which a soft
+reset did not bring back. It clears the sign deliberately to
+reset it, then re-pushes every slot and the run sequence from the service's own
+record, so the erase is followed at once by a restore and the display comes back
+rather than staying blank. `MessageRegistry.reboot` is the whole of it; it is
+gated behind the API key like every other write, and the client fronts it with a
+warning-coloured confirmation. This is the exception the paragraph above allows
+for, not a hole in it: a message write still cannot reach the clear, only this
+one route asked for by name can.
 
 ## What each thing is called
 
@@ -135,7 +154,9 @@ small write and nothing after that. This is the whole design: the host does not
 rotate anything.
 
 An **alert** is written to the sign's priority file, which by protocol
-suppresses every other file until an empty priority write releases it.
+suppresses every other file until a bare priority write releases it. An
+ordinary write with an empty body is not a release: the sign reads its
+formatting bytes as a blank message and keeps the screen.
 
 `SignController` is the only thing allowed to talk to the sign. Every write goes
 through one `asyncio.Lock`, with the blocking pyserial call dispatched to a
@@ -241,7 +262,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all fifteen endpoints, formats every
+it at a running service and it can call all sixteen endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are
@@ -268,6 +289,39 @@ all three up from one command, and both editors have that as "readerboard, the
 sign simulator and the client". Closing the client leaves the other two running,
 which closing either of those does not: they are no use without each other,
 and the client is only a thing to poke the service with.
+
+`scripts/run_against_a_sign.py` is the same idea with the sign real rather than
+simulated: the service and the client, no simulator. Both editors have it as
+"readerboard against the real sign and the client". Three things about it are
+load bearing.
+
+The sign's address is a `--serial-url` argument in those configurations rather
+than a setting in a file, which is the one deliberate exception to keeping the
+real sign's details out of a tracked file. It is there because changing which
+sign is driven is the thing somebody does most often, and the Parameters field
+is where a person editing a run configuration is already looking. The API key
+stays in the ignored `config.local.toml`, because a tracked file and a shell
+history are both bad places for it. `tests/test_run_against_a_sign.py` parses
+the address out of both editors' files and checks the launcher accepts it, so a
+bad one fails the suite rather than a launch.
+
+It never discards its state file, because a service with no record of the
+applied memory configuration writes a new one, which is the dangerous operation
+above; and its state file is its own, because the simulator launcher deletes
+`.local-state.json` on every run and a shared file would mean a simulator
+session erasing the sign on the next real one. Both are pinned by reading the
+source, since neither can be rehearsed without hardware.
+
+Keep the comment in that PyCharm configuration short. PyCharm rewrites a
+configuration file whenever a field in it is edited and drops the comment when
+it does, and this is the one configuration whose whole point is that a field in
+it gets edited. The explanation belongs in `README.md`, which survives.
+
+The two launchers share their process supervision through
+`scripts/_supervise.py`: starting children, tagging and streaming their output,
+waiting for a port, and stopping the rest when one that matters goes away. What
+each child is given is the part that differs, and it stays in the launcher that
+gives it.
 
 Each tool has an icon of its own, an `icon.svg` beside its code and the
 `icon.ico` rendered from it by `scripts/render_icons.py`. They are deliberately

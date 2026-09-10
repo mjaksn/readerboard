@@ -11,6 +11,7 @@ from readerboard.services.registry import (
 )
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
+from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
 
@@ -275,49 +276,49 @@ async def test_the_state_file_is_written_on_every_change(registry, store):
 
 
 class TestWritingWhileTheSignIsUnreachable:
-    """A validated write is a request the registry can satisfy on its own.
+    """A write that cannot reach the sign fails, and changes nothing.
 
-    The registry is the durable record of what should be on the sign, so it
-    accepts the message, persists it, and converges when the link comes back.
-    Returning 503 here would make it a pass-through and push the retry logic
-    back onto Home Assistant, which is the thing this service exists to take
-    off it.
+    The registry used to accept such a write and converge later, so a caller
+    learned the sign was unreachable only by reading /health. It now lets the
+    TransportError out, which the HTTP surface turns into a 503, and leaves
+    itself exactly as it was. A new message is the caller's to retry, and a
+    failed update keeps the message that was already there. The slots already on
+    the sign are re-pushed on reconnect by refresh, which is its own path with
+    its own tests.
     """
 
-    async def test_the_slot_is_accepted_and_kept(self, registry, transport):
+    async def test_a_new_message_is_rejected_and_not_kept(self, registry, transport):
         transport.fail_with = "cable unplugged"
 
-        slot = await add(registry, "temperature", "18.4")
+        with pytest.raises(TransportError, match="cable unplugged"):
+            await add(registry, "temperature", "18.4")
 
-        assert slot.key == "temperature"
-        assert [s.key for s in registry.list_slots()] == ["temperature"]
+        assert registry.list_slots() == []
 
-    async def test_health_can_tell_that_the_sign_is_behind(self, registry, transport):
-        assert registry.in_sync
-
-        transport.fail_with = "cable unplugged"
-        await add(registry, "temperature")
-
-        assert not registry.in_sync
-
-    async def test_it_is_persisted_so_a_restart_does_not_lose_it(
-        self, registry, transport, store
+    async def test_a_rejected_write_hands_its_file_back_to_the_pool(
+        self, registry, transport
     ):
+        # Without the release, a sign down for a while would empty the pool one
+        # failed request at a time, and a later assign would raise LayoutFull
+        # rather than ever reaching the sign again.
         transport.fail_with = "cable unplugged"
-        await add(registry, "temperature", "18.4")
-
-        assert "temperature" in store.path.read_text(encoding="utf-8")
-
-    async def test_it_reaches_the_sign_once_the_link_is_back(self, registry, transport):
-        transport.fail_with = "cable unplugged"
-        await add(registry, "temperature", "18.4")
+        for index in range(5):
+            with pytest.raises(TransportError):
+                await add(registry, "slot-%d" % index)
 
         transport.fail_with = None
-        transport.clear()
-        await registry.refresh()
+        for index in range(3):  # the fixture's pool holds three
+            await add(registry, "kept-%d" % index)
+        assert len(registry.list_slots()) == 3
 
-        assert registry.in_sync
-        assert transport.packets
+    async def test_a_failed_update_leaves_the_previous_message(self, registry, transport):
+        await add(registry, "temperature", "18.4")
+
+        transport.fail_with = "cable unplugged"
+        with pytest.raises(TransportError):
+            await add(registry, "temperature", "20.1")
+
+        assert registry.get("temperature").message == "18.4"
 
     async def test_a_message_that_cannot_render_is_still_refused(self, registry, transport):
         # Not a link problem, so there is nothing to converge to later.
@@ -351,6 +352,57 @@ class TestRefresh:
         await registry.refresh()
 
         assert payloads_starting(transport, b"E$") == []
+
+
+class TestReboot:
+    """Resetting the sign to recover it, then restoring the rotation.
+
+    Unlike a refresh, which re-pushes content over whatever is there, a reboot
+    clears the sign outright and lets it restart before writing anything back.
+    The service's own record is what it restores from, so the slots survive and
+    come back on the same files.
+    """
+
+    async def test_it_clears_the_sign_then_restores_every_slot(
+        self, registry, layout, transport
+    ):
+        await add(registry, "one", "ONE")
+        await add(registry, "two", "TWO")
+        transport.clear()
+
+        restored = await registry.reboot()
+
+        # The clear and the configuration went out, erasing the sign, ...
+        assert frames.packet(frames.clear_memory()) in transport.packets
+        assert (
+            frames.packet(frames.set_memory_config(layout.allocations()))
+            in transport.packets
+        )
+        # ... and both slots and the run sequence were written again after it.
+        assert restored == 2
+        assert [slot.key for slot in registry.list_slots()] == ["one", "two"]
+        assert len(payloads_starting(transport, b"A")) == 2
+        assert run_sequences(transport)
+
+    async def test_it_keeps_each_slot_on_its_own_file(self, registry, layout):
+        await add(registry, "one")
+        await add(registry, "two")
+
+        await registry.reboot()
+
+        assert layout.label_for("one") == b"A"
+        assert layout.label_for("two") == b"B"
+
+    async def test_a_reboot_that_cannot_reach_the_sign_raises(self, registry, transport):
+        await add(registry, "one")
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError, match="cable unplugged"):
+            await registry.reboot()
+
+        # The record is untouched, so the slot is still there to restore once
+        # the link is back.
+        assert [slot.key for slot in registry.list_slots()] == ["one"]
 
 
 class TestAlertDeferral:

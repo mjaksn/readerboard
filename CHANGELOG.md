@@ -15,6 +15,123 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **Ten more of the sign's own characters can be written.** `₧`, `ƒ`, `ª`, `º`,
+  `θ`, `Θ`, a single column space at U+2009, and the accented capitals `Á`, `Ê`
+  and `Í`. Write the character itself in a message; there is no token for these,
+  the same as for the accented letters that already worked.
+
+  The sign holds sixty-six characters beyond ASCII and only forty-two of them
+  could be reached, so a message containing `Á` was answered with "the sign
+  cannot display 'Á'" by a service talking to a sign that could. What had held
+  the rest back was that the protocol document draws its character column as
+  pictures rather than text, so nothing established which mark a code held.
+  Reading those pages as images settled it, and each of the ten was drawn on the
+  sign beside the character it is mapped from before the mapping was written.
+
+  Fourteen are still out. Codes B0H to B9H look like a Croatian or Serbian set
+  and the diacritics at BBH to BDH cannot be told apart at five dots by seven,
+  and a wrong mapping would be accepted and silently drawn where an absent one
+  is refused with a message saying so.
+
+- **Seven markup tokens for the ways this sign can actually draw text.**
+  `<font_normal>`, `<font_half_height>` and `<font_wide>` choose a character
+  set; `<bold_on>`/`<bold_off>` and `<extra_wide_on>`/`<extra_wide_off>` switch
+  a character attribute. The `font_` three are a selection rather than a
+  switch, so `<font_normal>` is the way back from half height.
+
+  These are what survived putting all twenty of the protocol's character sets
+  and attributes on the sign and photographing each: twenty codes collapsed
+  into five appearances, because a seven-pixel display cannot express the
+  difference between seven slim, seven stroke and seven fancy. They are named
+  for what a person sees rather than for the document's labels, which
+  contradict themselves here, calling `1AH+6` both "ten high standard" and
+  "seven stroke fancy" when on seven rows it is ordinary text.
+
+- **A `SPEAKER` control command mutes the sign.** `ON` and `OFF` write the
+  sign's speaker enable register, and `OFF` is a mute: `SOUND` is still
+  accepted and makes no noise. The setting lives on the sign and survives a
+  restart. It is a separate command from `SOUND` deliberately, because a sound
+  command that re-enabled the speaker on its way past would leave the mute
+  unable to hold, so nothing but this writes that register. It is also the
+  answer when `SOUND` appears to do nothing: the protocol calls disabled the
+  default, and a sign in that state beeps silently.
+
+- **A `SOUND` control command sounds the sign's speaker.** `TONE` gives one
+  continuous tone of about two seconds, `BEEPS` gives three short beeps, and
+  those are the only two sounds offered because they are the only two this
+  hardware can make. The protocol also has a programmable tone carrying a
+  frequency, a duration and a repeat count, which is deliberately not exposed:
+  driving a BetaBrite Classic across the whole documented frequency range, `00`
+  against `FE`, produced no audible difference, so the sign has a fixed-pitch
+  buzzer and drops the frequency. A parameter the sign silently ignores would
+  promise control that does not exist.
+
+- **A `SOFT_RESET` control command restarts the sign without erasing it.** The
+  protocol has two resets a byte apart, and only one of them is destructive.
+  `E,` puts the sign through its power-up diagnostics and keeps everything:
+  checked on a BetaBrite Classic by reading the memory configuration, the pool
+  counts, the run sequence and two text files back either side of it, all byte
+  for byte identical. So this is the first thing to try on a sign that has
+  stopped responding, and `POST /sign/reboot` below is the escalation. It joins
+  the closed control command set on `POST /sign/command`, since it disturbs no
+  file the service tracks, and it takes no parameter. The call waits out the
+  diagnostics before answering, because the sign is deaf through them and a
+  write sent into that window would go missing rather than be refused.
+
+- **`POST /sign/reboot` resets a wedged sign and restores the display.** A sign
+  mounted out of reach can stop responding to writes when a stray bit corrupts
+  what its decoder is showing, and cannot be power cycled by hand. This clears
+  the sign, which resets it, waits for it to restart, then re-pushes every
+  message and the run sequence from the service's own record, so the sign comes
+  back showing what it was rather than blank; any active alert is re-asserted
+  too. It is disruptive, blanking the sign for about ten seconds, and it is a
+  recovery tool rather than a way to clear messages, which `DELETE /messages`
+  still does without a reset. It is refused with a 503 when the sign cannot be
+  reached, since a sign that is not answering cannot be rebooted. The client
+  lists it and fronts it with a warning-coloured confirmation.
+
+- **A way to run against a real sign from a checkout, with the client beside
+  it, and the sign's address where it can be edited.**
+  `scripts/run_against_a_sign.py` starts the service and the client and no
+  simulator, and both editors carry it as "readerboard against the real sign
+  and the client".
+
+  The address is a `--serial-url` argument in those configurations rather than a
+  setting in a file, so pointing the service at a different adapter is editing
+  the Parameters field in PyCharm's run configuration dialog. That is the one
+  deliberate exception to keeping a real sign's details out of a tracked file,
+  and it is there because changing the address is the thing done most often. The
+  API key is not an argument: it stays in `config.local.toml`, which git ignores
+  and which the launcher writes with a generated key the first time it runs,
+  because a launch configuration is a tracked file and a command line is a shell
+  history.
+
+  It keeps a state file of its own, `.local-sign-state.json`, and never discards
+  it. Both halves of that are about the one dangerous operation this service
+  has. A service with no record of the memory configuration already applied
+  writes a new one, and that erases every message on the sign; and
+  `scripts/run_with_simulator.py` deletes its own state file on every launch,
+  because the simulator starts empty every time, so a shared file would have
+  meant a simulator session quietly erasing the sign on the next real run. The
+  first run against a sign this machine has never driven still erases it, which
+  is the only way to allocate the files it then writes into, and the README says
+  so where somebody about to do it will read it.
+
+  The serial URL is checked before anything is opened. `socket://host/:4001`
+  looks close enough to right and is not, and pyserial answers it with a bare
+  `TypeError` from inside a connection attempt, naming neither the setting nor
+  the value. The port the service will bind is checked too, so that a second
+  checkout of this repository already holding it is reported rather than
+  discovered after the client has been pointed at it. The README, the example
+  config and the script's own `--help` all give the four address forms,
+  `rfc2217://` among them for an adapter that negotiates telnet rather than
+  passing bytes through.
+
+  The two launchers share their process supervision through the new
+  `scripts/_supervise.py`, so that starting, streaming and stopping children is
+  written once and what each child is given stays with the launcher that gives
+  it.
+
 - **The documentation page opens itself when the service is started from an
   editor.** A new setting, `open_docs`, waits for the port to answer and then
   shows `/docs` in a browser. Every launch configuration that starts the
@@ -45,6 +162,26 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Changed
 
+- **A message write is refused with a 503 when the sign is unreachable, rather
+  than accepted and held.** `PUT /messages/{key}` used to keep a write it could
+  not deliver and converge when the link returned, so a caller learned the sign
+  was unreachable only by reading `/health`. It now lets the failure through as
+  the 503 that alerts, the clock and control commands already gave, with the
+  reason in the `detail` body, so a client can tell at once that its message did
+  not reach the sign. The registry is left exactly as it was: a new message is
+  the caller's to retry when the link is back, and a failed update keeps the
+  message that was already there. Messages already on the sign are still pushed
+  again when the link returns, which is a separate path.
+
+  The write also fails fast now. A write while the link was down went through a
+  fresh connection attempt, which against a wrong or dead network address is the
+  operating system's whole connect timeout, so a request could hang for the best
+  part of a minute before it was answered. The link is opened only by the
+  reconnect loop and at startup; a write to a link that is down is refused at
+  once. This bounds the wait when the sign cannot be reached; it does nothing for
+  a sign power cycled behind a still-connected adapter, where the socket stays up
+  and the periodic refresh is what repairs the display.
+
 - **`tests/test_launch_configurations.py` now covers both editors.** It checked
   that PyCharm could parse its files; it also checks that `.vscode/launch.json`
   loads, that every configuration in either editor which starts the service
@@ -52,7 +189,112 @@ library, and the names inside it may move without that being a breaking change.
   not. A configuration that quietly lost the setting would still run perfectly
   and simply stop opening a tab, which is not the sort of thing anybody reports.
 
+### Removed
+
+- **The `<wide_on>`, `<wide_off>`, `<dbl_height_on>` and `<dbl_height_off>`
+  markup tokens**, replaced by ones that do something. All four were put on the
+  real sign and drew text pixel-identical to no markup at all. A Betabrite is
+  seven pixels high: nothing can be twice as tall as the whole display, and the
+  protocol's own "enable wide characters" turns out to draw plain text on it
+  too. See **Added** above for the seven tokens that took their place, and
+  `docs/protocol-notes.md` for the measurement. A message still containing one
+  is not rejected: restored content is re-rendered leniently, so the tag comes
+  back as literal text, and the sign simulator still annotates the codes.
+
+- **The `<date>`, `<date_dmy>` and `<date_long>` markup tokens.** They inserted
+  the sign's own date, and on this hardware that date cannot be made correct.
+  The sign stores a two-digit year, and the windowing that would read `26` as
+  2026 is gated by the protocol's Table 15 footnote 15 to "Alpha protocol
+  version 2.0 and greater", which Table 3 says a Betabrite is not: it is listed
+  as EZ KEY II and Alpha 1.0 only. So the sign applies no century, nothing the
+  service could send would fix it, and every one of these tokens rendered a
+  confidently wrong date. `<date_long>` was the worst of them, drawing a
+  four-digit year out of a field that has no century in it.
+
+  A message that still contains one of these is not rejected. Restored content
+  is re-rendered leniently for exactly this case, so the tag comes back as
+  literal text rather than failing to load, and the sign simulator still
+  annotates the underlying control codes. `<time>` and `<week_day>` are
+  unaffected and stay: both are registers of their own that the clock sync
+  writes at startup, hourly and on every reconnect, so both are right.
+
 ### Fixed
+
+- **A sign left off over a weekend could leave the service answering 503 until
+  it was restarted.** The reconnect backoff computed its delay as
+  `backoff_initial * 2 ** (failures - 1)` from a counter that never stopped
+  rising. At the sixty second cap that reaches attempt 1025 in about seventeen
+  hours, where `1.0 * 2 ** 1024` raises `OverflowError` rather than returning
+  infinity, because the base is a float and the result cannot be represented.
+  An `ArithmeticError` was not what anything on the way out was catching, so it
+  escaped and killed the task watching the link.
+
+  That task became load bearing in this release: a write used to open the link
+  lazily and now refuses when it is down, which is what makes a write to an
+  unreachable sign a 503 instead of a long hang. So the watcher is the only
+  thing left that opens anything, and with it dead the service stayed down
+  after the sign came back, with `/health` stuck at degraded and a 503 body
+  claiming the next attempt was due in `0.0s`. The delay is now carried forward
+  and doubled rather than recomputed from the count, and neither the watcher
+  nor startup can be killed by anything a single open attempt raises.
+
+- **A write sent while the sign was restarting was silently lost.** The sign is
+  deaf from the moment a reset reaches it until its power-up diagnostics finish,
+  and a write arriving in that window is not refused: the adapter takes it, the
+  suppression cache records it as delivered, and the caller is answered 200. The
+  message was simply never on the sign, and suppression then kept it from being
+  re-sent until the next periodic refresh. Both reset paths now hold the sign's
+  lock across the whole restart, so another caller's write queues behind it
+  rather than being thrown at a sign that cannot say it missed it. This covers
+  the memory clear inside `apply_memory_config`, which had the same window
+  between the clear and the configuration, and which the hourly clock sync could
+  reach.
+
+- **A stored alert could stop the service starting, permanently.** An alert is
+  re-rendered leniently when it is restored, so that a markup token a newer
+  version no longer knows cannot keep it from coming back. That leniency makes
+  it longer, because the unknown tag returns as its own literal text, and an
+  alert near the sign's fixed 125 byte priority file could outgrow it. The
+  resulting error is a `ValueError`, not a `TransportError`, so it walked past
+  the startup handler that tolerates an unreachable sign and out of the
+  application lifespan: the service then failed to start on every attempt, and
+  the only cure was editing the state file by hand on the machine. Such an alert
+  is now released with a warning naming it, and the startup path no longer lets
+  anything in a state file stop the service coming up.
+
+- **Four places said an empty write releases the sign's priority file.** This
+  branch measured that it does not: an ordinary write with no text still carries
+  a Start-of-Message byte, a position and a mode, which the sign reads as a blank
+  priority message and displays. The claim survived in `AlertRequest`'s OpenAPI
+  description, which shipped to every consumer, in `write_priority`'s docstring
+  three lines above the `clear_priority` docstring that says the truth, in the
+  alert service's own module docstring, and in two tests. The reason an empty
+  alert is refused is corrected with it: not that the sign would hand itself
+  back, but that it would sit blank with the rotation suppressed behind it.
+
+- **Releasing an alert no longer hides every message on the sign.** The release
+  wrote the priority file with an empty body but with the Start-of-Message byte,
+  a position and a mode still attached, the shape of an ordinary text write. A
+  BetaBrite Classic reads that as a blank priority message and holds the whole
+  screen on it, rather than as the "write without any ASCII message" the
+  protocol releases on. Because the service clears the priority file on every
+  start, to let go of an alert a previous run might have left up, a blank
+  priority takeover was suppressing every slot from the first moment the service
+  ran: alerts displayed, and the rotation never did. The release is now the bare
+  write the sign wants, `A0` and nothing after the label. Found against the sign,
+  where the bare form brought the rotation straight back and the old form blanked
+  it. `docs/protocol-notes.md` records it and `tests/test_frames.py` pins the
+  bare form.
+
+- **A memory configuration is now written to a sign that will display it.** The
+  BetaBrite Classic stored a configuration, echoed it back on a read verbatim,
+  and then showed nothing from any file it named, unless a bare `E$` clear was
+  sent first. `SignController.apply_memory_config` now clears before it
+  configures, which reaches the same erased sign a step sooner and so adds no
+  risk to what was already the one destructive operation, and waits a moment
+  after the clear for the reset it triggers. Reconfiguration is rare, only when
+  the slot pool changes, so the wait is paid almost never.
+  `tests/test_controller.py` pins the clear-then-configure order.
 
 - **The log carries uvicorn's lines again, so there is an HTTP access log.**
   Every request the service answered, the startup banner and the address

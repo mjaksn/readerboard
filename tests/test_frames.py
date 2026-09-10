@@ -46,8 +46,12 @@ class TestWriteTextFile:
 
 
 class TestPriorityFile:
-    def test_clearing_writes_an_empty_body_to_file_zero(self):
-        assert frames.clear_priority_file() == b"A0\x1b b"
+    def test_clearing_is_a_bare_write_to_file_zero(self):
+        # The release is a write to file 0 "without any ASCII Message", and it
+        # has to carry nothing after the label. Measured on the sign: adding the
+        # SOM, position and mode of an ordinary write makes it an empty priority
+        # message that suppresses the display rather than releasing it.
+        assert frames.clear_priority_file() == b"A0"
 
     def test_a_message_within_the_capacity_is_allowed(self):
         body = b"X" * c.PRIORITY_FILE_CAPACITY
@@ -144,6 +148,36 @@ class TestClockCommands:
     def test_set_time_format(self):
         assert frames.set_time_format(military=True) == b"E\x27" b"M"
         assert frames.set_time_format(military=False) == b"E\x27S"
+
+    def test_the_speaker_switch(self):
+        # Two ASCII characters, not one byte: "00" is 30H 30H, "FF" is 46H 46H.
+        assert frames.set_speaker(True) == b"E!00"
+        assert frames.set_speaker(False) == b"E!FF"
+
+    def test_a_sound_never_touches_the_speaker_switch(self):
+        # Otherwise SPEAKER OFF could not hold: the next beep would undo it.
+        for payload in (frames.sound_tone(), frames.sound_beeps()):
+            assert not payload.startswith(b"E!")
+
+    def test_the_two_sounds(self):
+        assert frames.sound_tone() == b"E(0"
+        assert frames.sound_beeps() == b"E(1"
+
+    def test_no_sound_carries_a_frequency(self):
+        # The programmable form is E(2 followed by FFDR. This sign's buzzer is
+        # fixed pitch and drops the frequency, so nothing here should emit it.
+        assert not frames.sound_tone().startswith(b"E(2")
+        assert not frames.sound_beeps().startswith(b"E(2")
+
+    def test_soft_reset(self):
+        # "There is no data in this field", so the payload is the bare label.
+        # Sent to a BetaBrite Classic it ran the sign's power-up diagnostics and
+        # left every file intact.
+        assert frames.soft_reset() == b"E,"
+
+    def test_soft_reset_is_not_the_destructive_one(self):
+        # The two resets differ by one byte, and one of them erases the sign.
+        assert frames.soft_reset() != frames.clear_memory()
 
 
 def test_the_full_transmission_for_a_temperature_message():

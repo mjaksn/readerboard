@@ -170,8 +170,51 @@ async def sync_clock(clock: ClockDep) -> ClockResponse:
     dependencies=[RequireApiKey],
 )
 async def send_command(body: ControlCommandRequest, controller: ControllerDep) -> Response:
-    """Send one of the sign's own control commands."""
-    await controller.send_special(commands.build(body.command, body.parameter))
+    """Send one of the sign's own control commands.
+
+    `SOFT_RESET` restarts the sign. It erases nothing, the sign comes back
+    showing what it was showing, and it is the first thing to try on a sign that
+    has stopped responding. The display is blank for a few seconds while it runs
+    its power-up diagnostics, and this call waits that out before answering, so
+    a 204 means the sign is listening again. Reach for `POST /sign/reboot` only
+    when a soft reset is not enough: that one erases the sign and rebuilds it.
+    """
+    await controller.send_special(
+        commands.build(body.command, body.parameter),
+        settle=commands.resets_the_sign(body.command),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@sign_routes.post(
+    "/reboot",
+    summary="Reboot the sign to recover it, then restore the display",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[RequireApiKey],
+)
+async def reboot_sign(registry: RegistryDep, alerts: AlertsDep) -> Response:
+    """Reset the sign to recover it, then put everything back.
+
+    **A recovery tool, not a routine operation, and it is disruptive.** It sends
+    the memory clear that resets the sign, which erases every file on it and
+    takes the display blank for several seconds while the sign restarts. The
+    service then waits for the reset to finish and re-pushes every message and
+    the run sequence from its own record, so the sign comes back showing what it
+    was showing before rather than empty. Any active alert is re-asserted as
+    part of that restore.
+
+    Use it for a sign that has stopped responding to writes or is showing
+    garbage, the wedged-decoder state a unit mounted out of reach can fall into
+    from a stray bit and that cannot be fixed by power cycling it by hand. Do
+    not use it to clear the sign: `DELETE /messages` takes every message off
+    without resetting anything, and this puts them all straight back. Expect a
+    blank display for roughly ten seconds before the rotation returns.
+
+    503 if the sign cannot be reached, since a sign that is not answering cannot
+    be rebooted.
+    """
+    await registry.reboot()
+    await alerts.reassert()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

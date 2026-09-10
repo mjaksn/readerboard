@@ -56,7 +56,16 @@ class FakeTransport:
         self.open_count += 1
 
     def write(self, data: bytes) -> None:
-        """Record one transmission, or fail if the fake was told to."""
+        """Record one transmission, or fail if the fake was told to.
+
+        This opens the link lazily and the real transport no longer does: a
+        write to a link that is down raises there. The divergence is known and
+        is not free. It means the fake heals where the real link cannot, so the
+        suite would stay green with the reconnect loop broken, and closing it
+        is a change to twenty or so tests that write without opening anything
+        first. The reconnect loop is pinned directly instead, in
+        ``tests/test_transport.py`` and ``tests/test_controller.py``.
+        """
         self.ensure_open()
         if self.fail_with is not None:
             self._is_open = False
