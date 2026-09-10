@@ -361,6 +361,87 @@ class TestNothingElseWritesWhileTheSignIsResetting:
             frames.packet(frames.write_text_file(b"A", b"HI")),
         ]
 
+class TestReadingAReply:
+    """Collecting an answer, which is not the same as taking what is waiting."""
+
+    async def completes(self, task, seconds: float = 0.5) -> bool:
+        """Whether ``task`` finishes within ``seconds``, telling blocked from slow."""
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=seconds)
+            return True
+        except TimeoutError:
+            return False
+
+    async def test_a_reply_arriving_in_pieces_is_collected_whole(self):
+        """The documented trap, encoded.
+
+        The sign starts answering with a long run of nulls and the payload
+        follows a moment behind. A reader that takes what is waiting and stops
+        gets the nulls and nothing else, and two of those compare equal, which
+        looks like a confirmation. That mistake was made once against this sign
+        already, and a false result was reported off the back of it.
+
+        Here the reply is scripted the way the sign sends it: some nulls, a gap
+        of two empty reads, then the rest. A reader that stopped at the first
+        non-empty read would return only the nulls and fail this.
+        """
+        head = b"\x00\x00\x00"
+        tail = b"\x02E\x22DATA\x03"
+        transport = FakeTransport()
+        transport.replies = [head, b"", b"", tail]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        reply = await controller.read_special(frames.read_general_information())
+
+        assert reply == head + tail
+
+    async def test_the_question_goes_out_before_the_answer_is_collected(self):
+        transport = FakeTransport()
+        transport.replies = [b"\x02E\x22DATA\x03"]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        await controller.read_special(frames.read_general_information())
+
+        assert transport.packets == [frames.packet(frames.read_general_information())]
+
+    async def test_a_sign_that_says_nothing_raises_rather_than_returning_empty(self):
+        # An empty answer parsed as a reply would be a confident wrong result.
+        # This reaches a caller as a 503, the same as an unwritable sign.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        with pytest.raises(TransportError, match="did not answer"):
+            await controller.read_special(frames.read_general_information())
+
+    async def test_nothing_else_writes_while_a_read_is_in_flight(self):
+        """A reply is matched to its question by arriving next, and nothing else.
+
+        The sign stamps every answer with the Response type code and an address
+        it sends "regardless of the sign's actual address", so two reads in
+        flight at once would be told apart by luck. Holding the lock is what
+        makes "the next thing on the wire" mean "the answer to this".
+        """
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def sleep(seconds: float) -> None:
+            entered.set()
+            await release.wait()
+
+        transport = FakeTransport()
+        transport.replies = [b"\x02E\x22DATA\x03"]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+
+        read = asyncio.create_task(controller.read_special(frames.read_general_information()))
+        await entered.wait()
+
+        write = asyncio.create_task(controller.write_text_file(b"A", b"HI"))
+        assert not await self.completes(write)
+
+        release.set()
+        await asyncio.gather(read, write)
+
+
 class TestTheLinkWatcherSurvives:
     """It is the only thing that opens the link, so nothing may kill it.
 

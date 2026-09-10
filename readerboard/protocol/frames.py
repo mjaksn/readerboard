@@ -273,6 +273,17 @@ def read_special(label: bytes) -> bytes:
     return c.COMMAND_READ_SPECIAL + label
 
 
+def read_general_information() -> bytes:
+    """Ask the sign what it is and how it is doing.
+
+    One read for the firmware version and release date, the sign's clock and
+    time format, whether its speaker is enabled, and how much of the memory pool
+    is free. :func:`readerboard.protocol.replies.parse_general_information`
+    turns the answer into fields.
+    """
+    return read_special(c.SF_GENERAL_INFORMATION)
+
+
 def read_memory_config() -> bytes:
     """Ask the sign for its memory configuration table.
 

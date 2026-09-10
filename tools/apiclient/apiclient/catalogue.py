@@ -228,6 +228,15 @@ OPERATIONS: tuple[Operation, ...] = (
     ),
     # == The sign itself ==================================================
     Operation(
+        id="sign_information",
+        group="Sign",
+        method="GET",
+        path="/sign/information",
+        summary="Ask the sign what it is and how it is doing",
+        needs_key=True,
+        formatter="sign_information",
+    ),
+    Operation(
         id="sync_clock",
         group="Sign",
         method="POST",

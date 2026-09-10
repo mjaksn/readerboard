@@ -395,6 +395,62 @@ def _clock(payload: object) -> list[Block]:
     ]
 
 
+def _sign_information(payload: object) -> list[Block]:
+    """Render what the sign says about itself.
+
+    The speaker line is spelled out rather than printed as a bare true or false,
+    because "disabled" is the answer to the question somebody is actually asking
+    when they read this, which is why SOUND appeared to do nothing.
+    """
+    if not isinstance(payload, dict):
+        return _generic(payload)
+
+    total = payload.get("memory_total")
+    free = payload.get("memory_free")
+    speaker = payload.get("speaker_enabled")
+
+    return [
+        Section(
+            title="Firmware",
+            rows=(
+                Row("version", str(payload.get("firmware_version", ""))),
+                Row("revision", str(payload.get("firmware_revision", "")) or "not reported"),
+                Row("released", str(payload.get("firmware_released", ""))),
+            ),
+        ),
+        Section(
+            title="Sign",
+            rows=(
+                Row("clock", str(payload.get("clock", ""))),
+                Row("time format", str(payload.get("time_format", ""))),
+                Row(
+                    "speaker",
+                    "enabled"
+                    if speaker is True
+                    else "disabled, so SOUND will be silent"
+                    if speaker is False
+                    else "",
+                ),
+            ),
+        ),
+        Section(
+            title="Memory pool",
+            rows=(
+                Row("total", _bytes(total)),
+                Row("free", _bytes(free)),
+            ),
+        ),
+        Note("Nothing here changes the sign. It is the one read the service makes."),
+    ]
+
+
+def _bytes(value: object) -> str:
+    """Render a byte count, or nothing when the sign did not report one."""
+    if not isinstance(value, int):
+        return ""
+    return "%d bytes" % value
+
+
 def _tokens(payload: object) -> list[Block]:
     """Render an enumeration as the name and description table it is.
 
@@ -454,6 +510,7 @@ _FORMATTERS = {
     "slot": _slot,
     "alert": _alert,
     "clock": _clock,
+    "sign_information": _sign_information,
     "tokens": _tokens,
     "empty": _empty,
     "generic": _generic,

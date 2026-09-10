@@ -118,6 +118,29 @@ class SerialTransport:
                 self._close_locked()
                 raise TransportError("write to %s failed: %s" % (self._url, err)) from err
 
+    def read_available(self) -> bytes:
+        """Collect whatever has arrived, without waiting for more.
+
+        A failure here drops the link and is reported like a failed write, which
+        matters because the usual reason a read returns nothing forever is that
+        the link is gone rather than that the sign is thinking.
+        """
+        if not self.is_open:
+            raise TransportError("link to %s is down" % self._url)
+        with self._lock:
+            port = self._port
+            if port is None:
+                raise TransportError("link to %s is down" % self._url)
+            try:
+                waiting = port.in_waiting
+                if not waiting:
+                    return b""
+                return bytes(port.read(waiting))
+            except (serial.SerialException, OSError) as err:
+                self._record_failure(err)
+                self._close_locked()
+                raise TransportError("read from %s failed: %s" % (self._url, err)) from err
+
     def close(self) -> None:
         """Close the link. Closing an already closed link does nothing."""
         with self._lock:

@@ -459,6 +459,67 @@ class TestSignCommands:
         assert response.status_code == 400
 
 
+class TestSignInformation:
+    """The service's only read, and the only place a silent sign is visible."""
+
+    def reply(self, data: bytes) -> bytes:
+        """Frame a data field the way the sign frames its answers."""
+        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + b"\x02" + b"E" + b'"' + data + b"\x03"
+
+    def test_it_reports_what_the_sign_says(self, client, sign):
+        sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
+
+        body = client.get("/sign/information", headers=HEADERS).json()
+
+        assert body["firmware_version"] == "1044-160"
+        assert body["firmware_revision"] == "B"
+        assert body["firmware_released"] == "01/93"
+        assert body["clock"] == "14:33"
+        assert body["time_format"] == "24 hour"
+        assert body["speaker_enabled"] is True
+        assert body["memory_total"] == 0x4000
+        assert body["memory_free"] == 0x0BB8
+
+    def test_it_asks_the_sign_the_right_question(self, client, sign):
+        sign.packets.clear()  # startup has already configured the sign
+        sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
+
+        client.get("/sign/information", headers=HEADERS)
+
+        assert sign.packets == [frames.packet(frames.read_general_information())]
+
+    def test_a_muted_sign_is_reported_as_muted(self, client, sign):
+        # The answer to "SOUND does nothing", and the reason this endpoint is
+        # worth having rather than being a curiosity.
+        sign.replies = [self.reply(b"1044-160B01931433MFF4000,0BB8")]
+
+        body = client.get("/sign/information", headers=HEADERS).json()
+
+        assert body["speaker_enabled"] is False
+
+    def test_a_sign_that_says_nothing_is_a_503(self, client, sign):
+        # Nothing scripted, so the fake answers every read with silence.
+        response = client.get("/sign/information", headers=HEADERS)
+
+        assert response.status_code == 503
+
+    def test_it_needs_the_api_key(self, client):
+        # A read changes nothing and is still gated, because it reports the
+        # sign's firmware and how full its memory is.
+        assert client.get("/sign/information").status_code == 401
+
+    def test_it_changes_nothing_on_the_sign(self, client, sign):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.packets.clear()
+        sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
+
+        client.get("/sign/information", headers=HEADERS)
+
+        # One packet, and it is the question. Nothing was written.
+        assert sign.packets == [frames.packet(frames.read_general_information())]
+        assert client.get("/messages").json()[0]["key"] == "one"
+
+
 class TestThereIsNoVerticalPosition:
     """The four positions are gone, and the absence is pinned in three places.
 

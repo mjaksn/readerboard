@@ -297,6 +297,69 @@
         "title": "MessageRequest",
         "type": "object"
       },
+      "SignInformationResponse": {
+        "description": "What the sign says about itself.",
+        "properties": {
+          "clock": {
+            "description": "the sign's own clock, as HH:MM on a 24 hour dial",
+            "title": "Clock",
+            "type": "string"
+          },
+          "firmware_released": {
+            "description": "the month and year of that firmware, as MM/YY",
+            "title": "Firmware Released",
+            "type": "string"
+          },
+          "firmware_revision": {
+            "description": "its revision letter, empty on a sign that does not report one",
+            "title": "Firmware Revision",
+            "type": "string"
+          },
+          "firmware_version": {
+            "description": "the firmware build the sign is running",
+            "title": "Firmware Version",
+            "type": "string"
+          },
+          "memory_free": {
+            "description": "how much of that pool is unused, in bytes",
+            "title": "Memory Free",
+            "type": "integer"
+          },
+          "memory_total": {
+            "description": "the size of the sign's memory pool, in bytes",
+            "title": "Memory Total",
+            "type": "integer"
+          },
+          "raw": {
+            "description": "the sign's answer as it arrived, for when the fields are not enough",
+            "title": "Raw",
+            "type": "string"
+          },
+          "speaker_enabled": {
+            "description": "whether the speaker will make a noise when SOUND is sent",
+            "title": "Speaker Enabled",
+            "type": "boolean"
+          },
+          "time_format": {
+            "description": "how the sign draws <time>, '12 hour' or '24 hour'",
+            "title": "Time Format",
+            "type": "string"
+          }
+        },
+        "required": [
+          "firmware_version",
+          "firmware_revision",
+          "firmware_released",
+          "clock",
+          "time_format",
+          "speaker_enabled",
+          "memory_total",
+          "memory_free",
+          "raw"
+        ],
+        "title": "SignInformationResponse",
+        "type": "object"
+      },
       "SlotResponse": {
         "description": "A registered slot.",
         "properties": {
@@ -861,6 +924,33 @@
           }
         ],
         "summary": "Send a control command to the sign",
+        "tags": [
+          "Sign"
+        ]
+      }
+    },
+    "/sign/information": {
+      "get": {
+        "description": "Read the sign's own account of itself.\n\nThe firmware build and the month it was released, the sign's clock and\nwhether it draws a 12 or 24 hour one, whether its speaker is enabled, and\nhow much of its memory pool is free. The protocol document calls this \"most\nuseful as a source of troubleshooting information\", which is a fair summary:\nnothing here changes anything.\n\nThis is the only read in the service, so it is also the only place a silent\nsign is distinguishable from an unplugged one. A sign that does not answer\nwithin a few seconds is a 503, the same as a sign that cannot be written to.\n\nTwo fields are worth reading carefully. `speaker_enabled` is why `SOUND` can\nappear to do nothing: the protocol calls disabled the default, and a muted\nsign beeps silently. And `memory_free` is the pool the memory configuration\ndraws on, so a slot capacity that will not fit shows up here before it shows\nup as a failed reallocation.",
+        "operationId": "sign_information_sign_information_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInformationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Ask the sign what it is and how it is doing",
         "tags": [
           "Sign"
         ]

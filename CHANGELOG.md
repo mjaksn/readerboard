@@ -15,6 +15,26 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **`GET /sign/information` asks the sign what it is and how it is doing.** The
+  firmware build and revision letter, the month that firmware was released, the
+  sign's own clock and whether it draws a 12 or 24 hour one, whether its speaker
+  is enabled, and the total and unused size of its memory pool.
+
+  This is the service's first read. Everything before it was written and hoped
+  for, because the sign cannot acknowledge a write on this protocol version, and
+  the service reconciles by re-pushing on a timer instead. A sign that does not
+  answer within a few seconds is a 503, the same as a sign that cannot be
+  written to.
+
+  Two of the fields earn their place. `speaker_enabled` is the answer to "SOUND
+  did nothing": the protocol calls disabled the default, and a muted sign beeps
+  silently. `memory_free` is the pool a memory configuration draws on, so a slot
+  capacity that will not fit is visible before it fails.
+
+  The protocol document calls this read "most useful as a source of
+  troubleshooting information", and the raw answer is returned alongside the
+  parsed fields for when the parsing is the thing in doubt.
+
 - **Ten more of the sign's own characters can be written.** `₧`, `ƒ`, `ª`, `º`,
   `θ`, `Θ`, a single column space at U+2009, and the accented capitals `Á`, `Ê`
   and `Í`. Write the character itself in a message; there is no token for these,

@@ -76,6 +76,19 @@ RESET_SETTLE_SECONDS = 10.0
 # bytes, and nothing writes them again until the next periodic re-push.
 SOUND_SETTLE_SECONDS = 3.0
 
+# Reading a reply. The sign begins answering with a long run of nulls and the
+# payload follows a moment behind, so a reader that takes what is waiting and
+# stops gets a lone null byte back from every question it asks. Two of those
+# compare equal, which looks like a confirmation and is not; that mistake was
+# made once already against this sign. So a reply is collected until the line
+# has been quiet for a few polls running.
+#
+# The numbers are polls rather than seconds so that a test can drive this with a
+# sleep that records instead of waiting, and still exercise the same loop.
+READ_POLL_SECONDS = 0.05
+READ_QUIET_POLLS = 4
+READ_TIMEOUT_SECONDS = 3.0
+
 ReconnectHook = Callable[[], Awaitable[None]]
 
 
@@ -325,6 +338,55 @@ class SignController:
             await self._send_locked(payload)
             if settle_seconds and self._inter_packet_delay:
                 await self._sleep(settle_seconds)
+
+    async def read_special(self, payload: bytes) -> bytes:
+        """Ask the sign a question and collect the whole answer.
+
+        Holds the lock across the send and the read, which is not optional. The
+        reply is matched to the question by nothing but arriving next: the sign
+        stamps its answer with the Response type code and an address it sends
+        "regardless of the sign's actual address", so two reads in flight at
+        once would be told apart by luck. Holding the lock is what makes "the
+        next thing on the wire" mean "the answer to this".
+
+        Raises :class:`TransportError` when the sign says nothing at all, which
+        is the same class a failed write raises and reaches a caller as a 503.
+        """
+        async with self._lock:
+            await self._send_locked(payload)
+
+            reply = bytearray()
+            quiet = 0
+            polls = max(1, int(READ_TIMEOUT_SECONDS / READ_POLL_SECONDS))
+
+            for _ in range(polls):
+                try:
+                    chunk = await asyncio.to_thread(self._transport.read_available)
+                except TransportError:
+                    raise
+                except Exception as err:
+                    raise TransportError(
+                        "reading from %s failed: %s" % (self._transport.description, err)
+                    ) from err
+
+                if chunk:
+                    reply += chunk
+                    quiet = 0
+                elif reply:
+                    quiet += 1
+                    if quiet >= READ_QUIET_POLLS:
+                        break
+
+                await self._sleep(READ_POLL_SECONDS)
+
+            if not reply:
+                raise TransportError(
+                    "the sign at %s did not answer within %.1fs"
+                    % (self._transport.description, READ_TIMEOUT_SECONDS)
+                )
+
+            logger.debug("read %d byte(s) from %s", len(reply), self._transport.description)
+            return bytes(reply)
 
     # == internals ==========================================================
 

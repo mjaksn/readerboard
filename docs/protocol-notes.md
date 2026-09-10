@@ -488,7 +488,7 @@ service writes:
 | `F)` | the run time table, including whether a priority message is running |
 | `F"` | general information, described below |
 
-`F"` is the one worth knowing about and the one nothing here has ever sent. Table 16 gives
+`F"` is the one worth knowing about, and `GET /sign/information` now sends it. Table 16 gives
 its reply as `FFFFFFFFfMmYyHhNnRSSPOOL,pool`: eight characters of firmware version, a
 revision letter, the firmware's release month and year, the sign's clock, the time format,
 the speaker status, and the memory pool's total and unused size. The document's own note on
@@ -498,6 +498,18 @@ it answers in one read most of what the four above answer separately.
 It is also the only way to ask this sign what it is, which is an open question rather than
 an idle one: the extended character table's footnote claims a Betabrite 1036 draws the
 pictographs at C2H to D9H, and this sign draws none of them.
+
+Two things about the reply are worth knowing before touching `readerboard/protocol/replies.py`.
+The sign echoes the **write** command code `E` in its answer to a read, not the `F` that was
+sent, which reads like a mistake in the document and is what it specifies. And the length is
+"28 or 29 ASCII characters", the difference being the firmware revision letter, which sits in
+the middle: read the fields left to right at fixed offsets and a sign that omits it shifts
+every field after it into a plausible wrong answer. The parser measures from both ends
+instead.
+
+Collecting the reply has its own trap, described under "Reading state back" and now encoded
+in `tests/test_controller.py`: the answer is read until the line has been quiet for several
+polls, never with a single `read(in_waiting or 1)`.
 
 These would turn divergence detection from a timer into a question. The service currently
 re-pushes everything every fifteen minutes, because the sign and the Ethernet adapter are

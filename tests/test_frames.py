@@ -23,6 +23,13 @@ class TestPacket:
         assert built == b"\x00\x00\x00\x00\x00\x00\x01Z0A\x02X\x04"
 
 
+def test_reading_general_information_is_the_f_command_and_the_label():
+    # Asserted literally, like every other frame here. "F" is the read command
+    # code and '"' the label; the sign answers with the *write* code, which is
+    # tests/test_replies.py's business rather than this one's.
+    assert frames.read_general_information() == b'F"'
+
+
 class TestWriteTextFile:
     def test_a_hold_message_to_file_a(self):
         assert frames.write_text_file(b"A", b"HI") == b"A" b"A" b"\x1b" b" " b"b" b"HI"

@@ -24,10 +24,13 @@ from readerboard.api.models import (
     ClockResponse,
     ControlCommandRequest,
     MessageRequest,
+    SignInformationResponse,
     SlotKey,
     SlotResponse,
     TokenInfo,
 )
+from readerboard.protocol import frames
+from readerboard.protocol.replies import parse_general_information
 from readerboard.protocol.tokens import (
     CONTROL_COMMANDS,
     DISPLAY_MODES,
@@ -158,6 +161,34 @@ async def sync_clock(clock: ClockDep) -> ClockResponse:
     the sign comes back. This is for when you would rather not wait.
     """
     return ClockResponse(synced_at=await clock.sync())
+
+
+@sign_routes.get(
+    "/information",
+    summary="Ask the sign what it is and how it is doing",
+    dependencies=[RequireApiKey],
+)
+async def sign_information(controller: ControllerDep) -> SignInformationResponse:
+    """Read the sign's own account of itself.
+
+    The firmware build and the month it was released, the sign's clock and
+    whether it draws a 12 or 24 hour one, whether its speaker is enabled, and
+    how much of its memory pool is free. The protocol document calls this "most
+    useful as a source of troubleshooting information", which is a fair summary:
+    nothing here changes anything.
+
+    This is the only read in the service, so it is also the only place a silent
+    sign is distinguishable from an unplugged one. A sign that does not answer
+    within a few seconds is a 503, the same as a sign that cannot be written to.
+
+    Two fields are worth reading carefully. `speaker_enabled` is why `SOUND` can
+    appear to do nothing: the protocol calls disabled the default, and a muted
+    sign beeps silently. And `memory_free` is the pool the memory configuration
+    draws on, so a slot capacity that will not fit shows up here before it shows
+    up as a failed reallocation.
+    """
+    reply = await controller.read_special(frames.read_general_information())
+    return SignInformationResponse.of(parse_general_information(reply))
 
 
 @sign_routes.post(

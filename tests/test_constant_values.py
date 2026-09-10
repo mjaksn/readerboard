@@ -625,6 +625,16 @@ def test_every_extended_character_used_by_markup_has_both_forms():
         )
 
 
+def test_the_general_information_label():
+    """Table 16, document page 29: '"' (22H) is Read General Information.
+
+    Read only. There is no write with this label, which is why it sits apart
+    from the write labels pinned above.
+    """
+    assert c.SF_GENERAL_INFORMATION == b'"'
+    assert bytes([0x22]) == c.SF_GENERAL_INFORMATION
+
+
 def test_extended_character_identities_come_from_the_printed_table():
     """The identities were read off the document, which is what this asked for.
 

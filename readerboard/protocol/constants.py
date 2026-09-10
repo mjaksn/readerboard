@@ -637,6 +637,22 @@ o_TILDE = b"\xc1"
 
 SF_SET_MEMORY_CONFIG = b"$"
 SF_MEMORY_POOL_SIZE = b"#"
+
+# ==========================================================================
+# General information
+# ==========================================================================
+# Read-only. Table 16 gives '"' (22H) as Read General Information, whose reply
+# is "28 or 29 ASCII characters in the following format: FFFFFFFFfMmYyHhNnRSS
+# POOL,pool": the firmware version and its revision letter, the month and year
+# the firmware was released, the sign's clock, the time format, the speaker
+# status, and the memory pool's total and unused size.
+#
+# There is no write with this label. The document's own note is "General
+# Information is most useful as a source of troubleshooting information", and it
+# answers in one read most of what the four other reads answer separately.
+
+SF_GENERAL_INFORMATION = b'"'
+
 FILE_TYPE_TEXT = b"A"
 FILE_TYPE_STRING = b"B"
 FILE_TYPE_DOTS = b"D"
