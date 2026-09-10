@@ -124,6 +124,14 @@ CMD_SET_TIME = b" "
 CMD_SET_DAY_OF_WEEK = b"&"
 CMD_SET_TIME_FORMAT = b"'"
 
+# Table 15 gives the two values that label takes: "S" for the standard 12 hour
+# clock, which it calls the default, and "M" for the 24 hour one. Named because
+# the same two codes are read back by Table 16 in the general information reply,
+# and a parser that knew only one of them would report the other as a guess.
+
+TIME_FORMAT_12_HOUR = b"S"
+TIME_FORMAT_24_HOUR = b"M"
+
 # ==========================================================================
 # Soft reset
 # ==========================================================================

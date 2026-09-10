@@ -127,7 +127,7 @@ def parse_general_information(reply: bytes) -> GeneralInformation:
         firmware_revision=revision,
         firmware_released=_month_year(released),
         clock=_clock(clock),
-        time_format="24 hour" if time_format.upper() == "M" else "12 hour",
+        time_format=_time_format(time_format),
         # "00 = speaker enabled, FF = speaker disabled". Anything else is the
         # sign saying something this does not understand, and reporting that as
         # "enabled" would be a guess dressed as a fact.
@@ -136,6 +136,22 @@ def parse_general_information(reply: bytes) -> GeneralInformation:
         memory_free=_hex(free, "unused memory pool size"),
         raw=text,
     )
+
+
+def _time_format(value: str) -> str:
+    """Name the clock the sign draws, refusing a code that is neither.
+
+    "S" and "M" are the only two the document defines. Reading anything else as
+    12 hour would be the same guess dressed as a fact that :func:`_speaker`
+    refuses, and this is troubleshooting output: a field invented to fill a gap
+    is worse here than an error saying the gap is there.
+    """
+    upper = value.upper()
+    if upper == c.TIME_FORMAT_24_HOUR.decode("ascii"):
+        return "24 hour"
+    if upper == c.TIME_FORMAT_12_HOUR.decode("ascii"):
+        return "12 hour"
+    raise ReplyError("the sign reported an unknown time format %r" % value)
 
 
 def _speaker(value: str) -> bool:

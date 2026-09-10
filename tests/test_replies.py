@@ -126,6 +126,14 @@ class TestGeneralInformation:
         # parser got wrong is exactly when somebody needs what actually arrived.
         assert parse_general_information(framed(FULL)).raw == FULL.decode("ascii")
 
+    def test_an_unknown_time_format_is_refused_rather_than_guessed(self):
+        # "S" and "M" are the only two the document defines. Anything else read
+        # as 12 hour would be a guess reported as a fact, in the one endpoint
+        # whose whole purpose is troubleshooting.
+        reply = framed(FULL.replace(b"1433M", b"1433Q"))
+        with pytest.raises(ReplyError, match="unknown time format"):
+            parse_general_information(reply)
+
     def test_an_unknown_speaker_status_is_refused_rather_than_guessed(self):
         # "00" and "FF" are the only two the document defines. Reporting
         # anything else as enabled would be a guess dressed as a fact.

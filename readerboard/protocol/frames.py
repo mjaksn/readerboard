@@ -216,7 +216,10 @@ def set_day_of_week(day: int) -> bytes:
 
 def set_time_format(military: bool) -> bytes:
     """Build the payload that chooses a 24 hour or 12 hour clock on the sign."""
-    return write_special(c.CMD_SET_TIME_FORMAT, b"M" if military else b"S")
+    return write_special(
+        c.CMD_SET_TIME_FORMAT,
+        c.TIME_FORMAT_24_HOUR if military else c.TIME_FORMAT_12_HOUR,
+    )
 
 
 def set_speaker(enabled: bool) -> bytes:
