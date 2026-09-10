@@ -503,6 +503,20 @@ class TestSignInformation:
 
         assert response.status_code == 503
 
+    def test_a_reply_that_will_not_parse_is_a_503_rather_than_a_500(self, client, sign):
+        """An unreadable answer is the sign's failure, not the caller's.
+
+        The reply is the whole of what this endpoint has, so one that will not
+        parse leaves it with nothing to report, exactly as silence does. Without
+        ReplyError in the status table it reached no handler of ours and came
+        back as a 500, which reads as a bug in the service.
+        """
+        sign.replies = [self.reply(b"not a general information reply")]
+
+        response = client.get("/sign/information", headers=HEADERS)
+
+        assert response.status_code == 503
+
     def test_it_needs_the_api_key(self, client):
         # A read changes nothing and is still gated, because it reports the
         # sign's firmware and how full its memory is.

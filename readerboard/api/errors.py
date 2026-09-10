@@ -15,6 +15,7 @@ from fastapi import status
 
 from readerboard.protocol.frames import ProtocolError
 from readerboard.protocol.markup import MarkupError
+from readerboard.protocol.replies import ReplyError
 from readerboard.services import commands
 from readerboard.services.alerts import AlertTooLong
 from readerboard.services.registry import MessageTooLong, UnknownSlot
@@ -31,4 +32,9 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     (UnknownSlot, status.HTTP_404_NOT_FOUND),
     (LayoutFull, status.HTTP_409_CONFLICT),
     (TransportError, status.HTTP_503_SERVICE_UNAVAILABLE),
+    # A sign that answers with something unreadable is as unusable as one
+    # that does not answer, and neither is the caller's doing. The route
+    # lets this propagate like any other; deciding the code here rather than
+    # in the route body is what keeps that decision in one place.
+    (ReplyError, status.HTTP_503_SERVICE_UNAVAILABLE),
 )

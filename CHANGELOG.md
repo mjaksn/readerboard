@@ -39,7 +39,9 @@ library, and the names inside it may move without that being a breaking change.
   for, because the sign cannot acknowledge a write on this protocol version, and
   the service reconciles by re-pushing on a timer instead. A sign that does not
   answer within a few seconds is a 503, the same as a sign that cannot be
-  written to.
+  written to, and so is a sign whose answer will not parse: the reply is the
+  whole of what the endpoint has, so one it cannot read leaves it with nothing
+  to report.
 
   Two of the fields earn their place. `speaker_enabled` is the answer to "SOUND
   did nothing": the protocol calls disabled the default, and a muted sign beeps

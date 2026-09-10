@@ -179,7 +179,10 @@ async def sign_information(controller: ControllerDep) -> SignInformationResponse
 
     This is the only read in the service, so it is also the only place a silent
     sign is distinguishable from an unplugged one. A sign that does not answer
-    within a few seconds is a 503, the same as a sign that cannot be written to.
+    within a few seconds is a 503, the same as a sign that cannot be written to,
+    and so is a sign that answers with something this cannot read: the reply is
+    the whole of what the endpoint has, so one that will not parse leaves it
+    with nothing to report.
 
     Two fields are worth reading carefully. `speaker_enabled` is why `SOUND` can
     appear to do nothing: the protocol calls disabled the default, and a muted
