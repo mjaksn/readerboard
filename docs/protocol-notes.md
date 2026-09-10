@@ -3,12 +3,22 @@
 What the Alpha Sign Communications Protocol actually says about the parts of it this
 service depends on, with the quotation behind each claim.
 
-**Status: confirmed against the protocol document. Not yet confirmed on the hardware.**
-The wire formats below are quoted from the Alpha Sign Communications Protocol itself, so
-they are no longer anybody's reading of anybody else's implementation. What the document
-cannot tell us is how this particular BetaBrite Classic behaves at the end of an Ethernet
-to RS-232 adapter. Four questions remain open, and they are listed at the end.
-`scripts/protocol_spike.py` settles all four.
+**Status: confirmed against the protocol document, and much of it now confirmed on the
+sign.** The wire formats below are quoted from the Alpha Sign Communications Protocol
+itself, so they are no longer anybody's reading of anybody else's implementation. A session
+with the real BetaBrite Classic at the end of an Ethernet to RS-232 adapter on 2026-09-09
+settled three of the four behavioural questions that were open, and the fourth is still
+open; they are all listed at the end, with what each turned out to be.
+
+That session also answered several things nobody had thought to doubt, each recorded below
+beside the measurement: a memory configuration does not display unless a bare `E$` clear
+precedes it, releasing the priority file needs a bare write rather than an empty one, `E,`
+restarts the sign without erasing it, the sign's date carries no century, its speaker is a
+fixed-pitch buzzer, and twenty of the protocol's ways to draw text collapse into five on a
+display seven pixels high.
+
+`scripts/protocol_spike.py` re-proves the wire formats end to end. It is destructive, and
+it refuses to run without `--confirm-erase`.
 
 ## Sources
 

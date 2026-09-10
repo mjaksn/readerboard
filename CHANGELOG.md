@@ -202,6 +202,40 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
+- **A write sent while the sign was restarting was silently lost.** The sign is
+  deaf from the moment a reset reaches it until its power-up diagnostics finish,
+  and a write arriving in that window is not refused: the adapter takes it, the
+  suppression cache records it as delivered, and the caller is answered 200. The
+  message was simply never on the sign, and suppression then kept it from being
+  re-sent until the next periodic refresh. Both reset paths now hold the sign's
+  lock across the whole restart, so another caller's write queues behind it
+  rather than being thrown at a sign that cannot say it missed it. This covers
+  the memory clear inside `apply_memory_config`, which had the same window
+  between the clear and the configuration, and which the hourly clock sync could
+  reach.
+
+- **A stored alert could stop the service starting, permanently.** An alert is
+  re-rendered leniently when it is restored, so that a markup token a newer
+  version no longer knows cannot keep it from coming back. That leniency makes
+  it longer, because the unknown tag returns as its own literal text, and an
+  alert near the sign's fixed 125 byte priority file could outgrow it. The
+  resulting error is a `ValueError`, not a `TransportError`, so it walked past
+  the startup handler that tolerates an unreachable sign and out of the
+  application lifespan: the service then failed to start on every attempt, and
+  the only cure was editing the state file by hand on the machine. Such an alert
+  is now released with a warning naming it, and the startup path no longer lets
+  anything in a state file stop the service coming up.
+
+- **Four places said an empty write releases the sign's priority file.** This
+  branch measured that it does not: an ordinary write with no text still carries
+  a Start-of-Message byte, a position and a mode, which the sign reads as a blank
+  priority message and displays. The claim survived in `AlertRequest`'s OpenAPI
+  description, which shipped to every consumer, in `write_priority`'s docstring
+  three lines above the `clear_priority` docstring that says the truth, in the
+  alert service's own module docstring, and in two tests. The reason an empty
+  alert is refused is corrected with it: not that the sign would hand itself
+  back, but that it would sit blank with the rotation suppressed behind it.
+
 - **Releasing an alert no longer hides every message on the sign.** The release
   wrote the priority file with an empty body but with the Start-of-Message byte,
   a position and a mode still attached, the shape of an ordinary text write. A

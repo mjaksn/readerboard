@@ -270,10 +270,11 @@ class TestAlerts:
         assert "125" in response.json()["detail"]
 
     def test_an_empty_alert_is_rejected(self, client):
-        # An empty message renders to no bytes, and an empty priority file is
-        # the protocol's own release sequence. Accepted, it handed the sign back
-        # and then recorded an alert as active, so GET /alerts reported one that
-        # nothing was displaying.
+        # An empty message renders to no bytes, but the write still carries the
+        # formatting bytes around it, which the sign reads as a blank priority
+        # message and displays. Accepted, it left the sign blank with the
+        # rotation suppressed behind it and an alert recorded as active, so
+        # GET /alerts reported one that nothing was displaying.
         response = client.post("/alerts", json={"message": ""}, headers=HEADERS)
         assert response.status_code == 422
         assert client.get("/alerts").json() is None

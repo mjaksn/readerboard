@@ -120,9 +120,10 @@ class AlertRequest(BaseModel):
         max_length=4096,
         description=(
             "the alert text. The sign's priority file holds 125 bytes once markup has "
-            "been rendered, and cannot be resized. It cannot be empty: an empty "
-            "priority file is the protocol's own release sequence, so the sign would "
-            "hand itself back while the service went on reporting an alert"
+            "been rendered, and cannot be resized. It cannot be empty: a write with no "
+            "text still carries the formatting bytes around it, which the sign reads as "
+            "a blank priority message and displays, so the sign would sit blank with "
+            "the rotation suppressed behind it and an alert reported as active"
         ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the alert")

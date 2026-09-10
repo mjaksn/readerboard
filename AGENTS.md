@@ -69,7 +69,7 @@ And being told to, which needs no reason.
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
 under `readerboard/protocol/`. It also lists the four questions the document
-cannot answer, which need the sign to settle.
+cannot answer, three of which a session with the sign has since settled.
 
 ## The one dangerous operation
 
@@ -154,7 +154,9 @@ small write and nothing after that. This is the whole design: the host does not
 rotate anything.
 
 An **alert** is written to the sign's priority file, which by protocol
-suppresses every other file until an empty priority write releases it.
+suppresses every other file until a bare priority write releases it. An
+ordinary write with an empty body is not a release: the sign reads its
+formatting bytes as a blank message and keeps the screen.
 
 `SignController` is the only thing allowed to talk to the sign. Every write goes
 through one `asyncio.Lock`, with the blocking pyserial call dispatched to a
