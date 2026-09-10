@@ -245,6 +245,26 @@ The constants for every one of these stay in `constants.py` with their citations
 sign simulator annotates them all, so a message written by an older version stays
 readable.
 
+### `<fixed_width>` survived, and nearly did not
+
+The third of the service's own tokens, `<fixed_width>` (1EH+1), was very nearly removed
+with the other two, and the reason it was not is worth keeping.
+
+Every sample above was the string `Ag8`, which is a fine probe for a glyph shape and
+useless for a spacing one: fixed width means every character takes the same cell, so
+seeing it needs characters whose natural widths differ. `Ag8` has no narrow letter to
+compare against a wide one, and against that sample 1EH+1 looked exactly like plain text,
+which is precisely what a dead token looks like.
+
+Re-run with `iiiiiWWWWW`, the widest contrast the ASCII set offers, the difference was
+immediate: the inter-character spacing changes dramatically and the five `i`s take the
+room the five `W`s do. The token works as documented and stays.
+
+The lesson generalises to anything measured on this sign. A sample has to be able to show
+the thing being looked for, and "it looked the same" is only evidence when it could have
+looked different. Four tokens were removed on that kind of evidence above; this one shows
+how close that reasoning came to removing a fifth that works.
+
 ## The sign's date has no century, so no token offers it
 
 Table 15 gives `;` (3BH) as Set Date, six ASCII characters `mmddyy`, and Table 16 reads it
