@@ -10,6 +10,10 @@ a sign that came back at ten past the hour wrong until the next sync, and the
 link returning is the closest signal available to "the sign may just have been
 power cycled".
 
+The time it is told is a minute ahead of the real one, always. That is not a
+correction for drift and it is not a bug; ``CLOCK_LEAD`` below has the whole
+reasoning, which comes down to Set Time having no seconds field.
+
 ``now`` is injected rather than mocked, so the tests can be about what gets sent
 at a given time rather than about patching the clock out from under the code.
 """
@@ -20,7 +24,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from readerboard.protocol import frames
@@ -28,6 +32,26 @@ from readerboard.sign.controller import SignController
 from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
+
+# The sign is deliberately set one minute fast, and this is not a fudge factor.
+#
+# Set Time takes four digits, HHMM. There is no seconds field, so a sign told
+# "14:33" at 14:33:45 does not start the minute forty-five seconds in; it starts
+# it now. It then rolls to 14:34 at 14:34:45. The sign is behind for the whole
+# minute, by up to fifty-nine seconds, and only ever behind: the error is
+# one-sided because the seconds it was set at are thrown away.
+#
+# Drift is on top of that and this sign's runs slow, so the two compound.
+#
+# Adding a minute moves the same one-sided error to the other side. Worst case
+# the sign reads a minute fast, best case it is exact, and it is never slow. A
+# clock that is a little fast is a much smaller irritation than one that spends
+# most of every minute showing the time that has just gone.
+#
+# The day of the week is derived from the same shifted moment rather than from
+# now, which matters for one minute a day: at 23:59:30 the sign is told 00:00,
+# and it must be told tomorrow's day to go with it.
+CLOCK_LEAD = timedelta(minutes=1)
 
 
 def _local_now() -> datetime:
@@ -63,17 +87,43 @@ class ClockService:
         self.last_sync_at: datetime | None = None
 
     def current_time(self) -> datetime:
-        """Return the time the sign should be told, in the configured zone."""
-        moment = self._now()
+        """Return what the time actually is, in the configured zone."""
+        return self._in_zone(self._now())
+
+    def time_to_send(self) -> datetime:
+        """Return the time to set the sign to, which is ``CLOCK_LEAD`` ahead of now."""
+        return self._in_zone(self._now() + CLOCK_LEAD)
+
+    def _in_zone(self, moment: datetime) -> datetime:
+        """Put a moment in the configured zone, or leave it alone if there is none."""
         return moment.astimezone(self._zone) if self._zone else moment
 
     async def sync(self) -> datetime:
-        """Set the sign's clock and day of week. Returns the time it was told."""
-        moment = self.current_time()
-        await self._controller.send_special(frames.set_time(moment.hour, moment.minute))
-        await self._controller.send_special(frames.set_day_of_week(sign_day_of_week(moment)))
+        """Set the sign's clock and day of week. Returns when the sync happened.
+
+        The clock is read once here rather than through :meth:`current_time` and
+        :meth:`time_to_send` separately, so that the two cannot land either side
+        of a second boundary and disagree about which minute it is.
+
+        The lead is added before the zone conversion, not after. Adding it after
+        would be wall-clock arithmetic, and at 01:59:30 on the morning the clocks
+        go forward that produces 02:00, a time which does not exist that day.
+        Adding it to the instant and then converting is right on every day of the
+        year.
+        """
+        now = self._now()
+        moment = self._in_zone(now)
+        ahead = self._in_zone(now + CLOCK_LEAD)
+
+        await self._controller.send_special(frames.set_time(ahead.hour, ahead.minute))
+        await self._controller.send_special(frames.set_day_of_week(sign_day_of_week(ahead)))
         self.last_sync_at = moment
-        logger.info("sign clock set to %s", moment.strftime("%Y-%m-%d %H:%M %Z").strip())
+        logger.info(
+            "sign clock set to %s, which is %s ahead of %s",
+            ahead.strftime("%Y-%m-%d %H:%M %Z").strip(),
+            CLOCK_LEAD,
+            moment.strftime("%H:%M:%S"),
+        )
         return moment
 
     async def start(self) -> None:

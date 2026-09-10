@@ -215,6 +215,29 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Changed
 
+- **The sign's clock is now set one minute ahead of the real time.** Always,
+  and there is no setting for it.
+
+  The protocol's Set Time carries four digits, `HHMM`, and no seconds. A sign
+  told "14:33" at 14:33:45 does not start that minute forty-five seconds in, it
+  starts it from scratch, and rolls to 14:34 a full minute later at 14:34:45. So
+  the sign reads behind for the whole minute, by up to fifty-nine seconds, and
+  the error is one-sided: it is never early, only ever late. This sign's own
+  drift runs slow on top of that, so the two compound.
+
+  Leading by a minute moves the same one-sided error to the other side. Worst
+  case the sign reads a minute fast, best case exact, never slow.
+
+  The day of the week is derived from the shifted moment too, which matters for
+  one minute a day: at 23:59:30 the sign is told 00:00 and has to be told
+  tomorrow's day to go with it. The lead is added to the instant before the
+  timezone conversion rather than after, so that 01:59:30 on the morning the
+  clocks go forward produces 03:00 rather than an 02:00 that does not exist.
+
+  `synced_at` on `POST /sign/sync-clock` still reports when the sync happened,
+  not what the sign was told. Those were the same value before and are not now;
+  reporting a time in the future would read as a bug.
+
 - **A message write is refused with a 503 when the sign is unreachable, rather
   than accepted and held.** `PUT /messages/{key}` used to keep a write it could
   not deliver and converge when the link returned, so a caller learned the sign

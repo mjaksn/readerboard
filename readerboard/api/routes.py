@@ -159,6 +159,13 @@ async def sync_clock(clock: ClockDep) -> ClockResponse:
 
     The service already does this at startup, hourly, and whenever the link to
     the sign comes back. This is for when you would rather not wait.
+
+    The sign is set one minute ahead of the real time, on purpose. Set Time
+    carries four digits and no seconds, so a sign told the current minute starts
+    that minute over and then reads behind for the rest of it, by up to
+    fifty-nine seconds, and never ahead. Leading by a minute moves that
+    one-sided error to the side where the sign is at worst a minute fast and
+    never slow.
     """
     return ClockResponse(synced_at=await clock.sync())
 

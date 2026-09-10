@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from readerboard.protocol import frames
-from readerboard.services.clock import ClockService, sign_day_of_week
+from readerboard.services.clock import CLOCK_LEAD, ClockService, sign_day_of_week
 from readerboard.sign.controller import SignController
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
@@ -36,17 +36,21 @@ class TestSignDayOfWeek:
 
 class TestSync:
     async def test_it_sends_the_time_and_the_day(self, transport, controller):
+        # 9:06, not 9:05. The sign is set a minute ahead on purpose; see
+        # CLOCK_LEAD for why, and TestTheLead below for what it buys.
         moment = datetime(2026, 8, 25, 9, 5, tzinfo=UTC)
         clock = ClockService(controller, now=lambda: moment)
 
         await clock.sync()
 
         assert transport.packets == [
-            frames.packet(frames.set_time(9, 5)),
+            frames.packet(frames.set_time(9, 6)),
             frames.packet(frames.set_day_of_week(3)),  # a Tuesday
         ]
 
     async def test_it_records_when_it_last_synced(self, controller):
+        # When the sync happened, not what the sign was told. Those differ now,
+        # and this is the one that answers "is the clock being kept up to date".
         moment = datetime(2026, 8, 25, 9, 5, tzinfo=UTC)
         clock = ClockService(controller, now=lambda: moment)
 
@@ -66,6 +70,105 @@ class TestSync:
         assert transport.write_count == 4
 
 
+class TestTheLead:
+    """The sign is set a minute fast, deliberately and always.
+
+    Set Time carries HHMM and no seconds, so a sign told the current minute
+    starts that minute from scratch and then runs behind for the whole of it, by
+    up to fifty-nine seconds. The error is one-sided: the sign is never early,
+    only ever late, and this sign's drift is slow on top of that.
+
+    Leading by a minute moves the same one-sided error to the other side. Worst
+    case the sign reads a minute fast, best case exact, never slow.
+    """
+
+    async def test_the_lead_is_exactly_one_minute(self, transport, controller):
+        moment = datetime(2026, 8, 25, 9, 5, 45, tzinfo=UTC)
+        clock = ClockService(controller, now=lambda: moment)
+
+        await clock.sync()
+
+        assert timedelta(minutes=1) == CLOCK_LEAD
+        assert transport.packets[0] == frames.packet(frames.set_time(9, 6))
+
+    async def test_the_seconds_within_the_minute_do_not_change_what_is_sent(
+        self, transport, controller
+    ):
+        """Whatever second it is, the sign is told the next minute.
+
+        This is the property that makes the sign never slow. At :01 the lead is
+        nearly a whole minute of being fast; at :59 it is nearly exact. Neither
+        is ever behind.
+        """
+        for second in (0, 1, 30, 59):
+            transport.packets.clear()
+            moment = datetime(2026, 8, 25, 9, 5, second, tzinfo=UTC)
+            clock = ClockService(controller, now=lambda m=moment: m)
+
+            await clock.sync()
+
+            assert transport.packets[0] == frames.packet(frames.set_time(9, 6)), second
+
+    async def test_it_rolls_the_hour(self, transport, controller):
+        moment = datetime(2026, 8, 25, 9, 59, 30, tzinfo=UTC)
+        clock = ClockService(controller, now=lambda: moment)
+
+        await clock.sync()
+
+        assert transport.packets[0] == frames.packet(frames.set_time(10, 0))
+
+    async def test_the_last_minute_of_the_day_takes_the_next_day_with_it(
+        self, transport, controller
+    ):
+        """At 23:59 the sign is told 00:00, so it must be told tomorrow's day.
+
+        One minute a day this matters, and getting it wrong would put the wrong
+        day of the week on the sign for that minute. The day is derived from the
+        shifted moment for exactly this reason.
+        """
+        moment = datetime(2026, 8, 25, 23, 59, 30, tzinfo=UTC)  # a Tuesday
+        clock = ClockService(controller, now=lambda: moment)
+
+        await clock.sync()
+
+        assert transport.packets[0] == frames.packet(frames.set_time(0, 0))
+        assert transport.packets[1] == frames.packet(frames.set_day_of_week(4))  # Wednesday
+
+    async def test_the_lead_is_added_before_the_zone_conversion(self, transport, controller):
+        """The morning the clocks go forward, wall-clock arithmetic breaks.
+
+        In New York on 2026-03-08 the local time goes from 01:59:59 straight to
+        03:00:00. Adding a minute to the local wall clock at 01:59:30 gives
+        02:00, a time that does not exist that day, and the sign would be told
+        it. Adding the minute to the instant and converting afterwards gives
+        03:00, which is what the clock on the wall will actually say.
+
+        Pinned because the wrong order passes every other test in this file.
+        """
+        moment = datetime(2026, 3, 8, 6, 59, 30, tzinfo=UTC)  # 01:59:30 EST
+        clock = ClockService(controller, timezone="America/New_York", now=lambda: moment)
+
+        await clock.sync()
+
+        assert transport.packets[0] == frames.packet(frames.set_time(3, 0))
+
+    async def test_what_it_reports_is_the_real_time_not_the_lead(self, controller):
+        # A caller polling this wants to know the clock is being kept up to
+        # date. Reporting a time in the future would read as a bug.
+        moment = datetime(2026, 8, 25, 9, 5, 45, tzinfo=UTC)
+        clock = ClockService(controller, now=lambda: moment)
+
+        assert await clock.sync() == moment
+        assert clock.last_sync_at == moment
+
+    async def test_current_time_is_still_the_actual_time(self, controller):
+        moment = datetime(2026, 8, 25, 9, 5, 45, tzinfo=UTC)
+        clock = ClockService(controller, now=lambda: moment)
+
+        assert clock.current_time() == moment
+        assert clock.time_to_send() == moment + CLOCK_LEAD
+
+
 class TestTimezone:
     async def test_an_explicit_zone_is_used(self, transport, controller):
         # 13:30 UTC is 09:30 in New York on this date.
@@ -74,7 +177,7 @@ class TestTimezone:
 
         await clock.sync()
 
-        assert transport.packets[0] == frames.packet(frames.set_time(9, 30))
+        assert transport.packets[0] == frames.packet(frames.set_time(9, 31))
 
     async def test_the_zone_can_change_the_day(self, transport, controller):
         # Just after midnight UTC is still the previous evening in New York.
@@ -83,7 +186,7 @@ class TestTimezone:
 
         await clock.sync()
 
-        assert transport.packets[0] == frames.packet(frames.set_time(20, 30))
+        assert transport.packets[0] == frames.packet(frames.set_time(20, 31))
         assert transport.packets[1] == frames.packet(frames.set_day_of_week(3))  # Tuesday
 
     async def test_no_zone_leaves_the_moment_alone(self, transport, controller):
@@ -92,7 +195,7 @@ class TestTimezone:
 
         await clock.sync()
 
-        assert transport.packets[0] == frames.packet(frames.set_time(9, 5))
+        assert transport.packets[0] == frames.packet(frames.set_time(9, 6))
 
 
 class TestFailure:
