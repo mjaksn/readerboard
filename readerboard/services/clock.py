@@ -118,11 +118,19 @@ class ClockService:
         await self._controller.send_special(frames.set_time(ahead.hour, ahead.minute))
         await self._controller.send_special(frames.set_day_of_week(sign_day_of_week(ahead)))
         self.last_sync_at = moment
+        # Both times carry their date and zone, and for one reason: the two
+        # occasions this line is worth reading are the two where they differ.
+        # At 23:59:30 the sign is told tomorrow, and on the morning the clocks
+        # go forward the lead crosses the change, so the line reads "03:00 EDT
+        # ... ahead of 01:59:30 EST", which without the zones looks like an hour
+        # and a half rather than a minute. Only the real time keeps its seconds,
+        # because the seconds are why the lead exists and the sign is never told
+        # them.
         logger.info(
             "sign clock set to %s, which is %s ahead of %s",
             ahead.strftime("%Y-%m-%d %H:%M %Z").strip(),
             CLOCK_LEAD,
-            moment.strftime("%H:%M:%S"),
+            moment.strftime("%Y-%m-%d %H:%M:%S %Z").strip(),
         )
         return moment
 
