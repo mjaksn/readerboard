@@ -9,7 +9,7 @@ from readerboard.sign.controller import SignController
 
 
 async def raise_alert(alerts, message="<red>ALERT", **kwargs):
-    return await alerts.raise_alert(message, mode="HOLD", position="MIDDLE", **kwargs)
+    return await alerts.raise_alert(message, mode="HOLD", **kwargs)
 
 
 class TestTakeover:
@@ -188,7 +188,7 @@ class TestRestart:
 
 
 async def test_an_alert_does_not_disturb_the_run_sequence(alerts, registry, transport):
-    await registry.upsert("temperature", "HI", mode="HOLD", position="MIDDLE")
+    await registry.upsert("temperature", "HI", mode="HOLD")
     transport.clear()
 
     await raise_alert(alerts)

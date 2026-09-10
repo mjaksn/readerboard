@@ -16,7 +16,7 @@ from readerboard.transport.fake import FakeTransport
 
 
 async def add(registry, key, message="HI", **kwargs):
-    return await registry.upsert(key, message, mode="HOLD", position="MIDDLE", **kwargs)
+    return await registry.upsert(key, message, mode="HOLD", **kwargs)
 
 
 # Framing up to and including STX, so a test can say "a packet whose payload

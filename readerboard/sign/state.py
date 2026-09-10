@@ -34,6 +34,19 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 STATE_VERSION = 1
+"""The shape of the state file.
+
+Bumping this is close to a destructive act and is not the way to handle a field
+being added or dropped. A version mismatch makes :meth:`StateStore.load` start
+empty, and an empty state has no record of the applied memory configuration, so
+the next start writes one. That erases every message on the sign. See "The one
+dangerous operation" in AGENTS.md.
+
+Pydantic ignores keys it does not know, so a field removed from the models below
+is simply dropped from an old file the next time it is read, and a field added
+with a default fills itself in. Neither needs a bump. Reach for one only when an
+old file would be actively misread, and then think about what the erase costs.
+"""
 
 
 class SlotState(BaseModel):
@@ -43,7 +56,6 @@ class SlotState(BaseModel):
     label: str
     message: str
     mode: str
-    position: str
     order: int = 0
     source: str | None = None
     expires_at: datetime | None = None
@@ -55,7 +67,6 @@ class AlertState(BaseModel):
 
     message: str
     mode: str
-    position: str
     started_at: datetime
     expires_at: datetime | None = None
 

@@ -20,7 +20,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from readerboard.protocol.markup import render
-from readerboard.protocol.tokens import MODE_BY_NAME, POSITION_BY_NAME
+from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout, LayoutFull
 from readerboard.sign.state import ServiceState, SlotState, StateStore
@@ -216,7 +216,6 @@ class MessageRegistry:
         message: str,
         *,
         mode: str,
-        position: str,
         order: int = 0,
         ttl_seconds: float | None = None,
         source: str | None = None,
@@ -231,7 +230,6 @@ class MessageRegistry:
             )
 
         mode_token = MODE_BY_NAME[mode]
-        position_token = POSITION_BY_NAME[position]
 
         async with self._lock:
             existed = key in self._state.slots
@@ -244,7 +242,6 @@ class MessageRegistry:
                 label=label.decode("ascii"),
                 message=message,
                 mode=mode,
-                position=position,
                 order=order,
                 source=source,
                 expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
@@ -254,7 +251,7 @@ class MessageRegistry:
             self._state.slots[key] = slot
             try:
                 await self._controller.write_text_file(
-                    label, body, mode=mode_token.value, position=position_token.value
+                    label, body, mode=mode_token.value
                 )
                 if not existed:
                     await self._apply_run_sequence()
@@ -365,7 +362,6 @@ class MessageRegistry:
             slot.label.encode("ascii"),
             body,
             mode=MODE_BY_NAME[slot.mode].value,
-            position=POSITION_BY_NAME[slot.position].value,
         )
 
     async def _blank(self, slot: SlotState) -> None:

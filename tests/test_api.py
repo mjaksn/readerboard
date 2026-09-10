@@ -455,13 +455,51 @@ class TestSignCommands:
         assert response.status_code == 400
 
 
+class TestThereIsNoVerticalPosition:
+    """The four positions are gone, and the absence is pinned in three places.
+
+    They all drew the same thing on a sign one line high, which is what the
+    document says of any one-line sign and what this one confirmed. A name for a
+    distinction nobody can see is a promise the sign does not keep.
+
+    The byte itself still goes out on every write, because the protocol requires
+    it. ``tests/test_frames.py`` pins that; this pins the vocabulary.
+    """
+
+    def test_the_enumeration_endpoint_is_gone(self, client):
+        assert client.get("/enumerations/text-positions").status_code == 404
+
+    def test_a_message_carrying_a_position_is_refused_rather_than_ignored(self, client):
+        # The request models forbid unknown fields, so an old caller is told
+        # rather than quietly having its choice dropped. That is the whole
+        # reason this is a 422 and not a 200.
+        response = client.put(
+            "/messages/temperature",
+            json={"message": "HI", "position": "TOP"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+
+    def test_an_alert_carrying_a_position_is_refused_too(self, client):
+        response = client.post(
+            "/alerts",
+            json={"message": "HI", "position": "TOP"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+
+    def test_a_stored_slot_no_longer_reports_one(self, client):
+        client.put("/messages/temperature", json={"message": "HI"}, headers=HEADERS)
+        body = client.get("/messages/temperature", headers=HEADERS).json()
+        assert "position" not in body
+
+
 class TestEnumerations:
     @pytest.mark.parametrize(
         "path",
         [
             "/enumerations/markup-tokens",
             "/enumerations/display-modes",
-            "/enumerations/text-positions",
             "/enumerations/control-commands",
         ],
     )

@@ -552,12 +552,21 @@ footnote reads "COLOR CYCLE will only work on AlphaEclipse 3600 signs". All seve
 The display position field has six values. The four the service offers are `20H` Middle,
 `22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0 only.
 
-One thing about those four is unsettled and worth a parade. The note closing that list
-reads: "On one-line signs, the Display Position is irrelevant." A Betabrite is one line,
-so all four may well draw identically, exactly as twenty ways of drawing text collapsed
-into five. Nobody has put them on the sign. Until somebody does, four positions are
-offered on the strength of the document alone, which is the weakest evidence this project
-accepts anywhere else.
+None of the four is offered any more. The note closing that list reads: "On one-line
+signs, the Display Position is irrelevant", a Betabrite is one line, and the sign
+confirmed it on 2026-09-10: all four drew the same thing. So they went the way
+`<wide_on>` and `<dbl_height_on>` went, and for the same reason. A name for a distinction
+nobody can see is a promise the sign does not keep.
+
+The byte did not go anywhere, because it cannot. The document is explicit that "Display
+Position is irrelevant, but it still must be included", so `frames.write_text_file` sends
+`TEXT_POS_MIDDLE` on every write and takes no parameter for it. All four constants stay in
+`constants.py` with their citations, and the sign simulator still names all four, because
+it decodes what arrives on the wire rather than what this service chose to send.
+
+A caller that still sends a position is refused with a 422 rather than quietly having its
+choice dropped, because the request models forbid unknown fields. That is deliberate: a
+silent success would leave somebody believing the sign had honoured it.
 
 ### Excluded because the document says so
 

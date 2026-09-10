@@ -138,7 +138,7 @@ def _speaker(parameter: str) -> bytes:
 
 def _sound(parameter: str) -> bytes:
     # Named rather than passed through as the protocol's "0" and "1", the way
-    # display modes and text positions are named. The sounds are spelled out
+    # display modes are named. The sounds are spelled out
     # instead of taking the protocol's programmable form, because this sign's
     # buzzer ignores the frequency that form carries; see constants.py.
     value = parameter.strip().upper()

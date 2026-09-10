@@ -35,10 +35,10 @@ def test_the_summary_names_the_version_it_found():
 
 def test_an_older_service_missing_an_endpoint_is_reported_as_one_this_client_offers():
     document = current()
-    del document["paths"]["/enumerations/text-positions"]
+    del document["paths"]["/enumerations/control-commands"]
     difference = compare(document, catalogue.OPERATIONS)
     assert not difference.matches
-    assert ("GET", "/enumerations/text-positions") in difference.unknown
+    assert ("GET", "/enumerations/control-commands") in difference.unknown
     assert difference.uncallable == ()
     assert "1 this client offers that it does not have" in difference.summary()
 

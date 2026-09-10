@@ -56,7 +56,7 @@ missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when
 every message slot is already in use, 503 when the sign is unreachable or no
 API key is configured at all, 500 for something the service has no code for,
 and 422 for a body that is not the shape the endpoint declares, which includes
-a display mode or a text position the sign does not have.
+a display mode the sign does not have.
 """
 
 

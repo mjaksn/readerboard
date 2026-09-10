@@ -175,7 +175,6 @@ class SignController:
         body: bytes,
         *,
         mode: bytes = c.MODE_HOLD,
-        position: bytes = c.TEXT_POS_MIDDLE,
         force: bool = False,
     ) -> bool:
         """Put ``body`` in a sign file. Returns False if the write was suppressed.
@@ -184,7 +183,7 @@ class SignController:
         hold. It is for the case where that belief is exactly what is in doubt,
         such as re-asserting an alert after the sign may have been power cycled.
         """
-        payload = frames.write_text_file(label, body, mode=mode, position=position)
+        payload = frames.write_text_file(label, body, mode=mode)
         if force:
             await self._send(payload)
             self._file_contents[label] = payload
@@ -196,7 +195,6 @@ class SignController:
         body: bytes,
         *,
         mode: bytes = c.MODE_HOLD,
-        position: bytes = c.TEXT_POS_MIDDLE,
         force: bool = False,
     ) -> bool:
         """Take the display over with an alert.
@@ -207,7 +205,7 @@ class SignController:
         the screen. :meth:`clear_priority` sends the bare write a release needs.
         """
         return await self.write_text_file(
-            c.FILE_PRIORITY, body, mode=mode, position=position, force=force
+            c.FILE_PRIORITY, body, mode=mode, force=force
         )
 
     async def clear_priority(self, *, force: bool = False) -> bool:

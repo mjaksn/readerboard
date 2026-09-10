@@ -27,11 +27,13 @@ class TestWriteTextFile:
     def test_a_hold_message_to_file_a(self):
         assert frames.write_text_file(b"A", b"HI") == b"A" b"A" b"\x1b" b" " b"b" b"HI"
 
-    def test_mode_and_position_appear_in_order(self):
-        built = frames.write_text_file(
-            b"B", b"HI", mode=c.MODE_ROTATE, position=c.TEXT_POS_FILL
-        )
-        assert built == b"AB\x1b0aHI"
+    def test_the_position_byte_is_always_middle_and_precedes_the_mode(self):
+        # The position is not a parameter any more, because all four values draw
+        # the same thing on a one-line sign. The byte is still mandatory, so it
+        # is pinned here literally: 1BH start of mode, 20H middle, then the mode.
+        built = frames.write_text_file(b"B", b"HI", mode=c.MODE_ROTATE)
+        assert built == b"AB\x1b aHI"
+        assert c.TEXT_POS_MIDDLE == b" "
 
     def test_a_two_byte_mode_is_passed_through_whole(self):
         built = frames.write_text_file(b"C", b"HI", mode=c.MODE_STARBURST)

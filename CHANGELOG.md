@@ -191,6 +191,29 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Removed
 
+- **The vertical text position is gone, and it is a breaking change.** The
+  `position` field on a message and on an alert, the `position` in both
+  responses, and `GET /enumerations/text-positions` have all been removed. A
+  request that still carries a `position` is answered with 422 rather than
+  silently ignored, because a silent success would leave the caller believing
+  the sign had honoured it.
+
+  All four values drew the same thing. The protocol document says so in the note
+  closing that list, "On one-line signs, the Display Position is irrelevant",
+  and a Betabrite is one line, seven pixels of it, with no second line for text
+  to sit above or below. Confirmed on the sign. This is the same measurement
+  that retired `<wide_on>` and `<dbl_height_on>`.
+
+  The byte itself still goes out on every write, because the protocol requires
+  it even where it does nothing, and the sign simulator still names all four
+  because it decodes whatever reaches it. Nothing about what appears on the
+  display changes.
+
+  A stored slot or alert written by an earlier version still loads. The state
+  file's version is deliberately unchanged, since a version mismatch would make
+  the service start empty, and an empty state has no record of the applied
+  memory configuration, which erases every message on the sign.
+
 - **The `<wide_on>`, `<wide_off>`, `<dbl_height_on>` and `<dbl_height_off>`
   markup tokens**, replaced by ones that do something. All four were put on the
   real sign and drew text pixel-identical to no markup at all. A Betabrite is

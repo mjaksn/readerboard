@@ -186,6 +186,15 @@ SPEAKER_OFF = b"FF"
 #
 # The document also lists "1" (31H) Left and "2" (32H) Right, both marked Alpha
 # 3.0 protocol only. A BetaBrite speaks Alpha 1.0, so neither is defined here.
+#
+# None of the four below is offered to a caller, and all four stay defined. The
+# note closing that list in the document reads "On one-line signs, the Display
+# Position is irrelevant", a BetaBrite is one line, and the sign confirmed it on
+# 2026-09-10: all four drew the same thing. The byte is still mandatory, in the
+# document's own words "Display Position is irrelevant, but it still must be
+# included", so ``frames.write_text_file`` sends TEXT_POS_MIDDLE every time. The
+# other three are here because the sign simulator names what it decodes off the
+# wire, which is not limited to what this service sends.
 
 TEXT_POS_MIDDLE = b" "
 TEXT_POS_TOP = b"\""
@@ -715,8 +724,12 @@ RESERVED_FILE_LABELS = (
 # The compatibility matrix lists the BetaBrite as EZ KEY II and Alpha 1.0 only,
 # so nothing marked Alpha 2.0 or 3.0 may be used. That rules out the "E$$$$"
 # clear-memory-and-compact-flash command, programmable sounds, and the ACK/NAK
-# response feature, along with the display positions and modes noted absent
-# above.
+# response feature, along with the modes noted absent above.
+#
+# The two display positions marked Alpha 3.0, Left and Right, are ruled out by
+# the same matrix. The four this sign does accept are all still defined below,
+# and none of them is offered to a caller: they draw identically on a display one
+# line high, which the document says and the sign confirmed. See tokens.py.
 #
 # The timing is the document's own: the inter-byte timeout for a standard packet
 # is one second. The service's ``inter_packet_delay`` setting is a separate thing

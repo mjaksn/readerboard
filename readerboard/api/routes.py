@@ -32,7 +32,6 @@ from readerboard.protocol.tokens import (
     CONTROL_COMMANDS,
     DISPLAY_MODES,
     MARKUP_TOKENS,
-    TEXT_POSITIONS,
     Token,
 )
 from readerboard.services import commands
@@ -75,7 +74,6 @@ async def put_message(
         key,
         body.message,
         mode=body.display_mode,
-        position=body.position,
         order=body.order,
         ttl_seconds=body.ttl_seconds,
         source=body.source,
@@ -130,7 +128,6 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     alert = await alerts.raise_alert(
         body.message,
         mode=body.display_mode,
-        position=body.position,
         ttl_seconds=body.ttl_seconds,
     )
     return AlertResponse.of(alert)
@@ -237,12 +234,6 @@ async def markup_tokens() -> list[TokenInfo]:
 async def display_modes() -> list[TokenInfo]:
     """List every display mode."""
     return _as_info(DISPLAY_MODES)
-
-
-@enumerations.get("/text-positions", summary="Where text sits vertically")
-async def text_positions() -> list[TokenInfo]:
-    """List every vertical text position."""
-    return _as_info(TEXT_POSITIONS)
 
 
 @enumerations.get("/control-commands", summary="Commands aimed at the sign itself")

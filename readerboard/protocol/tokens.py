@@ -198,19 +198,27 @@ CONTROL_COMMANDS: tuple[Token, ...] = (
 )
 
 
-# ===========================================================================
-# Vertical position of text within a TEXT file.
-# ===========================================================================
-
-TEXT_POSITIONS: tuple[Token, ...] = (
-    Token("MIDDLE", c.TEXT_POS_MIDDLE, "Centre the text vertically"),
-    Token("TOP", c.TEXT_POS_TOP, "Begin the text at the top of the sign"),
-    Token("BOTTOM", c.TEXT_POS_BOTTOM, "Place the text immediately below the top"),
-    Token("FILL", c.TEXT_POS_FILL, "Centre vertically and use every available line"),
-)
+# There is no table of vertical text positions, and this is the second place in
+# this file where something the protocol offers is withheld.
+#
+# The mode field carries a position byte before the mode byte, and the document
+# gives four values a Betabrite could take: 20H Middle, 22H Top, 26H Bottom and
+# 30H Fill. The service offered all four. On this hardware they all draw the
+# same thing, which the document says outright in the note closing that list:
+# "On one-line signs, the Display Position is irrelevant." A Betabrite is one
+# line, seven pixels of it, and there is no second line for text to sit above or
+# below. Confirmed on the sign on 2026-09-10.
+#
+# So the four names went, for the same reason <wide_on> and <dbl_height_on>
+# went: a name for a distinction nobody can see is a promise the sign does not
+# keep. The byte itself has not gone anywhere, because it cannot. The document
+# is explicit that "Display Position is irrelevant, but it still must be
+# included", so ``frames.write_text_file`` sends TEXT_POS_MIDDLE always, and the
+# constants stay in constants.py with their citations. The sign simulator still
+# names all four, because it decodes what arrives rather than what this service
+# sends. See docs/protocol-notes.md.
 
 
 MARKUP_BY_TEXT: dict[str, Token] = {token.text: token for token in MARKUP_TOKENS}
 MODE_BY_NAME: dict[str, Token] = {token.text: token for token in DISPLAY_MODES}
 COMMAND_BY_NAME: dict[str, Token] = {token.text: token for token in CONTROL_COMMANDS}
-POSITION_BY_NAME: dict[str, Token] = {token.text: token for token in TEXT_POSITIONS}

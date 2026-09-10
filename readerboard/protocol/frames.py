@@ -80,7 +80,6 @@ def write_text_file(
     body: bytes,
     *,
     mode: bytes = c.MODE_HOLD,
-    position: bytes = c.TEXT_POS_MIDDLE,
 ) -> bytes:
     """Build the payload that writes ``body`` into the TEXT file ``label``.
 
@@ -89,6 +88,12 @@ def write_text_file(
     text is read by the sign as an empty priority message that takes the screen
     over, not as a release. :func:`clear_priority_file` sends the bare write the
     release actually needs.
+
+    The position byte is always ``TEXT_POS_MIDDLE`` and is not a parameter. All
+    four of the positions the document offers draw identically on a display one
+    line high, measured on the sign, so choosing between them was a choice with
+    one outcome. The byte is still sent because the document requires it:
+    "Display Position is irrelevant, but it still must be included."
     """
     if len(label) != 1:
         raise ProtocolError("a file label is exactly one byte, got %r" % label)
@@ -97,7 +102,7 @@ def write_text_file(
             "the priority file holds %d bytes and the sign will not let that change; "
             "this message needs %d" % (c.PRIORITY_FILE_CAPACITY, len(body))
         )
-    return c.COMMAND_WRITE_TEXT + label + c.SOM + position + mode + body
+    return c.COMMAND_WRITE_TEXT + label + c.SOM + c.TEXT_POS_MIDDLE + mode + body
 
 
 def clear_priority_file() -> bytes:

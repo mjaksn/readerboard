@@ -303,7 +303,7 @@ def _health(payload: object) -> list[Block]:
     ]
 
 
-_SLOT_COLUMNS = ("key", "file", "message", "mode", "position", "order", "source", "expires")
+_SLOT_COLUMNS = ("key", "file", "message", "mode", "order", "source", "expires")
 
 
 def _slot_row(slot: dict[str, object]) -> tuple[str, ...]:
@@ -314,7 +314,6 @@ def _slot_row(slot: dict[str, object]) -> tuple[str, ...]:
         str(slot.get("label", "")),
         str(slot.get("message", "")),
         str(slot.get("display_mode", "")),
-        str(slot.get("position", "")),
         str(slot.get("order", "")),
         str(slot.get("source") or ""),
         when(expires) if expires else "never",
@@ -349,7 +348,6 @@ def _slot(payload: object) -> list[Block]:
                 Row("sign file", str(payload.get("label", "")), "the file on the sign it occupies"),
                 Row("message", str(payload.get("message", ""))),
                 Row("display mode", str(payload.get("display_mode", ""))),
-                Row("position", str(payload.get("position", ""))),
                 Row("order", str(payload.get("order", ""))),
                 Row("source", str(payload.get("source") or "not recorded")),
                 Row(
@@ -374,7 +372,6 @@ def _alert(payload: object) -> list[Block]:
             rows=(
                 Row("message", str(payload.get("message", ""))),
                 Row("display mode", str(payload.get("display_mode", ""))),
-                Row("position", str(payload.get("position", ""))),
                 Row("started", when(payload.get("started_at"))),
                 Row(
                     "expires",

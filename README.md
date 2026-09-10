@@ -247,8 +247,8 @@ Silence it with `{"command": "SPEAKER", "parameter": "OFF"}`, and turn it back o
 lives on the sign and survives a restart, so it is also the first thing to check if
 `SOUND` ever seems to do nothing.
 
-The full API is at `/docs`. Every markup token, display mode, text position and
-control command is listed by the `/enumerations` reads there, which answer at
+The full API is at `/docs`. Every markup token, display mode and control
+command is listed by the `/enumerations` reads there, which answer at
 request time rather than being frozen into the description.
 
 ### Writing messages
