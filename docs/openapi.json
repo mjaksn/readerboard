@@ -80,7 +80,7 @@
         "description": "The result of setting the sign's clock.",
         "properties": {
           "synced_at": {
-            "description": "the time the sign was told, in its configured zone",
+            "description": "when the clock was set, in its configured zone. Not what the sign was told: the sign is deliberately set one minute ahead, because the protocol's Set Time carries no seconds and a sign told the current minute runs behind for the rest of it",
             "format": "date-time",
             "title": "Synced At",
             "type": "string"
@@ -978,7 +978,7 @@
     },
     "/sign/sync-clock": {
       "post": {
-        "description": "Set the sign's clock and day of week immediately.\n\nThe service already does this at startup, hourly, and whenever the link to\nthe sign comes back. This is for when you would rather not wait.",
+        "description": "Set the sign's clock and day of week immediately.\n\nThe service already does this at startup, hourly, and whenever the link to\nthe sign comes back. This is for when you would rather not wait.\n\nThe sign is set one minute ahead of the real time, on purpose. Set Time\ncarries four digits and no seconds, so a sign told the current minute starts\nthat minute over and then reads behind for the rest of it, by up to\nfifty-nine seconds, and never ahead. Leading by a minute moves that\none-sided error to the side where the sign is at worst a minute fast and\nnever slow.",
         "operationId": "sync_clock_sign_sync_clock_post",
         "responses": {
           "200": {

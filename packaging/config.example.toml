@@ -81,6 +81,12 @@ refresh_interval_seconds = 900.0
 # The service sets the sign's clock at startup, on this interval, and every time
 # the link comes back. That last one matters most: a sign returning from a power
 # cut does so at no particular minute, which no schedule can anticipate.
+#
+# The sign is always set one minute ahead of the real time, and there is no
+# setting for that. The protocol's Set Time carries HHMM and no seconds, so a
+# sign told the current minute restarts that minute and then reads behind for
+# the rest of it. The error is one-sided, so the fix is too: leading by a minute
+# leaves the sign at worst a minute fast and never slow.
 clock_sync_enabled = true
 clock_sync_interval_seconds = 3600.0
 

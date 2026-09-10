@@ -191,7 +191,14 @@ class ControlCommandRequest(BaseModel):
 class ClockResponse(BaseModel):
     """The result of setting the sign's clock."""
 
-    synced_at: datetime = Field(description="the time the sign was told, in its configured zone")
+    synced_at: datetime = Field(
+        description=(
+            "when the clock was set, in its configured zone. Not what the sign was told: "
+            "the sign is deliberately set one minute ahead, because the protocol's Set "
+            "Time carries no seconds and a sign told the current minute runs behind for "
+            "the rest of it"
+        )
+    )
 
 
 class LinkHealth(BaseModel):

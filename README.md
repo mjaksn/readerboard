@@ -23,7 +23,10 @@ until it is released, after which the rotation resumes.
 - **Alerts.** Take the display over, optionally with a deadline, then hand it back.
 - **It keeps the sign's clock right**, at startup, hourly, and whenever the link comes
   back. That last trigger is the one that matters: a sign returning from a power cut
-  does so at no particular minute.
+  does so at no particular minute. The sign is set one minute fast on purpose: the
+  protocol has no seconds field, so a sign told the current minute reads behind for the
+  rest of it and never ahead, and a minute of lead puts the error on the side that reads
+  as a clock being a touch fast rather than most of a minute slow.
 - **It does not redraw the sign for nothing.** A write of bytes the sign already holds is
   suppressed, so a source re-sending an unchanged temperature does not make the display
   flicker.
