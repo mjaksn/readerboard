@@ -97,7 +97,7 @@ anybody sent ends up on disk.
 
 ## The API key
 
-The key is sent as `X-API-Key` on the writes that need it, and it is treated as a
+The key is sent as `X-API-Key` on the requests that need it, and it is treated as a
 secret everywhere else:
 
 - It is not saved between runs. The base URL is; the key is not.
