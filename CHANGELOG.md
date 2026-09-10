@@ -15,6 +15,43 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **A display mode the protocol document declines to describe: `AUTO_COLOR`.**
+  The sign draws the message with a random transition and a random colour. It is
+  not `AUTO` with extra steps: `AUTO` shuffles the transition and leaves the
+  colour alone, and nothing else offered randomises colour at all.
+
+  Its row in the Standard Modes table reads "reserved" and carries no name and no
+  description, which is why the service never offered it and why nothing in this
+  project had looked at it. Put on the sign for thirty seconds beside `AUTO` and
+  beside `HOLD`, it turned out to be a real mode. `scripts/mode_parade.py` is the
+  test that found it and is kept for the next time the table says no.
+
+  One consequence worth knowing before using it: the mode overrides the colour
+  the message asks for. The sample was written with an explicit green in front of
+  it and came back in changing colours.
+
+- **`GET /sign/information` asks the sign what it is and how it is doing.** The
+  firmware build and revision letter, the month that firmware was released, the
+  sign's own clock and whether it draws a 12 or 24 hour one, whether its speaker
+  is enabled, and the total and unused size of its memory pool.
+
+  This is the service's first read. Everything before it was written and hoped
+  for, because the sign cannot acknowledge a write on this protocol version, and
+  the service reconciles by re-pushing on a timer instead. A sign that does not
+  answer within a few seconds is a 503, the same as a sign that cannot be
+  written to, and so is a sign whose answer will not parse: the reply is the
+  whole of what the endpoint has, so one it cannot read leaves it with nothing
+  to report.
+
+  Two of the fields earn their place. `speaker_enabled` is the answer to "SOUND
+  did nothing": the protocol calls disabled the default, and a muted sign beeps
+  silently. `memory_free` is the pool a memory configuration draws on, so a slot
+  capacity that will not fit is visible before it fails.
+
+  The protocol document calls this read "most useful as a source of
+  troubleshooting information", and the raw answer is returned alongside the
+  parsed fields for when the parsing is the thing in doubt.
+
 - **Ten more of the sign's own characters can be written.** `₧`, `ƒ`, `ª`, `º`,
   `θ`, `Θ`, a single column space at U+2009, and the accented capitals `Á`, `Ê`
   and `Í`. Write the character itself in a message; there is no token for these,
@@ -160,6 +197,22 @@ library, and the names inside it may move without that being a breaking change.
   dependency, for the reason `pyproject.toml` gives, so uvicorn polls the tree
   instead and a save takes a moment to be noticed.
 
+- **A `settle_delays_enabled` setting, for saying the far end is not a sign.**
+  The service waits out the windows in which the sign cannot listen, after a
+  reset or a tone. This turns that off, and should be left on for a real sign;
+  the sign simulator has no power-up diagnostics to run and no speaker to switch
+  its port off for, so its launcher sets it false and saves twelve seconds on
+  every start.
+
+  It is a setting of its own rather than a reading of `inter_packet_delay`,
+  which is what governed the wait when it was first written. The two are not the
+  same question. Pacing is how fast this end may talk; a settle is how long the
+  far end is deaf, and no amount of pacing changes that. Since
+  `inter_packet_delay` is documented, adjustable and accepts zero, anyone who
+  measured their sign as needing no pacing and set it there would have lost the
+  three second wait after a tone without being told, along with the writes that
+  landed in it.
+
 ### Changed
 
 - **A message write is refused with a 503 when the sign is unreachable, rather
@@ -191,6 +244,29 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Removed
 
+- **The vertical text position is gone, and it is a breaking change.** The
+  `position` field on a message and on an alert, the `position` in both
+  responses, and `GET /enumerations/text-positions` have all been removed. A
+  request that still carries a `position` is answered with 422 rather than
+  silently ignored, because a silent success would leave the caller believing
+  the sign had honoured it.
+
+  All four values drew the same thing. The protocol document says so in the note
+  closing that list, "On one-line signs, the Display Position is irrelevant",
+  and a Betabrite is one line, seven pixels of it, with no second line for text
+  to sit above or below. Confirmed on the sign. This is the same measurement
+  that retired `<wide_on>` and `<dbl_height_on>`.
+
+  The byte itself still goes out on every write, because the protocol requires
+  it even where it does nothing, and the sign simulator still names all four
+  because it decodes whatever reaches it. Nothing about what appears on the
+  display changes.
+
+  A stored slot or alert written by an earlier version still loads. The state
+  file's version is deliberately unchanged, since a version mismatch would make
+  the service start empty, and an empty state has no record of the applied
+  memory configuration, which erases every message on the sign.
+
 - **The `<wide_on>`, `<wide_off>`, `<dbl_height_on>` and `<dbl_height_off>`
   markup tokens**, replaced by ones that do something. All four were put on the
   real sign and drew text pixel-identical to no markup at all. A Betabrite is
@@ -219,6 +295,24 @@ library, and the names inside it may move without that being a breaking change.
   writes at startup, hourly and on every reconnect, so both are right.
 
 ### Fixed
+
+- **A write sent just after `SOUND` could be swallowed by the sign.** The
+  protocol switches the sign's serial port off for the length of a tone and asks
+  for three seconds before anything else is sent: "the tone generation command
+  must be the last transmission frame because the sign's serial port is disabled
+  (and cannot receive any data) while a tone is generated."
+
+  Only `SOFT_RESET` waited. A beep is not a restart, so `SOUND` asked for no
+  wait and the next write went out one `inter_packet_delay` later, half a second
+  by default, into a sign that was not listening. Nothing failed loudly: the
+  transport accepted it, the controller's suppression cache recorded the file as
+  holding those bytes, and the message stayed missing until the next periodic
+  re-push up to fifteen minutes later.
+
+  `SOUND` now holds the sign's lock for three seconds, so other writers queue
+  rather than write into the gap, and the request returns when the sign is
+  listening again. That wait is governed by `settle_delays_enabled` above and
+  by nothing else, so pacing the line differently cannot take it away.
 
 - **A sign left off over a weekend could leave the service answering 503 until
   it was restarted.** The reconnect backoff computed its delay as

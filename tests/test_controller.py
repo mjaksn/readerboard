@@ -10,6 +10,7 @@ from readerboard.protocol.markup import render
 from readerboard.sign.controller import (
     MEMORY_CLEAR_SETTLE_SECONDS,
     RESET_SETTLE_SECONDS,
+    SOUND_SETTLE_SECONDS,
     SignController,
 )
 from readerboard.transport.base import TransportError
@@ -82,7 +83,7 @@ class TestSuppression:
 class TestMemoryConfiguration:
     async def test_it_is_written_and_forgets_what_the_sign_held(self):
         transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
 
         await controller.write_text_file(b"A", b"HI")
         await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
@@ -95,7 +96,7 @@ class TestMemoryConfiguration:
         # read it back correctly, and displayed nothing from it until a bare E$
         # clear was sent first. So the clear is not optional and it comes first.
         transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
 
         allocations = [frames.FileAllocation(b"A", 256)]
         await controller.apply_memory_config(allocations)
@@ -107,7 +108,7 @@ class TestMemoryConfiguration:
 
     async def test_it_warns_that_the_sign_will_be_cleared(self, caplog):
         transport = FakeTransport()
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
 
         await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
 
@@ -190,7 +191,7 @@ class TestWaitingForAReset:
             FakeTransport(), inter_packet_delay=0.05, sleep=recording_sleep(slept)
         )
 
-        await controller.send_special(frames.soft_reset(), settle=True)
+        await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
 
         assert RESET_SETTLE_SECONDS in slept
 
@@ -205,15 +206,36 @@ class TestWaitingForAReset:
 
         assert RESET_SETTLE_SECONDS not in slept
 
-    async def test_no_settle_is_requested_when_pacing_is_configured_away(self):
-        # A zero delay is a fake or a simulator, which has no reset to wait
-        # through, so the recovery path must not stall a test for ten seconds.
+    async def test_pacing_configured_away_does_not_take_the_settle_with_it(self):
+        """How fast this end may talk says nothing about how long the sign is deaf.
+
+        The settle used to be gated on ``inter_packet_delay``, on the reasoning
+        that a link told to pace nothing is a simulator. But that setting is
+        documented and adjustable, and its own description invites tuning it
+        down against a real sign. Anyone who measured their sign as needing no
+        pacing and set it to zero would have silently lost the three second wait
+        after a tone, which is the deaf window this exists for, and the writes
+        lost in it fail without saying so.
+        """
         slept: list[float] = []
         controller = SignController(
             FakeTransport(), inter_packet_delay=0, sleep=recording_sleep(slept)
         )
 
-        await controller.send_special(frames.soft_reset(), settle=True)
+        await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
+
+        assert slept == [RESET_SETTLE_SECONDS]
+
+    async def test_a_controller_told_it_faces_no_sign_skips_the_settle(self):
+        # The simulator has no diagnostics to run and no speaker to switch its
+        # port off for, so this is the one thing that may skip the wait, and it
+        # has to be asked for by name rather than inferred from pacing.
+        slept: list[float] = []
+        controller = SignController(
+            FakeTransport(), inter_packet_delay=0, settle=False, sleep=recording_sleep(slept)
+        )
+
+        await controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
 
         assert slept == []
 
@@ -305,7 +327,7 @@ class TestNothingElseWritesWhileTheSignIsResetting:
         controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
 
         reset = asyncio.create_task(
-            controller.send_special(frames.soft_reset(), settle=True)
+            controller.send_special(frames.soft_reset(), settle_seconds=RESET_SETTLE_SECONDS)
         )
         await entered.wait()  # the sign is running its diagnostics
 
@@ -322,6 +344,123 @@ class TestNothingElseWritesWhileTheSignIsResetting:
             frames.packet(frames.soft_reset()),
             frames.packet(frames.write_text_file(b"A", b"HI")),
         ]
+
+
+    async def test_a_write_cannot_land_while_the_sign_is_making_a_noise(self):
+        """A tone is not a reset and still deafens the sign.
+
+        The protocol switches the serial port off for the length of the tone,
+        and asks for three seconds before anything else is sent: "the tone
+        generation command must be the last transmission frame because the
+        sign's serial port is disabled (and cannot receive any data) while a
+        tone is generated."
+
+        This shipped without the wait. SOUND asked for no settle, so the next
+        write went out one inter_packet_delay later, half a second by default,
+        into a sign that was not listening. Nothing failed: the transport
+        accepted it, the suppression cache recorded the file as holding those
+        bytes, and the message stayed missing until the next periodic re-push.
+        """
+        sleep, entered, release = self.held_at(SOUND_SETTLE_SECONDS)
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+
+        beep = asyncio.create_task(
+            controller.send_special(frames.sound_beeps(), settle_seconds=SOUND_SETTLE_SECONDS)
+        )
+        await entered.wait()  # the sign is beeping, and deaf
+
+        write = asyncio.create_task(controller.write_text_file(b"A", b"HI"))
+
+        assert not await self.completes(write)
+        assert transport.packets == [frames.packet(frames.sound_beeps())]
+
+        release.set()
+        await asyncio.gather(beep, write)
+        assert transport.packets == [
+            frames.packet(frames.sound_beeps()),
+            frames.packet(frames.write_text_file(b"A", b"HI")),
+        ]
+
+class TestReadingAReply:
+    """Collecting an answer, which is not the same as taking what is waiting."""
+
+    async def completes(self, task, seconds: float = 0.5) -> bool:
+        """Whether ``task`` finishes within ``seconds``, telling blocked from slow."""
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=seconds)
+            return True
+        except TimeoutError:
+            return False
+
+    async def test_a_reply_arriving_in_pieces_is_collected_whole(self):
+        """The documented trap, encoded.
+
+        The sign starts answering with a long run of nulls and the payload
+        follows a moment behind. A reader that takes what is waiting and stops
+        gets the nulls and nothing else, and two of those compare equal, which
+        looks like a confirmation. That mistake was made once against this sign
+        already, and a false result was reported off the back of it.
+
+        Here the reply is scripted the way the sign sends it: some nulls, a gap
+        of two empty reads, then the rest. A reader that stopped at the first
+        non-empty read would return only the nulls and fail this.
+        """
+        head = b"\x00\x00\x00"
+        tail = b"\x02E\x22DATA\x03"
+        transport = FakeTransport()
+        transport.replies = [head, b"", b"", tail]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        reply = await controller.read_special(frames.read_general_information())
+
+        assert reply == head + tail
+
+    async def test_the_question_goes_out_before_the_answer_is_collected(self):
+        transport = FakeTransport()
+        transport.replies = [b"\x02E\x22DATA\x03"]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        await controller.read_special(frames.read_general_information())
+
+        assert transport.packets == [frames.packet(frames.read_general_information())]
+
+    async def test_a_sign_that_says_nothing_raises_rather_than_returning_empty(self):
+        # An empty answer parsed as a reply would be a confident wrong result.
+        # This reaches a caller as a 503, the same as an unwritable sign.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        with pytest.raises(TransportError, match="did not answer"):
+            await controller.read_special(frames.read_general_information())
+
+    async def test_nothing_else_writes_while_a_read_is_in_flight(self):
+        """A reply is matched to its question by arriving next, and nothing else.
+
+        The sign stamps every answer with the Response type code and an address
+        it sends "regardless of the sign's actual address", so two reads in
+        flight at once would be told apart by luck. Holding the lock is what
+        makes "the next thing on the wire" mean "the answer to this".
+        """
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def sleep(seconds: float) -> None:
+            entered.set()
+            await release.wait()
+
+        transport = FakeTransport()
+        transport.replies = [b"\x02E\x22DATA\x03"]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+
+        read = asyncio.create_task(controller.read_special(frames.read_general_information()))
+        await entered.wait()
+
+        write = asyncio.create_task(controller.write_text_file(b"A", b"HI"))
+        assert not await self.completes(write)
+
+        release.set()
+        await asyncio.gather(read, write)
 
 
 class TestTheLinkWatcherSurvives:

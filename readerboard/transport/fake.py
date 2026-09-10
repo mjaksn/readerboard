@@ -22,6 +22,8 @@ class FakeTransport:
         self.packets: list[bytes] = []
         self.fail_with = fail_with
         self.open_fails_with = open_fails_with
+        self.replies: list[bytes] = []
+        self.read_count = 0
         self.open_count = 0
         self.close_count = 0
         self.write_count = 0
@@ -72,6 +74,19 @@ class FakeTransport:
             raise TransportError(self.fail_with)
         self.write_count += 1
         self.packets.append(data)
+
+    def read_available(self) -> bytes:
+        """Hand back the next scripted reply, or nothing.
+
+        Tests put whole replies in ``replies``. Each read takes one, so a test
+        can script the silence before an answer as an empty entry and the answer
+        after it, which is what the sign actually does: a run of nulls, then a
+        pause, then the payload.
+        """
+        self.read_count += 1
+        if not self.replies:
+            return b""
+        return self.replies.pop(0)
 
     def close(self) -> None:
         """Close the link."""

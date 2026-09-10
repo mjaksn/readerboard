@@ -16,7 +16,7 @@ from readerboard.transport.fake import FakeTransport
 
 
 async def add(registry, key, message="HI", **kwargs):
-    return await registry.upsert(key, message, mode="HOLD", position="MIDDLE", **kwargs)
+    return await registry.upsert(key, message, mode="HOLD", **kwargs)
 
 
 # Framing up to and including STX, so a test can say "a packet whose payload
@@ -176,7 +176,7 @@ class TestExpiry:
 class TestRestart:
     def rebuild(self, store, transport, clock, slot_count=3, slot_capacity=256):
         """Build a second registry over the same state file, as a restart would."""
-        controller = SignController(transport, inter_packet_delay=0)
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
         layout = Layout(slot_count, slot_capacity)
         state = store.load()
         return MessageRegistry(controller, layout, store, state, now=clock), layout

@@ -14,7 +14,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from readerboard.protocol.tokens import COMMAND_BY_NAME, MODE_BY_NAME, POSITION_BY_NAME
+from readerboard.protocol.replies import GeneralInformation
+from readerboard.protocol.tokens import COMMAND_BY_NAME, MODE_BY_NAME
 from readerboard.sign.state import AlertState, SlotState
 
 SlotKey = Annotated[
@@ -37,15 +38,6 @@ def _normalise_mode(value: str) -> str:
     return upper
 
 
-def _normalise_position(value: str) -> str:
-    upper = value.strip().upper()
-    if upper not in POSITION_BY_NAME:
-        raise ValueError(
-            "unknown text position %r; see GET /enumerations/text-positions" % value
-        )
-    return upper
-
-
 class MessageRequest(BaseModel):
     """A message registered into a slot."""
 
@@ -61,7 +53,6 @@ class MessageRequest(BaseModel):
         ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the message")
-    position: str = Field(default="MIDDLE", description="where the text sits vertically")
     order: int = Field(
         default=0,
         description="lower numbers play earlier in the rotation; ties break on the slot name",
@@ -78,7 +69,6 @@ class MessageRequest(BaseModel):
     )
 
     _check_mode = field_validator("display_mode")(_normalise_mode)
-    _check_position = field_validator("position")(_normalise_position)
 
 
 class SlotResponse(BaseModel):
@@ -88,7 +78,6 @@ class SlotResponse(BaseModel):
     label: str = Field(description="the sign file this slot occupies, A through Z")
     message: str
     display_mode: str
-    position: str
     order: int
     source: str | None
     expires_at: datetime | None
@@ -102,11 +91,43 @@ class SlotResponse(BaseModel):
             label=slot.label,
             message=slot.message,
             display_mode=slot.mode,
-            position=slot.position,
             order=slot.order,
             source=slot.source,
             expires_at=slot.expires_at,
             updated_at=slot.updated_at,
+        )
+
+
+class SignInformationResponse(BaseModel):
+    """What the sign says about itself."""
+
+    firmware_version: str = Field(description="the firmware build the sign is running")
+    firmware_revision: str = Field(
+        description="its revision letter, empty on a sign that does not report one"
+    )
+    firmware_released: str = Field(description="the month and year of that firmware, as MM/YY")
+    clock: str = Field(description="the sign's own clock, as HH:MM on a 24 hour dial")
+    time_format: str = Field(description="how the sign draws <time>, '12 hour' or '24 hour'")
+    speaker_enabled: bool = Field(
+        description="whether the speaker will make a noise when SOUND is sent"
+    )
+    memory_total: int = Field(description="the size of the sign's memory pool, in bytes")
+    memory_free: int = Field(description="how much of that pool is unused, in bytes")
+    raw: str = Field(description="the sign's answer as it arrived, for when the fields are not enough")
+
+    @classmethod
+    def of(cls, info: GeneralInformation) -> SignInformationResponse:
+        """Render a parsed reply as the API's view of it."""
+        return cls(
+            firmware_version=info.firmware_version,
+            firmware_revision=info.firmware_revision,
+            firmware_released=info.firmware_released,
+            clock=info.clock,
+            time_format=info.time_format,
+            speaker_enabled=info.speaker_enabled,
+            memory_total=info.memory_total,
+            memory_free=info.memory_free,
+            raw=info.raw,
         )
 
 
@@ -127,7 +148,6 @@ class AlertRequest(BaseModel):
         ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the alert")
-    position: str = Field(default="MIDDLE", description="where the text sits vertically")
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
@@ -138,7 +158,6 @@ class AlertRequest(BaseModel):
     )
 
     _check_mode = field_validator("display_mode")(_normalise_mode)
-    _check_position = field_validator("position")(_normalise_position)
 
 
 class AlertResponse(BaseModel):
@@ -146,7 +165,6 @@ class AlertResponse(BaseModel):
 
     message: str
     display_mode: str
-    position: str
     started_at: datetime
     expires_at: datetime | None
 
@@ -156,7 +174,6 @@ class AlertResponse(BaseModel):
         return cls(
             message=alert.message,
             display_mode=alert.mode,
-            position=alert.position,
             started_at=alert.started_at,
             expires_at=alert.expires_at,
         )

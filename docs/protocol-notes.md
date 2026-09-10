@@ -111,9 +111,11 @@ configuration written a second or more after the clear was seen to display once 
 came back, so the sign buffers it through the reset and applies it on the way back. One
 second is the shortest gap that was tried. `apply_memory_config` waits
 `MEMORY_CLEAR_SETTLE_SECONDS`, two, which sits a little above the shortest gap that was
-tried rather than at its edge. The wait is skipped when `inter_packet_delay` is zero,
-which is how the simulator and the test transport are run, because neither has a reset to
-sit through.
+tried rather than at its edge. The wait is skipped only when `settle_delays_enabled` is
+false, which is how the simulator and the test transport are run, because neither has a
+reset to sit through. It used to be skipped when `inter_packet_delay` was zero, which
+conflated how fast this end may talk with how long the sign is deaf; a real sign paced as
+fast as the line allows takes just as long to come back.
 
 ### The start and stop times
 
@@ -488,7 +490,7 @@ service writes:
 | `F)` | the run time table, including whether a priority message is running |
 | `F"` | general information, described below |
 
-`F"` is the one worth knowing about and the one nothing here has ever sent. Table 16 gives
+`F"` is the one worth knowing about, and `GET /sign/information` now sends it. Table 16 gives
 its reply as `FFFFFFFFfMmYyHhNnRSSPOOL,pool`: eight characters of firmware version, a
 revision letter, the firmware's release month and year, the sign's clock, the time format,
 the speaker status, and the memory pool's total and unused size. The document's own note on
@@ -498,6 +500,18 @@ it answers in one read most of what the four above answer separately.
 It is also the only way to ask this sign what it is, which is an open question rather than
 an idle one: the extended character table's footnote claims a Betabrite 1036 draws the
 pictographs at C2H to D9H, and this sign draws none of them.
+
+Two things about the reply are worth knowing before touching `readerboard/protocol/replies.py`.
+The sign echoes the **write** command code `E` in its answer to a read, not the `F` that was
+sent, which reads like a mistake in the document and is what it specifies. And the length is
+"28 or 29 ASCII characters", the difference being the firmware revision letter, which sits in
+the middle: read the fields left to right at fixed offsets and a sign that omits it shifts
+every field after it into a plausible wrong answer. The parser measures from both ends
+instead.
+
+Collecting the reply has its own trap, described under "Reading state back" and now encoded
+in `tests/test_controller.py`: the answer is read until the line has been quiet for several
+polls, never with a single `read(in_waiting or 1)`.
 
 These would turn divergence detection from a timer into a question. The service currently
 re-pushes everything every fifteen minutes, because the sign and the Ethernet adapter are
@@ -536,10 +550,57 @@ Tables 65 to 67 (modes), the display position field, the whole control code tabl
 Appendix G, and the appendix index. What follows is the result, so that the next person
 asking "did we miss a feature?" can read it rather than derive it again.
 
+### One mode the document does not describe at all
+
+Table 65 has twenty-two rows and twenty-one of them carry a name and a
+description. The row for `d` (64H) carries the word "reserved" and nothing else.
+
+On this sign it is a mode. Held for thirty seconds on 2026-09-10, against `AUTO`
+and against `HOLD` in the same run, it drew the message with a random transition
+and a random colour. `AUTO` shuffles the transition only, so the colour is what
+separates them, and nothing else in the table randomises colour. It is offered as
+`AUTO_COLOR`.
+
+The colour randomisation overrides the message. Every sample in that run was
+written with an explicit green in front of it, `1CH 32H`, and the sign drew it in
+changing colours anyway.
+
+This is the fifth thing the document has got wrong about this hardware, and the
+first where it was wrong by omission rather than by promising too much. The other
+four all over-promised: double height, the wide character set, the programmable
+tone's frequency byte, and the four text positions. An empty row turns out to be
+a stronger reason to look than a row that says no.
+
+`tests/test_constant_values.py::test_the_mode_the_document_calls_reserved` pins
+the byte, and says in its docstring that it is the one value in that file with no
+citation behind it, because the document has none to give.
+
+### The gap between the two special mode tables is empty, and was checked
+
+Table 66 runs its specifiers from `0` to `C` and Table 67 begins at `S`, skipping `T`.
+Nothing in the document says what, if anything, lives in between. After 64H turned out to
+be a real mode hiding under the word "reserved", that gap looked worth a sweep.
+
+It is empty. All sixteen codes, `nD` through `nR` and `nT`, went to the sign on 2026-09-10
+and every one of them drew INTERLOCK.
+
+Two things follow, and the second is the more useful.
+
+The sweep is done and does not need repeating. This is recorded as a negative result on
+purpose: "nobody has looked" and "somebody looked and there is nothing there" are different
+states, and only one of them is worth spending four minutes of attention on again.
+
+**An unrecognised special mode specifier is not refused, it falls back to INTERLOCK.** The
+sign accepted every one of those writes and displayed the message; it simply drew it in a
+mode nobody asked for. So a message that interlocks for no apparent reason is worth
+suspecting a bad specifier byte, and the sign will never say so itself. Why INTERLOCK is
+the fallback rather than the first entry in the table is not known and the document does
+not say.
+
 ### Modes and positions are complete
 
 Table 65 has twenty-two standard mode codes and every one is accounted for. `d` (64H) is
-reserved. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
+the mode the document calls reserved and this sign draws anyway, described above. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
 through. `m` (6DH) SCROLL is "New message line pushes the bottom line to the top line **if
 2-line sign**". `u` (75H) EXPLODE and `v` (76H) CLOCK are both marked Alpha 3.0, and Table
 3 gives a Betabrite as EZ KEY II and Alpha 1.0 only. The remaining seventeen are all
@@ -552,12 +613,21 @@ footnote reads "COLOR CYCLE will only work on AlphaEclipse 3600 signs". All seve
 The display position field has six values. The four the service offers are `20H` Middle,
 `22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0 only.
 
-One thing about those four is unsettled and worth a parade. The note closing that list
-reads: "On one-line signs, the Display Position is irrelevant." A Betabrite is one line,
-so all four may well draw identically, exactly as twenty ways of drawing text collapsed
-into five. Nobody has put them on the sign. Until somebody does, four positions are
-offered on the strength of the document alone, which is the weakest evidence this project
-accepts anywhere else.
+None of the four is offered any more. The note closing that list reads: "On one-line
+signs, the Display Position is irrelevant", a Betabrite is one line, and the sign
+confirmed it on 2026-09-10: all four drew the same thing. So they went the way
+`<wide_on>` and `<dbl_height_on>` went, and for the same reason. A name for a distinction
+nobody can see is a promise the sign does not keep.
+
+The byte did not go anywhere, because it cannot. The document is explicit that "Display
+Position is irrelevant, but it still must be included", so `frames.write_text_file` sends
+`TEXT_POS_MIDDLE` on every write and takes no parameter for it. All four constants stay in
+`constants.py` with their citations, and the sign simulator still names all four, because
+it decodes what arrives on the wire rather than what this service chose to send.
+
+A caller that still sends a position is refused with a 422 rather than quietly having its
+choice dropped, because the request models forbid unknown fields. That is deliberate: a
+silent success would leave somebody believing the sign had honoured it.
 
 ### Excluded because the document says so
 
@@ -639,16 +709,23 @@ The tone command carries two footnotes that the implementation does not honour.
 
 > **4** Wait a minimum of 3 seconds before transmitting more data to the sign.
 
-`SOUND` does not settle. `readerboard/api/routes.py` passes `settle=resets_the_sign(...)`
-and `_RESETTING` holds only `SOFT_RESET`, so after a tone the next write goes out once
-`inter_packet_delay` has passed, which defaults to half a second. A write inside that
-window reaches a sign whose serial port is off and is lost, and the controller's
-suppression cache then believes it succeeded, so nothing retries it until the next
-periodic re-push.
+`SOUND` did not settle. A soft reset was the only command that asked for a wait, so after
+a tone the next write went out once `inter_packet_delay` had passed, which defaults to half
+a second. A write inside that window reached a sign whose serial port was off and was lost,
+and the controller's suppression cache then believed it had succeeded, so nothing retried
+it until the next periodic re-push.
 
-This is recorded rather than fixed, deliberately: it is a behaviour change to a command
-already under review, and it wants a regression test that can actually observe a dropped
-write rather than one that merely asserts a delay.
+This is fixed. `SOUND` now asks for `SOUND_SETTLE_SECONDS`, three, and the controller holds
+the sign's lock across the send and the wait, so another writer queues rather than writing
+into the gap. The wait is governed by `settle_delays_enabled` alone, so pacing the line
+differently cannot take it away.
+
+The property that made the fix worth generalising is that a tone is not a reset and deafens
+the sign anyway, so `resets_the_sign` became `quiet_seconds_after`: it asks how long the
+sign cannot listen rather than why. The regression test drives a write at a controller that
+is mid-tone and asserts the write does not complete, which is a test that could have shown
+the failure; asserting that the settle map contains three seconds would only have compared
+the map to itself.
 
 ## Constraints the frame builders honour
 

@@ -55,6 +55,40 @@ MEMORY_CLEAR_SETTLE_SECONDS = 2.0
 # a simulator, and neither has a reset to sit through.
 RESET_SETTLE_SECONDS = 10.0
 
+# How long the sign cannot hear anything after it has been asked to make a
+# noise. The document is unusually direct about this, in two footnotes to the
+# tone command in Table 15:
+#
+#   "the tone generation command must be the last transmission frame because the
+#   sign's serial port is disabled (and cannot receive any data) while a tone is
+#   generated"
+#
+#   "Wait a minimum of 3 seconds before transmitting more data to the sign"
+#
+# Both fixed sounds this service offers, the continuous tone and the three
+# beeps, run for about two seconds, and the footnote asks for three. So a beep
+# is not a reset and still leaves the sign deaf, which is why the wait below is
+# not about restarting at all.
+#
+# Without it the next write goes out one inter_packet_delay later, half a second
+# by default, into a sign that is not listening. It is not refused: the
+# transport accepts it, the suppression cache records the file as holding those
+# bytes, and nothing writes them again until the next periodic re-push.
+SOUND_SETTLE_SECONDS = 3.0
+
+# Reading a reply. The sign begins answering with a long run of nulls and the
+# payload follows a moment behind, so a reader that takes what is waiting and
+# stops gets a lone null byte back from every question it asks. Two of those
+# compare equal, which looks like a confirmation and is not; that mistake was
+# made once already against this sign. So a reply is collected until the line
+# has been quiet for a few polls running.
+#
+# The numbers are polls rather than seconds so that a test can drive this with a
+# sleep that records instead of waiting, and still exercise the same loop.
+READ_POLL_SECONDS = 0.05
+READ_QUIET_POLLS = 4
+READ_TIMEOUT_SECONDS = 3.0
+
 ReconnectHook = Callable[[], Awaitable[None]]
 
 
@@ -70,10 +104,20 @@ class SignController:
         transport: Transport,
         *,
         inter_packet_delay: float = 0.5,
+        settle: bool = True,
         now: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         """Wrap a transport. Nothing is sent until :meth:`start`.
+
+        ``settle`` is whether to sit out the windows in which the sign cannot
+        listen, after a reset or a tone. Turn it off only for something that is
+        not a sign: the simulator has no diagnostics to run and no speaker to
+        switch its port off for, so waiting for it is twelve seconds of nothing
+        on every start. It is deliberately not the same knob as
+        ``inter_packet_delay``. That one is how fast this end may talk; a settle
+        is how long the other end is deaf, which is a fact about the hardware
+        and not about pacing.
 
         ``sleep`` is injected for the same reason ``now`` is: so a test can ask
         what the controller waited for rather than how long it actually took.
@@ -84,6 +128,7 @@ class SignController:
         """
         self._transport = transport
         self._inter_packet_delay = inter_packet_delay
+        self._settle = settle
         self._now = now
         self._sleep = sleep
 
@@ -175,7 +220,6 @@ class SignController:
         body: bytes,
         *,
         mode: bytes = c.MODE_HOLD,
-        position: bytes = c.TEXT_POS_MIDDLE,
         force: bool = False,
     ) -> bool:
         """Put ``body`` in a sign file. Returns False if the write was suppressed.
@@ -184,7 +228,7 @@ class SignController:
         hold. It is for the case where that belief is exactly what is in doubt,
         such as re-asserting an alert after the sign may have been power cycled.
         """
-        payload = frames.write_text_file(label, body, mode=mode, position=position)
+        payload = frames.write_text_file(label, body, mode=mode)
         if force:
             await self._send(payload)
             self._file_contents[label] = payload
@@ -196,7 +240,6 @@ class SignController:
         body: bytes,
         *,
         mode: bytes = c.MODE_HOLD,
-        position: bytes = c.TEXT_POS_MIDDLE,
         force: bool = False,
     ) -> bool:
         """Take the display over with an alert.
@@ -207,7 +250,7 @@ class SignController:
         the screen. :meth:`clear_priority` sends the bare write a release needs.
         """
         return await self.write_text_file(
-            c.FILE_PRIORITY, body, mode=mode, position=position, force=force
+            c.FILE_PRIORITY, body, mode=mode, force=force
         )
 
     async def clear_priority(self, *, force: bool = False) -> bool:
@@ -270,10 +313,8 @@ class SignController:
             await self._send_locked(frames.clear_memory())
             # Let the reset the clear triggers finish before the configuration
             # lands, or the configuration arrives while the sign is deaf and is
-            # lost. Gated on the same delay as the per-packet wait: a link told
-            # to pace nothing is a fake or a simulator, which has no reset to
-            # wait through.
-            if self._inter_packet_delay:
+            # lost.
+            if self._settle:
                 await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
             await self._send_locked(frames.set_memory_config(allocations))
             # The configuration buffers through the reset, but message content
@@ -281,29 +322,83 @@ class SignController:
             # to hold one buffered write. Whoever rebuilds the display next is
             # holding this lock's queue, so waiting here is what stops their
             # writes landing on a sign that cannot say it missed them.
-            if self._inter_packet_delay:
+            if self._settle:
                 await self._sleep(RESET_SETTLE_SECONDS)
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
 
-    async def send_special(self, payload: bytes, *, settle: bool = False) -> None:
+    async def send_special(self, payload: bytes, *, settle_seconds: float = 0.0) -> None:
         """Send a special function such as a clock command.
 
         Never suppressed. Setting the clock to the same value it already holds
         is still worth doing, because the point is to correct drift we cannot
         see.
 
-        ``settle`` is for a command that restarts the sign. It holds the lock
-        through the sign's power-up diagnostics, so the send and the wait are
-        one uninterruptible step and another caller's write queues rather than
-        being thrown at a sign that is deaf and cannot say so. Gated on
-        ``inter_packet_delay``, which a fake or a simulator sets to zero because
-        neither has a reset to sit through.
+        ``settle_seconds`` is for a command that leaves the sign unable to
+        listen: a reset running its power-up diagnostics, or a tone, during
+        which the protocol says the serial port is switched off. The wait is
+        taken with the lock held, so the send and the wait are one
+        uninterruptible step and another caller's write queues instead of being
+        thrown at a sign that is deaf and cannot say so.
+
+        Skipped only when the controller was built with ``settle`` false, which
+        says the thing on the other end is not a sign. It is not tied to
+        ``inter_packet_delay``: a sign paced as fast as the line allows is deaf
+        for exactly as long after a tone as a slowly paced one.
         """
         async with self._lock:
             await self._send_locked(payload)
-            if settle and self._inter_packet_delay:
-                await self._sleep(RESET_SETTLE_SECONDS)
+            if settle_seconds and self._settle:
+                await self._sleep(settle_seconds)
+
+    async def read_special(self, payload: bytes) -> bytes:
+        """Ask the sign a question and collect the whole answer.
+
+        Holds the lock across the send and the read, which is not optional. The
+        reply is matched to the question by nothing but arriving next: the sign
+        stamps its answer with the Response type code and an address it sends
+        "regardless of the sign's actual address", so two reads in flight at
+        once would be told apart by luck. Holding the lock is what makes "the
+        next thing on the wire" mean "the answer to this".
+
+        Raises :class:`TransportError` when the sign says nothing at all, which
+        is the same class a failed write raises and reaches a caller as a 503.
+        """
+        async with self._lock:
+            await self._send_locked(payload)
+
+            reply = bytearray()
+            quiet = 0
+            polls = max(1, int(READ_TIMEOUT_SECONDS / READ_POLL_SECONDS))
+
+            for _ in range(polls):
+                try:
+                    chunk = await asyncio.to_thread(self._transport.read_available)
+                except TransportError:
+                    raise
+                except Exception as err:
+                    raise TransportError(
+                        "reading from %s failed: %s" % (self._transport.description, err)
+                    ) from err
+
+                if chunk:
+                    reply += chunk
+                    quiet = 0
+                elif reply:
+                    quiet += 1
+                    if quiet >= READ_QUIET_POLLS:
+                        break
+
+                await self._sleep(READ_POLL_SECONDS)
+
+            if not reply:
+                raise TransportError(
+                    "the sign at %s did not answer within %.1fs"
+                    % (self._transport.description, READ_TIMEOUT_SECONDS)
+                )
+
+            logger.debug("read %d byte(s) from %s", len(reply), self._transport.description)
+            return bytes(reply)
 
     # == internals ==========================================================
 

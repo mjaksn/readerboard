@@ -6,7 +6,7 @@ file, carrying the label and nothing else, at which point the sign resumes its
 run sequence by itself and nothing has to rebuild the rotation.
 
 An ordinary write with an empty body is not a release and was measured not to
-be: it still carries a Start-of-Message byte, a position and a mode, which the
+be: it still carries a Start-of-Message byte, a position byte and a mode, which the
 sign reads as a blank priority message and displays, keeping the screen rather
 than handing it back. See :meth:`SignController.clear_priority`.
 
@@ -24,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 
 from readerboard.protocol import constants as c
 from readerboard.protocol.markup import render
-from readerboard.protocol.tokens import MODE_BY_NAME, POSITION_BY_NAME
+from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign.controller import SignController
 from readerboard.sign.state import AlertState, ServiceState, StateStore
 
@@ -165,7 +165,6 @@ class AlertService:
         message: str,
         *,
         mode: str,
-        position: str,
         ttl_seconds: float | None = None,
     ) -> AlertState:
         """Take the sign over with an alert."""
@@ -180,7 +179,6 @@ class AlertService:
         alert = AlertState(
             message=message,
             mode=mode,
-            position=position,
             started_at=now,
             expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
         )
@@ -237,6 +235,5 @@ class AlertService:
         await self._controller.write_priority(
             render(alert.message, strict=False),
             mode=MODE_BY_NAME[alert.mode].value,
-            position=POSITION_BY_NAME[alert.position].value,
             force=force,
         )

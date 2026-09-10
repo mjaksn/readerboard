@@ -24,15 +24,17 @@ from readerboard.api.models import (
     ClockResponse,
     ControlCommandRequest,
     MessageRequest,
+    SignInformationResponse,
     SlotKey,
     SlotResponse,
     TokenInfo,
 )
+from readerboard.protocol import frames
+from readerboard.protocol.replies import parse_general_information
 from readerboard.protocol.tokens import (
     CONTROL_COMMANDS,
     DISPLAY_MODES,
     MARKUP_TOKENS,
-    TEXT_POSITIONS,
     Token,
 )
 from readerboard.services import commands
@@ -75,7 +77,6 @@ async def put_message(
         key,
         body.message,
         mode=body.display_mode,
-        position=body.position,
         order=body.order,
         ttl_seconds=body.ttl_seconds,
         source=body.source,
@@ -130,7 +131,6 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     alert = await alerts.raise_alert(
         body.message,
         mode=body.display_mode,
-        position=body.position,
         ttl_seconds=body.ttl_seconds,
     )
     return AlertResponse.of(alert)
@@ -163,6 +163,37 @@ async def sync_clock(clock: ClockDep) -> ClockResponse:
     return ClockResponse(synced_at=await clock.sync())
 
 
+@sign_routes.get(
+    "/information",
+    summary="Ask the sign what it is and how it is doing",
+    dependencies=[RequireApiKey],
+)
+async def sign_information(controller: ControllerDep) -> SignInformationResponse:
+    """Read the sign's own account of itself.
+
+    The firmware build and the month it was released, the sign's clock and
+    whether it draws a 12 or 24 hour one, whether its speaker is enabled, and
+    how much of its memory pool is free. The protocol document calls this "most
+    useful as a source of troubleshooting information", which is a fair summary:
+    nothing here changes anything.
+
+    This is the only read in the service, so it is also the only place a silent
+    sign is distinguishable from an unplugged one. A sign that does not answer
+    within a few seconds is a 503, the same as a sign that cannot be written to,
+    and so is a sign that answers with something this cannot read: the reply is
+    the whole of what the endpoint has, so one that will not parse leaves it
+    with nothing to report.
+
+    Two fields are worth reading carefully. `speaker_enabled` is why `SOUND` can
+    appear to do nothing: the protocol calls disabled the default, and a muted
+    sign beeps silently. And `memory_free` is the pool the memory configuration
+    draws on, so a slot capacity that will not fit shows up here before it shows
+    up as a failed reallocation.
+    """
+    reply = await controller.read_special(frames.read_general_information())
+    return SignInformationResponse.of(parse_general_information(reply))
+
+
 @sign_routes.post(
     "/command",
     summary="Send a control command to the sign",
@@ -181,7 +212,7 @@ async def send_command(body: ControlCommandRequest, controller: ControllerDep) -
     """
     await controller.send_special(
         commands.build(body.command, body.parameter),
-        settle=commands.resets_the_sign(body.command),
+        settle_seconds=commands.quiet_seconds_after(body.command),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -237,12 +268,6 @@ async def markup_tokens() -> list[TokenInfo]:
 async def display_modes() -> list[TokenInfo]:
     """List every display mode."""
     return _as_info(DISPLAY_MODES)
-
-
-@enumerations.get("/text-positions", summary="Where text sits vertically")
-async def text_positions() -> list[TokenInfo]:
-    """List every vertical text position."""
-    return _as_info(TEXT_POSITIONS)
 
 
 @enumerations.get("/control-commands", summary="Commands aimed at the sign itself")

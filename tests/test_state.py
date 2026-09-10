@@ -25,7 +25,6 @@ def a_slot(key: str = "temperature", label: str = "A") -> SlotState:
         label=label,
         message="<green>18.4<degree>",
         mode="HOLD",
-        position="MIDDLE",
         updated_at=datetime(2026, 8, 25, 12, 0, tzinfo=UTC),
     )
 

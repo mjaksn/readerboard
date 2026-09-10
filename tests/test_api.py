@@ -11,6 +11,7 @@ from readerboard.api.app import create_app
 from readerboard.config import Settings
 from readerboard.protocol import frames
 from readerboard.services import commands
+from readerboard.sign.controller import RESET_SETTLE_SECONDS, SOUND_SETTLE_SECONDS
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
@@ -29,6 +30,9 @@ def settings(tmp_path) -> Settings:
         state_path=tmp_path / "state.json",
         serial_url="loop://",
         inter_packet_delay=0,
+        # Nothing here is a sign, so there is no deaf window to sit out and a
+        # reset settle would cost every test in this file ten seconds.
+        settle_delays_enabled=False,
         slot_count=3,
         slot_capacity=256,
         clock_sync_enabled=False,
@@ -354,10 +358,13 @@ class TestSignCommands:
         assert response.status_code == 400
         assert "TONE" in response.json()["detail"]
 
-    def test_sounding_the_speaker_does_not_wait(self):
-        # Only a restart makes the sign deaf. A beep must not hold the request
-        # open for the ten seconds a reset needs.
-        assert not commands.resets_the_sign("SOUND")
+    def test_sounding_the_speaker_waits_but_not_as_long_as_a_reset(self):
+        # A beep is not a restart and still leaves the sign deaf: the protocol
+        # switches its serial port off for the length of the tone and asks for
+        # three seconds before anything else is sent. So SOUND waits, and waits
+        # for its own duration rather than borrowing the reset's ten seconds.
+        assert commands.quiet_seconds_after("SOUND") == SOUND_SETTLE_SECONDS
+        assert SOUND_SETTLE_SECONDS < RESET_SETTLE_SECONDS
 
     def test_a_soft_reset(self, client, sign):
         client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
@@ -382,14 +389,14 @@ class TestSignCommands:
         assert frames.packet(frames.clear_memory()) not in sign.packets
         assert client.get("/messages").json()[0]["key"] == "one"
 
-    def test_only_a_reset_makes_the_route_wait(self):
-        # The wait is what stops a write landing while the sign is deaf through
-        # its diagnostics. Spelled out so that a command which restarts the sign
-        # has to declare itself here rather than quietly not waiting.
-        assert commands.resets_the_sign("SOFT_RESET")
-        assert commands.resets_the_sign("  soft_reset  ")
-        for name in ("SET_TIME", "SET_DAY_OF_WEEK", "SET_TIME_FORMAT"):
-            assert not commands.resets_the_sign(name)
+    def test_only_the_two_deafening_commands_make_the_route_wait(self):
+        # The wait is what stops a write landing while the sign cannot hear it.
+        # Spelled out so that a command which deafens the sign has to declare
+        # itself here rather than quietly not waiting.
+        assert commands.quiet_seconds_after("SOFT_RESET") == RESET_SETTLE_SECONDS
+        assert commands.quiet_seconds_after("  soft_reset  ") == RESET_SETTLE_SECONDS
+        for name in ("SET_TIME", "SET_DAY_OF_WEEK", "SET_TIME_FORMAT", "SPEAKER"):
+            assert commands.quiet_seconds_after(name) == 0.0
 
     def test_a_soft_reset_with_a_parameter_is_400(self, client):
         # Refused rather than ignored: the caller meant something by it.
@@ -455,13 +462,126 @@ class TestSignCommands:
         assert response.status_code == 400
 
 
+class TestSignInformation:
+    """The service's only read, and the only place a silent sign is visible."""
+
+    def reply(self, data: bytes) -> bytes:
+        """Frame a data field the way the sign frames its answers."""
+        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + b"\x02" + b"E" + b'"' + data + b"\x03"
+
+    def test_it_reports_what_the_sign_says(self, client, sign):
+        sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
+
+        body = client.get("/sign/information", headers=HEADERS).json()
+
+        assert body["firmware_version"] == "1044-160"
+        assert body["firmware_revision"] == "B"
+        assert body["firmware_released"] == "01/93"
+        assert body["clock"] == "14:33"
+        assert body["time_format"] == "24 hour"
+        assert body["speaker_enabled"] is True
+        assert body["memory_total"] == 0x4000
+        assert body["memory_free"] == 0x0BB8
+
+    def test_it_asks_the_sign_the_right_question(self, client, sign):
+        sign.packets.clear()  # startup has already configured the sign
+        sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
+
+        client.get("/sign/information", headers=HEADERS)
+
+        assert sign.packets == [frames.packet(frames.read_general_information())]
+
+    def test_a_muted_sign_is_reported_as_muted(self, client, sign):
+        # The answer to "SOUND does nothing", and the reason this endpoint is
+        # worth having rather than being a curiosity.
+        sign.replies = [self.reply(b"1044-160B01931433MFF4000,0BB8")]
+
+        body = client.get("/sign/information", headers=HEADERS).json()
+
+        assert body["speaker_enabled"] is False
+
+    def test_a_sign_that_says_nothing_is_a_503(self, client, sign):
+        # Nothing scripted, so the fake answers every read with silence.
+        response = client.get("/sign/information", headers=HEADERS)
+
+        assert response.status_code == 503
+
+    def test_a_reply_that_will_not_parse_is_a_503_rather_than_a_500(self, client, sign):
+        """An unreadable answer is the sign's failure, not the caller's.
+
+        The reply is the whole of what this endpoint has, so one that will not
+        parse leaves it with nothing to report, exactly as silence does. Without
+        ReplyError in the status table it reached no handler of ours and came
+        back as a 500, which reads as a bug in the service.
+        """
+        sign.replies = [self.reply(b"not a general information reply")]
+
+        response = client.get("/sign/information", headers=HEADERS)
+
+        assert response.status_code == 503
+
+    def test_it_needs_the_api_key(self, client):
+        # A read changes nothing and is still gated, because it reports the
+        # sign's firmware and how full its memory is.
+        assert client.get("/sign/information").status_code == 401
+
+    def test_it_changes_nothing_on_the_sign(self, client, sign):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.packets.clear()
+        sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
+
+        client.get("/sign/information", headers=HEADERS)
+
+        # One packet, and it is the question. Nothing was written.
+        assert sign.packets == [frames.packet(frames.read_general_information())]
+        assert client.get("/messages").json()[0]["key"] == "one"
+
+
+class TestThereIsNoVerticalPosition:
+    """The four positions are gone, and the absence is pinned in three places.
+
+    They all drew the same thing on a sign one line high, which is what the
+    document says of any one-line sign and what this one confirmed. A name for a
+    distinction nobody can see is a promise the sign does not keep.
+
+    The byte itself still goes out on every write, because the protocol requires
+    it. ``tests/test_frames.py`` pins that; this pins the vocabulary.
+    """
+
+    def test_the_enumeration_endpoint_is_gone(self, client):
+        assert client.get("/enumerations/text-positions").status_code == 404
+
+    def test_a_message_carrying_a_position_is_refused_rather_than_ignored(self, client):
+        # The request models forbid unknown fields, so an old caller is told
+        # rather than quietly having its choice dropped. That is the whole
+        # reason this is a 422 and not a 200.
+        response = client.put(
+            "/messages/temperature",
+            json={"message": "HI", "position": "TOP"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+
+    def test_an_alert_carrying_a_position_is_refused_too(self, client):
+        response = client.post(
+            "/alerts",
+            json={"message": "HI", "position": "TOP"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+
+    def test_a_stored_slot_no_longer_reports_one(self, client):
+        client.put("/messages/temperature", json={"message": "HI"}, headers=HEADERS)
+        body = client.get("/messages/temperature", headers=HEADERS).json()
+        assert "position" not in body
+
+
 class TestEnumerations:
     @pytest.mark.parametrize(
         "path",
         [
             "/enumerations/markup-tokens",
             "/enumerations/display-modes",
-            "/enumerations/text-positions",
             "/enumerations/control-commands",
         ],
     )
@@ -601,6 +721,7 @@ class TestNoApiKeyConfigured:
             api_key="",
             state_path=tmp_path / "state.json",
             inter_packet_delay=0,
+            settle_delays_enabled=False,
             clock_sync_enabled=False,
         )
         with TestClient(create_app(settings, transport=sign)) as client:

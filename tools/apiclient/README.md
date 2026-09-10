@@ -31,8 +31,8 @@ drill-down and no wizard: the things that would need a quarter of the window to
 show properly, a set of markup tokens or a call's full detail, open as dialogs
 instead.
 
-**Nothing is hardcoded.** The markup tokens, display modes, text positions and
-control commands all start empty. Press the button beside a set and the client
+**Nothing is hardcoded.** The markup tokens, display modes and control commands
+all start empty. Press the button beside a set and the client
 calls the endpoint for it; the row then says how many arrived, from which
 endpoint and when, and a View button opens the list. Only then do the fields that
 use that set offer it: before that they are free text, and the button that
@@ -97,7 +97,7 @@ anybody sent ends up on disk.
 
 ## The API key
 
-The key is sent as `X-API-Key` on the writes that need it, and it is treated as a
+The key is sent as `X-API-Key` on the requests that need it, and it is treated as a
 secret everywhere else:
 
 - It is not saved between runs. The base URL is; the key is not.

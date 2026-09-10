@@ -147,6 +147,8 @@ SPECIAL_FUNCTION_LABELS = [
     (c.CMD_SET_TIME, b"\x20", '" " 20H Set Time of Day, Table 15'),
     (c.CMD_SET_DAY_OF_WEEK, b"\x26", '"&" 26H Set Day of Week, Table 15'),
     (c.CMD_SET_TIME_FORMAT, b"\x27", "\"'\" 27H Set Time Format, Table 15"),
+    (c.TIME_FORMAT_12_HOUR, b"\x53", '"S" 53H 12 hour format (default), Table 15'),
+    (c.TIME_FORMAT_24_HOUR, b"\x4d", '"M" 4DH 24 hour format, Table 15'),
     (c.CMD_SOFT_RESET, b"\x2c", '"," 2CH Soft Reset, Table 15'),
     (c.CMD_SPEAKER_TONE, b"\x28", '"(" 28H Generate Speaker Tone, Table 15'),
     (c.TONE_CONTINUOUS, b"\x30", '"0" 30H continuous tone for about 2 seconds, Table 15'),
@@ -325,6 +327,29 @@ STANDARD_MODES = [
 @pytest.mark.parametrize("actual,expected,citation", STANDARD_MODES)
 def test_standard_modes(actual, expected, citation):
     assert actual == expected, "Table 64 page 88, %s" % citation
+
+
+def test_the_mode_the_document_calls_reserved():
+    """64H is the one mode here with no citation, because the document has none.
+
+    Its row in the Standard Modes table carries the word "reserved" and nothing
+    else: no name, no description. Every other value in this file is pinned
+    against something the document states. This one is pinned against the sign.
+
+    On 2026-09-10 it was held for thirty seconds against AUTO and against HOLD.
+    It draws the message with a random transition, which is what AUTO does, and
+    a random colour, which AUTO does not: the sample was written with an explicit
+    green in front of it and came back in changing colours, so the mode overrides
+    the colour the message asked for.
+
+    Kept as its own test rather than added to the table above so that nobody
+    reads it as a documented value.
+    """
+    assert c.MODE_AUTO_COLOR == b"d"
+    assert bytes([0x64]) == c.MODE_AUTO_COLOR
+    # Neighbours, so a transcription slip that shifted the letter is caught.
+    assert c.MODE_FLASH == b"c"
+    assert c.MODE_ROLLUP == b"e"
 
 
 # ===========================================================================
@@ -623,6 +648,16 @@ def test_every_extended_character_used_by_markup_has_both_forms():
             character,
             hexes(value),
         )
+
+
+def test_the_general_information_label():
+    """Table 16, document page 29: '"' (22H) is Read General Information.
+
+    Read only. There is no write with this label, which is why it sits apart
+    from the write labels pinned above.
+    """
+    assert c.SF_GENERAL_INFORMATION == b'"'
+    assert bytes([0x22]) == c.SF_GENERAL_INFORMATION
 
 
 def test_extended_character_identities_come_from_the_printed_table():

@@ -427,10 +427,12 @@ def _start_service(args: argparse.Namespace, serial_url: str) -> subprocess.Pope
     # itself. Setting one here would override a key deliberately blanked, whose
     # meaning to the service is that every write answers 503.
     #
-    # Deliberately not set either: inter_packet_delay and clock_sync_enabled. The
-    # simulator launcher turns both down because there is no serial line to be
-    # gentle with and no clock to set. There is a real one of each here, so the
-    # defaults stand and the config file decides.
+    # Deliberately not set either: inter_packet_delay, clock_sync_enabled and
+    # settle_delays_enabled. The simulator launcher turns all three down because
+    # there is no serial line to be gentle with, no clock to set, and nothing
+    # that goes deaf. There is a real one of each here, so the defaults stand
+    # and the config file decides. The settle in particular must stay on: it is
+    # the wait that keeps a write from landing on a sign that cannot hear it.
 
     return subprocess.Popen(
         [sys.executable, "-m", "readerboard"],

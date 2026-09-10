@@ -71,6 +71,16 @@ class Settings(BaseSettings):
             "this sign actually needs"
         ),
     )
+    settle_delays_enabled: bool = Field(
+        default=True,
+        description=(
+            "whether to wait out the windows in which the sign cannot listen, after a "
+            "reset or a tone. Turn this off only when the far end is not a sign: the "
+            "simulator has no diagnostics to run and no speaker to switch its port off "
+            "for. Against a real sign it costs the writes that land while it is deaf, "
+            "which fail silently"
+        ),
+    )
     backoff_initial: float = Field(default=1.0, gt=0)
     backoff_max: float = Field(default=60.0, gt=0)
 

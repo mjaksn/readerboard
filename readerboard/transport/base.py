@@ -48,6 +48,18 @@ class Transport(Protocol):
         """
         ...
 
+    def read_available(self) -> bytes:
+        """Return whatever the sign has sent and not yet been collected.
+
+        Returns empty when there is nothing waiting. It does not block for a
+        reply and does not decide when one is finished, because neither can be
+        answered from here: the sign sends a run of nulls well ahead of the
+        payload, so the first non-empty read is nowhere near the whole answer.
+        Collecting until the line goes quiet is the caller's job, and
+        :meth:`SignController.read_special` is where that lives.
+        """
+        ...
+
     def close(self) -> None:
         """Close the link. Closing an already closed link does nothing."""
         ...

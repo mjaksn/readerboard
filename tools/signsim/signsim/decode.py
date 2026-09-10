@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from readerboard.protocol import constants as c
-from readerboard.protocol.tokens import DISPLAY_MODES, TEXT_POSITIONS
+from readerboard.protocol.tokens import DISPLAY_MODES
 from signsim.framing import Transmission
 from signsim.spans import Span, SpanKind, annotate, readable
 
@@ -243,7 +243,18 @@ RUN_SEQUENCE_MODES: dict[bytes, str] = {
 DAY_NAMES = ("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
 
 _MODES_BY_VALUE = {token.value: token for token in DISPLAY_MODES}
-_POSITIONS_BY_VALUE = {token.value: token for token in TEXT_POSITIONS}
+# The service no longer offers a vertical position, because all four draw the
+# same thing on a one-line sign, so there is no token table to build this from
+# any more. The simulator still names all four: it decodes whatever arrives on
+# the wire, which includes messages from an older release, from another tool, or
+# from a hand-written packet, and "unknown position" for a byte the document
+# names would be the simulator lying about the protocol.
+_POSITION_NAMES = {
+    c.TEXT_POS_MIDDLE: "MIDDLE",
+    c.TEXT_POS_TOP: "TOP",
+    c.TEXT_POS_BOTTOM: "BOTTOM",
+    c.TEXT_POS_FILL: "FILL",
+}
 
 
 def mode_name(value: bytes) -> str:
@@ -254,8 +265,8 @@ def mode_name(value: bytes) -> str:
 
 def position_name(value: bytes) -> str:
     """Name a vertical text position, or say it is unknown."""
-    token = _POSITIONS_BY_VALUE.get(value)
-    return token.text if token is not None else "unknown position %r" % value.decode("latin-1")
+    name = _POSITION_NAMES.get(value)
+    return name if name is not None else "unknown position %r" % value.decode("latin-1")
 
 
 def printable(data: bytes) -> str:
@@ -427,7 +438,7 @@ def _write_text(payload: bytes, offset: int) -> Command:
                     "How the message arrives on the sign",
                 )
             )
-        if position and position not in _POSITIONS_BY_VALUE:
+        if position and position not in _POSITION_NAMES:
             complaints.append(
                 "vertical position %r is not one the protocol lists" % printable(position)
             )

@@ -118,6 +118,34 @@ class SerialTransport:
                 self._close_locked()
                 raise TransportError("write to %s failed: %s" % (self._url, err)) from err
 
+    def read_available(self) -> bytes:
+        """Collect whatever has arrived, without waiting for more.
+
+        A failure here drops the link and is reported like a failed write, which
+        matters because the usual reason a read returns nothing forever is that
+        the link is gone rather than that the sign is thinking.
+
+        A down link is described by :meth:`_down_error` for the same reason a
+        write's is: this one reaches a caller of ``GET /sign/information`` as the
+        body of a 503, and "is down" on its own tells them neither why nor how
+        long to wait.
+        """
+        if not self.is_open:
+            raise self._down_error()
+        with self._lock:
+            port = self._port
+            if port is None:
+                raise self._down_error()
+            try:
+                waiting = port.in_waiting
+                if not waiting:
+                    return b""
+                return bytes(port.read(waiting))
+            except (serial.SerialException, OSError) as err:
+                self._record_failure(err)
+                self._close_locked()
+                raise TransportError("read from %s failed: %s" % (self._url, err)) from err
+
     def close(self) -> None:
         """Close the link. Closing an already closed link does nothing."""
         with self._lock:
@@ -153,10 +181,13 @@ class SerialTransport:
     def _down_error(self) -> TransportError:
         """Describe a link that is down, in the one way every path reporting it uses.
 
-        Three paths report it, and the text is the whole of what a caller gets:
-        the service maps :class:`TransportError` to a 503 and uses this as the
-        body. So the reason the link failed and the wait until the next attempt
-        belong in all three, not just the ones where they were convenient.
+        Every path that reports a down link comes through here: the write, the
+        read, the reconnect, and the race each of the first two has between
+        checking and taking the lock. The text is the whole of what a caller
+        gets, because the service maps :class:`TransportError` to a 503 and uses
+        it as the body. So the reason the link failed and the wait until the
+        next attempt belong in all of them, not only the ones where carrying
+        them was convenient.
         """
         waiting = max(0.0, self._retry_after - self._monotonic())
         return TransportError(

@@ -26,9 +26,14 @@ from __future__ import annotations
 
 from readerboard.protocol import frames
 from readerboard.protocol.tokens import COMMAND_BY_NAME
+from readerboard.sign.controller import RESET_SETTLE_SECONDS, SOUND_SETTLE_SECONDS
 
-# The commands that put the sign through a restart. See :func:`resets_the_sign`.
-_RESETTING = frozenset({"SOFT_RESET"})
+# How long the sign cannot listen after each command. See
+# :func:`quiet_seconds_after`. A command absent from this map costs nothing.
+_QUIET_AFTER = {
+    "SOFT_RESET": RESET_SETTLE_SECONDS,
+    "SOUND": SOUND_SETTLE_SECONDS,
+}
 
 
 class UnknownCommand(ValueError):
@@ -81,15 +86,23 @@ def build(name: str, parameter: str) -> bytes:
     raise UnknownCommand("control command %r has no handler" % command)  # pragma: no cover
 
 
-def resets_the_sign(name: str) -> bool:
-    """Whether a command restarts the sign, so the caller should wait it out.
+def quiet_seconds_after(name: str) -> float:
+    """How long the sign cannot be written to once this command has been sent.
 
-    The sign is deaf while it runs its power-up diagnostics. A write sent into
-    that window is not refused, it is simply not there afterwards, which is the
-    quietest way for a message to go missing. The route holds the request open
-    instead, so a 204 means the sign is back rather than that bytes were sent.
+    Two commands leave it deaf and they do so for different reasons, which is
+    why this asks about the effect rather than the cause. SOFT_RESET restarts
+    the sign and it hears nothing through its power-up diagnostics. SOUND is not
+    a reset at all, and the protocol still switches the serial port off for the
+    length of the tone: "the tone generation command must be the last
+    transmission frame because the sign's serial port is disabled (and cannot
+    receive any data) while a tone is generated".
+
+    A write sent into either window is not refused, it is simply not there
+    afterwards, which is the quietest way for a message to go missing. The route
+    holds the request open instead, so a 204 means the sign is listening again
+    rather than that bytes were sent.
     """
-    return name.strip().upper() in _RESETTING
+    return _QUIET_AFTER.get(name.strip().upper(), 0.0)
 
 
 def _set_time(parameter: str) -> bytes:
@@ -138,7 +151,7 @@ def _speaker(parameter: str) -> bytes:
 
 def _sound(parameter: str) -> bytes:
     # Named rather than passed through as the protocol's "0" and "1", the way
-    # display modes and text positions are named. The sounds are spelled out
+    # display modes are named. The sounds are spelled out
     # instead of taking the protocol's programmable form, because this sign's
     # buzzer ignores the frequency that form carries; see constants.py.
     value = parameter.strip().upper()

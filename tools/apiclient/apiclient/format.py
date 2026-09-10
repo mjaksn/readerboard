@@ -303,7 +303,7 @@ def _health(payload: object) -> list[Block]:
     ]
 
 
-_SLOT_COLUMNS = ("key", "file", "message", "mode", "position", "order", "source", "expires")
+_SLOT_COLUMNS = ("key", "file", "message", "mode", "order", "source", "expires")
 
 
 def _slot_row(slot: dict[str, object]) -> tuple[str, ...]:
@@ -314,7 +314,6 @@ def _slot_row(slot: dict[str, object]) -> tuple[str, ...]:
         str(slot.get("label", "")),
         str(slot.get("message", "")),
         str(slot.get("display_mode", "")),
-        str(slot.get("position", "")),
         str(slot.get("order", "")),
         str(slot.get("source") or ""),
         when(expires) if expires else "never",
@@ -349,7 +348,6 @@ def _slot(payload: object) -> list[Block]:
                 Row("sign file", str(payload.get("label", "")), "the file on the sign it occupies"),
                 Row("message", str(payload.get("message", ""))),
                 Row("display mode", str(payload.get("display_mode", ""))),
-                Row("position", str(payload.get("position", ""))),
                 Row("order", str(payload.get("order", ""))),
                 Row("source", str(payload.get("source") or "not recorded")),
                 Row(
@@ -374,7 +372,6 @@ def _alert(payload: object) -> list[Block]:
             rows=(
                 Row("message", str(payload.get("message", ""))),
                 Row("display mode", str(payload.get("display_mode", ""))),
-                Row("position", str(payload.get("position", ""))),
                 Row("started", when(payload.get("started_at"))),
                 Row(
                     "expires",
@@ -396,6 +393,62 @@ def _clock(payload: object) -> list[Block]:
         Section(title="", rows=(Row("synced at", when(payload.get("synced_at"))),)),
         Note("The sign was told this time in its configured zone."),
     ]
+
+
+def _sign_information(payload: object) -> list[Block]:
+    """Render what the sign says about itself.
+
+    The speaker line is spelled out rather than printed as a bare true or false,
+    because "disabled" is the answer to the question somebody is actually asking
+    when they read this, which is why SOUND appeared to do nothing.
+    """
+    if not isinstance(payload, dict):
+        return _generic(payload)
+
+    total = payload.get("memory_total")
+    free = payload.get("memory_free")
+    speaker = payload.get("speaker_enabled")
+
+    return [
+        Section(
+            title="Firmware",
+            rows=(
+                Row("version", str(payload.get("firmware_version", ""))),
+                Row("revision", str(payload.get("firmware_revision", "")) or "not reported"),
+                Row("released", str(payload.get("firmware_released", ""))),
+            ),
+        ),
+        Section(
+            title="Sign",
+            rows=(
+                Row("clock", str(payload.get("clock", ""))),
+                Row("time format", str(payload.get("time_format", ""))),
+                Row(
+                    "speaker",
+                    "enabled"
+                    if speaker is True
+                    else "disabled, so SOUND will be silent"
+                    if speaker is False
+                    else "",
+                ),
+            ),
+        ),
+        Section(
+            title="Memory pool",
+            rows=(
+                Row("total", _bytes(total)),
+                Row("free", _bytes(free)),
+            ),
+        ),
+        Note("Nothing here changes the sign. It is the one read the service makes."),
+    ]
+
+
+def _bytes(value: object) -> str:
+    """Render a byte count, or nothing when the sign did not report one."""
+    if not isinstance(value, int):
+        return ""
+    return "%d bytes" % value
 
 
 def _tokens(payload: object) -> list[Block]:
@@ -457,6 +510,7 @@ _FORMATTERS = {
     "slot": _slot,
     "alert": _alert,
     "clock": _clock,
+    "sign_information": _sign_information,
     "tokens": _tokens,
     "empty": _empty,
     "generic": _generic,

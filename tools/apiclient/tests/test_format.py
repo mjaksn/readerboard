@@ -103,7 +103,6 @@ def test_a_message_list_becomes_a_table():
                 "label": "A",
                 "message": "hello",
                 "display_mode": "HOLD",
-                "position": "MIDDLE",
                 "order": 0,
                 "source": "home assistant",
                 "expires_at": None,
@@ -151,7 +150,7 @@ def test_a_404_also_offers_the_reading_that_the_route_is_missing():
     # A client pointed at an older service gets a 404 for an endpoint that
     # service never had. Naming only the slot reading would send the reader
     # looking for the wrong thing.
-    result, _text = rendered_text("text_positions", 404, json.dumps({"detail": "Not Found"}))
+    result, _text = rendered_text("control_commands", 404, json.dumps({"detail": "Not Found"}))
     assert "no such route on this service" in result.headline
 
 
@@ -211,7 +210,6 @@ def test_markup_in_a_message_is_escaped_rather_than_rendered_as_html():
             "label": "A",
             "message": "<red>hot",
             "display_mode": "HOLD",
-            "position": "MIDDLE",
             "order": 0,
             "source": None,
             "expires_at": None,
@@ -271,7 +269,6 @@ def test_a_real_success_still_says_so():
             "label": "A",
             "message": "HI",
             "display_mode": "HOLD",
-            "position": "MIDDLE",
             "order": 0,
             "source": None,
             "expires_at": None,
@@ -317,7 +314,6 @@ def test_no_colour_the_themes_carry_is_written_down_instead_of_themed():
                 "label": "A",
                 "message": "hello",
                 "display_mode": "HOLD",
-                "position": "MIDDLE",
                 "order": 0,
                 "source": None,
                 "expires_at": None,

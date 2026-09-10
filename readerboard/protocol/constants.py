@@ -124,6 +124,14 @@ CMD_SET_TIME = b" "
 CMD_SET_DAY_OF_WEEK = b"&"
 CMD_SET_TIME_FORMAT = b"'"
 
+# Table 15 gives the two values that label takes: "S" for the standard 12 hour
+# clock, which it calls the default, and "M" for the 24 hour one. Named because
+# the same two codes are read back by Table 16 in the general information reply,
+# and a parser that knew only one of them would report the other as a guess.
+
+TIME_FORMAT_12_HOUR = b"S"
+TIME_FORMAT_24_HOUR = b"M"
+
 # ==========================================================================
 # Soft reset
 # ==========================================================================
@@ -186,6 +194,15 @@ SPEAKER_OFF = b"FF"
 #
 # The document also lists "1" (31H) Left and "2" (32H) Right, both marked Alpha
 # 3.0 protocol only. A BetaBrite speaks Alpha 1.0, so neither is defined here.
+#
+# None of the four below is offered to a caller, and all four stay defined. The
+# note closing that list in the document reads "On one-line signs, the Display
+# Position is irrelevant", a BetaBrite is one line, and the sign confirmed it on
+# 2026-09-10: all four drew the same thing. The byte is still mandatory, in the
+# document's own words "Display Position is irrelevant, but it still must be
+# included", so ``frames.write_text_file`` sends TEXT_POS_MIDDLE every time. The
+# other three are here because the sign simulator names what it decodes off the
+# wire, which is not limited to what this service sends.
 
 TEXT_POS_MIDDLE = b" "
 TEXT_POS_TOP = b"\""
@@ -199,12 +216,21 @@ TEXT_POS_FILL = b"0"
 # field and decides how a message arrives on the display.
 #
 # Two entries of that table are absent here. EXPLODE (75H) and CLOCK (76H) are
-# both marked Alpha 3.0 protocol, which this sign does not speak. The reserved
-# code 64H is absent for the same reason it is reserved.
+# both marked Alpha 3.0 protocol, which this sign does not speak.
+#
+# The third, 64H, is present, and the document is the reason it nearly was not.
+# Table 65 gives it no name and no description; the row reads "reserved". On a
+# Betabrite it is not. Put on the sign on 2026-09-10 it drew the message with a
+# random transition and a random colour, held for thirty seconds against AUTO
+# and against HOLD, and the colour is what separates it: AUTO shuffles the
+# transition and leaves the colour alone. So the sign has a mode the document
+# declines to describe, and MODE_AUTO_COLOR below is it. See
+# docs/protocol-notes.md.
 
 MODE_ROTATE = b"a"
 MODE_HOLD = b"b"
 MODE_FLASH = b"c"
+MODE_AUTO_COLOR = b"d"
 MODE_ROLLUP = b"e"
 MODE_ROLLDOWN = b"f"
 MODE_ROLLLEFT = b"g"
@@ -628,6 +654,22 @@ o_TILDE = b"\xc1"
 
 SF_SET_MEMORY_CONFIG = b"$"
 SF_MEMORY_POOL_SIZE = b"#"
+
+# ==========================================================================
+# General information
+# ==========================================================================
+# Read-only. Table 16 gives '"' (22H) as Read General Information, whose reply
+# is "28 or 29 ASCII characters in the following format: FFFFFFFFfMmYyHhNnRSS
+# POOL,pool": the firmware version and its revision letter, the month and year
+# the firmware was released, the sign's clock, the time format, the speaker
+# status, and the memory pool's total and unused size.
+#
+# There is no write with this label. The document's own note is "General
+# Information is most useful as a source of troubleshooting information", and it
+# answers in one read most of what the four other reads answer separately.
+
+SF_GENERAL_INFORMATION = b'"'
+
 FILE_TYPE_TEXT = b"A"
 FILE_TYPE_STRING = b"B"
 FILE_TYPE_DOTS = b"D"
@@ -715,8 +757,12 @@ RESERVED_FILE_LABELS = (
 # The compatibility matrix lists the BetaBrite as EZ KEY II and Alpha 1.0 only,
 # so nothing marked Alpha 2.0 or 3.0 may be used. That rules out the "E$$$$"
 # clear-memory-and-compact-flash command, programmable sounds, and the ACK/NAK
-# response feature, along with the display positions and modes noted absent
-# above.
+# response feature, along with the modes noted absent above.
+#
+# The two display positions marked Alpha 3.0, Left and Right, are ruled out by
+# the same matrix. The four this sign does accept are all still defined below,
+# and none of them is offered to a caller: they draw identically on a display one
+# line high, which the document says and the sign confirmed. See tokens.py.
 #
 # The timing is the document's own: the inter-byte timeout for a standard packet
 # is one second. The service's ``inter_packet_delay`` setting is a separate thing

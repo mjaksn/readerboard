@@ -45,18 +45,21 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the registered slots by itself. An **alert** takes the
 whole display over until it is released, then the rotation resumes.
 
-Every write needs an `X-API-Key` header. Reads and `GET /health` do not. On this
-page, put the key in once with the **Authorize** button and every write below
-carries it.
+Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
+which reads the sign rather than the service: it puts a question on the wire and
+holds the sign until the answer comes back. The service's own reads and
+`GET /health` need none. On this page, put the key in once with the
+**Authorize** button and everything below that needs it carries it.
 
 A failure is reported by the status code, with the reason in a `detail` field:
 400 for a command the sign does not have, a parameter it will not accept, a
 message too long for its slot or markup the sign cannot render, 401 for a
 missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when
-every message slot is already in use, 503 when the sign is unreachable or no
-API key is configured at all, 500 for something the service has no code for,
-and 422 for a body that is not the shape the endpoint declares, which includes
-a display mode or a text position the sign does not have.
+every message slot is already in use, 503 when the sign is unreachable, answers
+with something the service cannot read, or no API key is configured at all, 500
+for something the service has no code for, and 422 for a body that is not the
+shape the endpoint declares, which includes a display mode the sign does not
+have.
 """
 
 
@@ -127,7 +130,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         logger.info("readerboard %s starting; sign at %s", __version__, settings.serial_url)
 
         link = transport if transport is not None else build_transport(settings)
-        controller = SignController(link, inter_packet_delay=settings.inter_packet_delay)
+        controller = SignController(
+            link,
+            inter_packet_delay=settings.inter_packet_delay,
+            settle=settings.settle_delays_enabled,
+        )
         store = StateStore(settings.state_path)
         state = store.load()
         layout = Layout(settings.slot_count, settings.slot_capacity)

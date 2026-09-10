@@ -23,18 +23,16 @@ from dataclasses import dataclass
 # vocabulary it draws from without naming the endpoint that happens to serve it.
 MARKUP_TOKENS = "markup-tokens"
 DISPLAY_MODES = "display-modes"
-TEXT_POSITIONS = "text-positions"
 CONTROL_COMMANDS = "control-commands"
 
 SET_TITLES = {
     MARKUP_TOKENS: "Markup tokens",
     DISPLAY_MODES: "Display modes",
-    TEXT_POSITIONS: "Text positions",
     CONTROL_COMMANDS: "Control commands",
 }
 
 # The order the enumeration panel lists them in.
-SET_ORDER = (MARKUP_TOKENS, DISPLAY_MODES, TEXT_POSITIONS, CONTROL_COMMANDS)
+SET_ORDER = (MARKUP_TOKENS, DISPLAY_MODES, CONTROL_COMMANDS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,13 +108,6 @@ _DISPLAY_MODE = Input(
     description="how the sign presents the message",
 )
 
-_POSITION = Input(
-    name="position",
-    prefill="MIDDLE",
-    enum_set=TEXT_POSITIONS,
-    description="where the text sits vertically",
-)
-
 OPERATIONS: tuple[Operation, ...] = (
     # == Messages =========================================================
     Operation(
@@ -153,7 +144,6 @@ OPERATIONS: tuple[Operation, ...] = (
                 description="the message, including markup tokens such as <red> and <degree>",
             ),
             _DISPLAY_MODE,
-            _POSITION,
             Input(
                 name="order",
                 kind="int",
@@ -218,7 +208,6 @@ OPERATIONS: tuple[Operation, ...] = (
                 description="the alert text; the priority file holds 125 rendered bytes",
             ),
             _DISPLAY_MODE,
-            _POSITION,
             Input(
                 name="ttl_seconds",
                 kind="float",
@@ -238,6 +227,15 @@ OPERATIONS: tuple[Operation, ...] = (
         formatter="empty",
     ),
     # == The sign itself ==================================================
+    Operation(
+        id="sign_information",
+        group="Sign",
+        method="GET",
+        path="/sign/information",
+        summary="Ask the sign what it is and how it is doing",
+        needs_key=True,
+        formatter="sign_information",
+    ),
     Operation(
         id="sync_clock",
         group="Sign",
@@ -306,15 +304,6 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Ways the sign can present a message",
         formatter="tokens",
         loads=DISPLAY_MODES,
-    ),
-    Operation(
-        id="text_positions",
-        group="Enumerations",
-        method="GET",
-        path="/enumerations/text-positions",
-        summary="Where text sits vertically",
-        formatter="tokens",
-        loads=TEXT_POSITIONS,
     ),
     Operation(
         id="control_commands",
