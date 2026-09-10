@@ -199,3 +199,68 @@ class TestBackoff:
             assert transport.last_error is None
         finally:
             transport.close()
+class LinkThatDropsAtTheLock(SerialTransport):
+    """A link whose port vanishes between the ``is_open`` check and the lock.
+
+    ``write`` reads ``is_open`` outside the lock on purpose, so that a write is
+    never made to wait out the reconnect loop's connection attempt. The cost of
+    that is a real gap: the loop can close the port after the check has passed.
+    Nothing else reproduces the gap on demand, so it is opened here by hand.
+    """
+
+    drop_at_the_lock = False
+
+    @property
+    def is_open(self) -> bool:
+        if self.drop_at_the_lock:
+            return True
+        return super().is_open
+
+
+class TestWhatADownLinkReports:
+    """Every path that reports a down link reports the same thing.
+
+    The text is the whole of what a caller gets. ``readerboard/api/errors.py``
+    maps a TransportError to a 503 and uses its message as the body, so a path
+    that says only "is down" leaves the caller without the reason or the wait
+    that the other paths hand over.
+    """
+
+    def test_the_race_at_the_lock_says_as_much_as_the_check_before_it(self):
+        clock = Clock()
+        transport = LinkThatDropsAtTheLock(
+            "nosuchscheme://sign", backoff_initial=4.0, monotonic=clock
+        )
+
+        # Fail an open first, so there is a reason and a window to report at all.
+        with pytest.raises(TransportError, match="could not open"):
+            transport.ensure_open()
+
+        with pytest.raises(TransportError) as checked:
+            transport.write(b"HELLO")
+
+        transport.drop_at_the_lock = True
+        with pytest.raises(TransportError) as raced:
+            transport.write(b"HELLO")
+
+        assert str(raced.value) == str(checked.value)
+        assert "nosuchscheme://sign" in str(raced.value)
+        assert "next attempt in 4.0s" in str(raced.value)
+
+    def test_it_names_the_reason_and_the_wait(self):
+        clock = Clock()
+        transport = SerialTransport(
+            "nosuchscheme://sign", backoff_initial=4.0, monotonic=clock
+        )
+
+        with pytest.raises(TransportError, match="could not open"):
+            transport.ensure_open()
+        clock.advance(1.0)
+
+        with pytest.raises(TransportError) as down:
+            transport.write(b"HELLO")
+
+        # The wait counts down rather than being restated as the whole window.
+        assert "next attempt in 3.0s" in str(down.value)
+        assert transport.last_error is not None
+        assert transport.last_error in str(down.value)

@@ -101,16 +101,15 @@ class SerialTransport:
         and the write, the write fails and is reported like any other failure.
         """
         if not self.is_open:
-            waiting = max(0.0, self._retry_after - self._monotonic())
-            raise TransportError(
-                "link to %s is down (%s); next attempt in %.1fs"
-                % (self._url, self._last_error or "reason unknown", waiting)
-            )
+            raise self._down_error()
         with self._lock:
             port = self._port
             if port is None:
-                # Dropped between the check and the lock. Same answer.
-                raise TransportError("link to %s is down" % self._url)
+                # Dropped between the check and the lock. The same answer, and
+                # it has to carry the same detail: this reaches an API caller as
+                # the body of a 503, where "is down" on its own says neither why
+                # nor for how long.
+                raise self._down_error()
             try:
                 port.write(data)
                 port.flush()
@@ -130,12 +129,8 @@ class SerialTransport:
         if self.is_open:
             return
 
-        waiting = max(0.0, self._retry_after - self._monotonic())
-        if waiting > 0:
-            raise TransportError(
-                "link to %s is down (%s); next attempt in %.1fs"
-                % (self._url, self._last_error or "reason unknown", waiting)
-            )
+        if self._retry_after > self._monotonic():
+            raise self._down_error()
 
         try:
             self._port = serial.serial_for_url(
@@ -154,6 +149,20 @@ class SerialTransport:
         self._retry_after = 0.0
         self._retry_delay = self._backoff_initial
         self._last_error = None
+
+    def _down_error(self) -> TransportError:
+        """Describe a link that is down, in the one way every path reporting it uses.
+
+        Three paths report it, and the text is the whole of what a caller gets:
+        the service maps :class:`TransportError` to a 503 and uses this as the
+        body. So the reason the link failed and the wait until the next attempt
+        belong in all three, not just the ones where they were convenient.
+        """
+        waiting = max(0.0, self._retry_after - self._monotonic())
+        return TransportError(
+            "link to %s is down (%s); next attempt in %.1fs"
+            % (self._url, self._last_error or "reason unknown", waiting)
+        )
 
     def _record_failure(self, err: Exception) -> None:
         # The delay is carried forward and doubled rather than recomputed as
