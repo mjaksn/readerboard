@@ -290,7 +290,7 @@ OPERATIONS: tuple[Operation, ...] = (
         needs_key=True,
         path_inputs=(_VARIABLE_NAME,),
         formatter="empty",
-        note="Refused while any message still calls it.",
+        note="Refused while any message or the alert still calls it.",
     ),
     # == Alerts ===========================================================
     Operation(
