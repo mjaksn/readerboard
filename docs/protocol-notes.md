@@ -513,36 +513,34 @@ return, one digit a pixel. Table 22 gives nine of those digits: off, red, green,
 dim red, dim green, brown, orange and yellow.
 
 `scripts/dots_spike.py` put that to the sign on 2026-09-11, through the Ethernet adapter at
-9600 baud. What it found:
+9600 baud. In summary:
 
-| Question | What the sign did |
-| --- | --- |
-| Does a picture draw? | Yes. A 7 by 7 red heart drew alone in HOLD, centred like a short line of text, and in the middle of a line between two words with the usual spaces either side. |
-| Does a picture take the colour of the text around it? | No. A red heart between two runs of green text stayed red. |
-| And in ROTATE? | It scrolled with the text, whole and in place. |
-| Which colours does a 3-colour picture draw? | Three. Eight bands in codes 1 to 8 came out red, green, amber, a gap, then red, green, amber and nothing: code 4 drew nothing, 5 to 7 drew as red, green and amber, and 8 drew nothing. The pattern the data fits is the code taken modulo 4. |
-| And an 8-colour one? | All eight, each a different colour: the band that was a gap became dim red and the last became a pale yellow. Some are close to each other, and tell apart only side by side. |
-| And a monochrome one? | Practically identical to the 3-colour one, not one colour. |
-| How wide is the display? | Between 80 and 89 dots. A 120-dot ruler with a tick every ten showed eight ticks in HOLD, the fifth one green, which puts the left edge at the picture's first column; it was cut at the right edge, not centred or squeezed. |
-| Does a picture wider than the display scroll? | Yes, all of it. In ROTATE the whole ruler went by, twelve ticks with the fifth and tenth green. |
-| A picture taller than seven rows? | Its top seven rows, and nothing else. The document's own 15 by 9 arrow drew as the upper half of an arrow sitting low on the display, since its first two rows are blank, and the green dot on the eighth row did not show. |
-| A picture wider than its allocation? | Drawn at its written width, damaged. Sixteen columns written to a file allocated eight drew both halves, but the right end of each half's top row was off: faintly brighter on the red half, and plainly amber in the green half's four rightmost pixels. |
-| And narrower? | Drawn at its written width with nothing padded: four columns written to a file allocated eight drew a block four wide. |
-| Is the pause after the width needed? | No. Table 22 asks for "at least a 100 millisecond delay" after the width; a write sent in one piece, the way the service sends everything, drew exactly as asked. |
-| Does rewriting a picture blank the display? | Yes, as the document says. In HOLD the whole display blanked briefly on each of four rewrites. In ROTATE it blanked unevenly, some dots going dark before the rest, and the scroll started again from the beginning with the new picture. |
-| What does a call to nothing draw? | Nothing, not even a space, whether the picture was allocated and never written or never allocated at all. |
-| Can the priority file call a picture? | Yes. An alert with a heart between two words took the sign, and the bare release brought the rotation back. |
-| What does a read return, and does the display pause? | The reply begins `I`, the label, the height and the width, then the rows, each ended with a carriage return: `I107070110110` and so on. The display went blank, a handful of random dots flashed on across it, it went blank again and came back, all in under a second. |
+- **Pictures draw**, alone, inline between words, in HOLD and scrolling in ROTATE, and
+  from the priority file. A picture keeps its own colours whatever the text around it
+  is set to.
+- **The colour status matters, and only 8-colour gives the full palette.** A 3-colour
+  picture draws three colours and maps the rest onto them, consistent with the pixel code
+  taken modulo 4. A monochrome one draws the same as a 3-colour one, not one colour.
+- **The display is 80 to 89 dots wide and seven high.** A wider picture is cut at the
+  right in HOLD and scrolls through whole in ROTATE. A taller one shows its top seven rows.
+- **A picture draws at the width it was written**, not the width allocated. One narrower
+  than its allocation is not padded; one wider draws, but damaged.
+- **The pause Table 22 asks for after the width is not needed.** A picture sent in one
+  transmission drew correctly.
+- **Rewriting a picture blanks the display**, as the document says, and restarts a ROTATE
+  scroll from the beginning.
+- **A call to a missing picture draws nothing**, whether it was never written or never
+  allocated.
+- **Reading a picture back blanks the display** for under a second, with stray dots lit
+  while it does. The reply echoes the write command, the label, the height and the
+  width, then the rows.
 
-Three questions are left open. The session's two reads, the `F$` memory configuration and
-the `J` read of the heart, both came back cut short by the reader rather than the sign,
-which took one byte a poll over `socket://` until that was fixed. So how `F$` lists a
-DOTS entry is still unmeasured beyond its first six characters, `1DU070`, and the whole of
-a read reply is too. And with a red heart between two runs of green text, in HOLD, the
-heart flashed on and off about once a second while the text moved sideways each time it
-did. That line is wider than the display, and the likeliest reading is that HOLD showed it
-in two parts in turn, each centred, one with the heart and one without. A rerun with a
-shorter line would settle it.
+Three questions are left open. The session's memory configuration read and picture read
+were both cut short by the reader, which took one byte a poll over `socket://` until that
+was fixed, so how the memory configuration lists a picture and what the rest of a read
+reply holds are still unmeasured. And a picture between two runs of text too long for the
+display flashed on and off in HOLD while the text shifted; most likely HOLD showing the line
+in parts, which a rerun with a shorter line would confirm.
 
 What this settles for the service, if it ever sends pictures:
 
