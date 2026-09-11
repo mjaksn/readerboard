@@ -45,9 +45,9 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the registered slots by itself. An **alert** takes the
 whole display over until it is released, then the rotation resumes.
 
-A **variable** is a value a slot's message calls with `<var:name>`. Changing it
-rewrites only the variable, so the sign shows the new value without blanking or
-restarting the message calling it.
+A **variable** is a value a slot's message or an alert calls with `<var:name>`.
+Changing it rewrites only the variable, so the sign shows the new value without
+blanking or restarting what calls it.
 
 Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
 which reads the sign rather than the service: it puts a question on the wire and
@@ -155,6 +155,9 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # An alert holding the sign makes the registry hold back run sequence
         # writes; releasing it is what lets them through.
         alerts.set_release_hook(registry.flush_deferred)
+        # And an alert calling a variable is rendered by the registry, under its
+        # lock, so the variable cannot be deleted while the alert calls it.
+        alerts.set_rendering(registry.rendering)
         clock = ClockService(
             controller,
             interval_seconds=settings.clock_sync_interval_seconds,

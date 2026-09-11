@@ -160,12 +160,16 @@ sign takes that without blanking or restarting the message calling it, so a
 value that changes every minute costs one short packet and no flicker. Three
 rules hold it together, and each has a reason that is easy to lose:
 
-- **A variable a message calls cannot be deleted.** The STRING file's label is
-  written into every calling message as raw bytes, so handing that file to the
-  next variable would put the wrong value on the sign with nothing to say so.
-  `MessageRegistry.remove_variable` refuses with a 409 instead, and slots and
+- **A variable a message or the alert calls cannot be deleted.** The STRING
+  file's label is written into every caller as raw bytes, so handing that file
+  to the next variable would put the wrong value on the sign with nothing to say
+  so. `MessageRegistry.remove_variable` refuses with a 409 instead, and slots and
   variables share one lock so that nothing can slip between the check and the
-  write.
+  write. The alert service renders through `MessageRegistry.rendering`, which
+  holds that lock until the priority file is written and the alert recorded.
+  Take the registry's lock before the alert service's, and never hold it across
+  `AlertService.release`, which takes it again to apply a run sequence it held
+  back.
 - **Variables are written before messages** on a restore, a refresh and a
   reboot, so no message is drawn calling a STRING not yet written.
 - **The size check is not optional.** The sign does not truncate a value that

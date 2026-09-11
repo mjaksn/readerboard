@@ -652,6 +652,7 @@ class TestVariables:
         assert body["value"] == "72"
         assert body["stale"] is False
         assert body["called_by"] == []
+        assert body["called_by_alert"] is False
         assert body["source"] == "thermometer"
 
     def test_it_goes_on_the_sign_as_a_string_write(self, client, sign):
@@ -720,11 +721,30 @@ class TestVariables:
         self.put_variable(client)
         assert client.get("/health").json()["variables_used"] == 1
 
-    def test_an_alert_cannot_call_one_yet(self, client):
+    def test_an_alert_can_call_one(self, client):
         self.put_variable(client)
         response = client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
+        assert response.status_code == 200
+        body = client.get("/variables/temp").json()
+        assert body["called_by"] == []
+        assert body["called_by_alert"] is True
+
+    def test_an_alert_calling_a_variable_that_does_not_exist_is_400(self, client):
+        response = client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
         assert response.status_code == 400
-        assert "cannot be used here" in response.json()["detail"]
+        assert "no variable named 'temp'" in response.json()["detail"]
+
+    def test_one_the_alert_calls_cannot_be_deleted_until_it_is_released(self, client):
+        self.put_variable(client)
+        client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
+
+        response = client.delete("/variables/temp", headers=HEADERS)
+        assert response.status_code == 409
+        assert "the alert holding the sign" in response.json()["detail"]
+
+        client.delete("/alerts", headers=HEADERS)
+        assert client.delete("/variables/temp", headers=HEADERS).status_code == 204
+        assert client.get("/variables").json() == []
 
 
 class TestUnreachableSign:

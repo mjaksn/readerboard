@@ -290,17 +290,18 @@ shown something it did not ask for.
 
 ### Live values: variables
 
-A variable lives in a small file of its own on the sign, and a message calls it with
-`<var:name>`. Writing a new value rewrites that file and nothing else, which the sign
-takes without blanking, so a message showing a temperature or a count can change every
-minute and never restart. In a scrolling mode the new value appears on the message's
-next pass.
+A variable lives in a small file of its own on the sign, and a message or an alert
+calls it with `<var:name>`. Writing a new value rewrites that file and nothing else,
+which the sign takes without blanking, so a message showing a temperature or a count can
+change every minute and never restart. In a scrolling mode the new value appears on the
+message's next pass. An alert carrying a live wind speed works the same way, and keeps
+the sign while the number changes.
 
 A few things are worth knowing, all of them measured on the sign:
 
-- **Create the variable before a message calls it.** A message naming a variable that
-  does not exist is refused with a 400, and a variable a message still calls cannot be
-  deleted: that is a 409 naming the messages that call it.
+- **Create the variable before a message calls it.** A message or an alert naming a
+  variable that does not exist is refused with a 400, and a variable that a message or
+  the alert still calls cannot be deleted: that is a 409 naming what calls it.
 - **Formatting in a value carries on after it.** A value of `<red>DOWN` turns the rest
   of the message red as well, and so does a character set or a speed. If the text after
   the call matters, set it again in the message after the call.

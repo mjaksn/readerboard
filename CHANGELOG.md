@@ -20,16 +20,18 @@ library, and the names inside it may move without that being a breaking change.
   as in `Outside <var:temp><degree>F`. Writing a new value rewrites only that file,
   which the sign takes without blanking or restarting the message calling it; a
   scrolling message shows the new value on its next pass. One variable can be
-  called from any number of messages.
+  called from any number of messages, and from an alert, which keeps the sign
+  while the value inside it changes.
 
   `PUT /variables/{name}` creates or changes one, `GET /variables` and
-  `GET /variables/{name}` read them back with the slots that call each, and
-  `DELETE /variables/{name}` deletes one. A name is one to 32 lowercase letters,
-  digits and underscores, so that every variable can be called from a message.
-  A message calling a variable that does not exist is a 400. A variable a message
-  still calls cannot be deleted: that is a 409 naming the slots, because the
-  sign's file for it is written into each calling message, and handing it to the
-  next variable would put the wrong value on the sign.
+  `GET /variables/{name}` read them back with the slots that call each and
+  `called_by_alert`, and `DELETE /variables/{name}` deletes one. A name is one to
+  32 lowercase letters, digits and underscores, so that every variable can be
+  called from a message. A message or an alert calling a variable that does not
+  exist is a 400. A variable that a message or the alert still calls cannot be
+  deleted: that is a 409 naming what calls it, because the sign's file for it is
+  written into each caller, and handing it to the next variable would put the
+  wrong value on the sign.
 
   A value takes the message markup except `<week_day>` and `<var:name>`, which the
   sign draws as a literal character from inside a variable.

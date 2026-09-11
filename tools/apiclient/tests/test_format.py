@@ -410,6 +410,7 @@ VARIABLE = {
     "expires_at": None,
     "updated_at": "2026-09-10T07:00:00+00:00",
     "called_by": ["weather", "porch"],
+    "called_by_alert": False,
 }
 
 
@@ -417,6 +418,14 @@ def test_a_variable_lists_the_messages_calling_it():
     _result, text = rendered_text("get_variable", 200, json.dumps(VARIABLE))
     assert "called by: weather, porch" in text
     assert "goes stale: never" in text
+
+
+def test_a_variable_the_alert_calls_says_so():
+    # Deleting it is refused while the alert calls it, so a reader looking for
+    # why has to be able to see the alert here.
+    called = {**VARIABLE, "called_by": [], "called_by_alert": True}
+    _result, text = rendered_text("get_variable", 200, json.dumps(called))
+    assert "called by: the alert" in text
 
 
 def test_a_variable_nothing_calls_says_so_rather_than_leaving_a_blank():

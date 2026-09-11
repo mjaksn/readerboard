@@ -43,6 +43,8 @@ from readerboard.protocol.tokens import (
     Token,
 )
 from readerboard.services import commands
+from readerboard.services.registry import MessageRegistry
+from readerboard.sign.state import VariableState
 
 router = APIRouter()
 
@@ -121,17 +123,14 @@ async def clear_messages(registry: RegistryDep) -> Response:
 
 @variables.get("", summary="List the variables messages can call")
 async def list_variables(registry: RegistryDep) -> list[VariableResponse]:
-    """Return every variable, by name, with the slots that call each one."""
-    return [
-        VariableResponse.of(variable, registry.callers(variable.name))
-        for variable in registry.list_variables()
-    ]
+    """Return every variable, by name, with what calls each one."""
+    return [_variable_response(registry, variable) for variable in registry.list_variables()]
 
 
 @variables.get("/{name}", summary="Read one variable")
 async def get_variable(name: VariableName, registry: RegistryDep) -> VariableResponse:
     """Return one variable by name."""
-    return VariableResponse.of(registry.get_variable(name), registry.callers(name))
+    return _variable_response(registry, registry.get_variable(name))
 
 
 @variables.put("/{name}", summary="Create or change a variable", dependencies=[RequireApiKey])
@@ -163,7 +162,7 @@ async def put_variable(
         stale_value=body.stale_value,
         source=body.source,
     )
-    return VariableResponse.of(variable, registry.callers(name))
+    return _variable_response(registry, variable)
 
 
 @variables.delete(
@@ -175,12 +174,22 @@ async def put_variable(
 async def delete_variable(name: VariableName, registry: RegistryDep) -> Response:
     """Delete a variable and free the sign file it held.
 
-    409 while any message still calls it, naming the slots that do. Its file is
-    written into each of those messages, so deleting it would leave them calling
-    a file the next variable could be given, and showing that variable's value.
+    409 while any message or the alert still calls it, naming what does. Its
+    file is written into each of those messages, so deleting it would leave them
+    calling a file the next variable could be given, and showing that variable's
+    value.
     """
     await registry.remove_variable(name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _variable_response(registry: MessageRegistry, variable: VariableState) -> VariableResponse:
+    """Describe a variable along with everything that calls it."""
+    return VariableResponse.of(
+        variable,
+        registry.callers(variable.name),
+        called_by_alert=registry.alert_calls(variable.name),
+    )
 
 
 # ===========================================================================
@@ -202,6 +211,11 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     This uses the sign's priority file, which suppresses every other message. If
     a ttl is given, the sign is released automatically and the rotation resumes
     by itself.
+
+    An alert can call variables with `<var:name>`, and a change to one shows on
+    the alert without restarting it, as it does in a message. A variable the
+    alert calls cannot be deleted until the alert is released or replaced, and a
+    call to a variable that does not exist is a 400.
     """
     alert = await alerts.raise_alert(
         body.message,

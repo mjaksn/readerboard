@@ -10,6 +10,7 @@ what follows is one or the other.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import pytest
@@ -17,6 +18,7 @@ import pytest
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.protocol.markup import MarkupError
+from readerboard.services.alerts import AlertService
 from readerboard.services.registry import (
     LayoutFull,
     MessageRegistry,
@@ -355,3 +357,260 @@ class TestRestart:
         assert "calls variable 'temp', which no longer exists" in caplog.text
         # The call draws nothing, which is what the sign would draw for it.
         assert any(payload.endswith(b"[]") for payload in payloads(transport))
+
+
+async def wire(controller, layout, store, state, clock) -> tuple[MessageRegistry, AlertService]:
+    """Build a registry and an alert service joined the way the service joins them."""
+    alerts = AlertService(controller, store, state, now=clock)
+    registry = MessageRegistry(
+        controller, layout, store, state, now=clock, alert_active=lambda: alerts.active is not None
+    )
+    alerts.set_release_hook(registry.flush_deferred)
+    alerts.set_rendering(registry.rendering)
+    await registry.restore()
+    return registry, alerts
+
+
+def priority(body: bytes) -> bytes:
+    """Return the payload that puts ``body`` in the priority file."""
+    return frames.write_text_file(c.FILE_PRIORITY, body)
+
+
+async def alert(alerts: AlertService, message: str, **kwargs):
+    return await alerts.raise_alert(message, mode="HOLD", **kwargs)
+
+
+class TestAlerts:
+    """An alert calls a variable as a message does, and holds on to it as one does.
+
+    On the sign, a STRING call in the priority file draws the value and a STRING
+    write leaves the alert holding the sign. That was measured once, with one
+    call, and it is the whole of the hardware behind this.
+    """
+
+    @pytest.fixture
+    async def wired(self, controller, layout, store, state, clock):
+        return await wire(controller, layout, store, state, clock)
+
+    async def test_an_alert_calls_a_variable_by_its_file(self, wired, transport):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+
+        await alert(alerts, "WIND <var:wind>MPH")
+
+        assert payloads(transport)[-1] == priority(b"WIND " + c.STRING_FILE_INSERT + b"aMPH")
+
+    async def test_a_call_to_a_variable_that_does_not_exist_is_refused(self, wired, transport):
+        _registry, alerts = wired
+        transport.clear()
+
+        with pytest.raises(MarkupError, match="no variable named 'wind'"):
+            await alert(alerts, "WIND <var:wind>")
+
+        assert alerts.active is None
+        assert payloads(transport) == []
+
+    async def test_with_variables_switched_off_the_refusal_says_so(
+        self, controller, store, state, clock
+    ):
+        _registry, alerts = await wire(controller, Layout(3, 256), store, state, clock)
+
+        with pytest.raises(VariablesDisabled, match="variable_count is 0"):
+            await alert(alerts, "WIND <var:wind>")
+
+    async def test_a_variable_the_alert_calls_cannot_be_deleted(self, wired):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>")
+
+        with pytest.raises(VariableInUse, match="the alert holding the sign") as refused:
+            await registry.remove_variable("wind")
+
+        assert "release or replace the alert" in str(refused.value)
+        assert registry.alert_calls("wind") is True
+        assert [v.name for v in registry.list_variables()] == ["wind"]
+
+    async def test_once_the_alert_is_released_it_can_be(self, wired):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>")
+
+        await alerts.release()
+        await registry.remove_variable("wind")
+
+        assert registry.list_variables() == []
+
+    async def test_the_refusal_names_the_slots_and_the_alert_together(self, wired):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await add(registry, "weather", "W=<var:wind>")
+        await alert(alerts, "WIND <var:wind>")
+
+        with pytest.raises(VariableInUse) as refused:
+            await registry.remove_variable("wind")
+
+        assert "slot 'weather' and the alert holding the sign" in str(refused.value)
+        assert "leave them calling" in str(refused.value)
+
+    async def test_changing_a_value_under_the_alert_writes_only_its_string_file(
+        self, wired, transport
+    ):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>")
+        transport.clear()
+
+        await put(registry, "wind", "45")
+
+        # No priority write, which would restart the alert, and the alert holds.
+        assert payloads(transport) == [b"Ga45"]
+        assert alerts.active is not None
+
+    async def test_a_value_going_stale_under_the_alert_shows_its_stale_value(
+        self, wired, transport, clock
+    ):
+        registry, alerts = wired
+        await put(registry, "wind", "40", ttl_seconds=60, stale_value="--")
+        await alert(alerts, "WIND <var:wind>")
+        transport.clear()
+
+        clock.advance(61)
+        await registry.sweep()
+
+        assert payloads(transport) == [b"Ga--"]
+        assert alerts.active is not None
+
+    async def test_a_delete_cannot_slip_in_between_the_alert_and_its_record(
+        self, layout, store, state, clock, transport
+    ):
+        """The window this whole arrangement exists to close.
+
+        The priority file is written before the alert is recorded, so a delete
+        landing between the two would find no alert calling the variable, free
+        its file, and leave the alert on the sign calling a file the next
+        variable could be given. Here the alert's write is held open at exactly
+        that point, and the delete has to wait it out and then refuse.
+        """
+        gate = asyncio.Event()
+        gate.set()
+        paused = asyncio.Event()
+
+        async def sleep(seconds: float) -> None:
+            if not gate.is_set():
+                paused.set()
+            await gate.wait()
+
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
+        registry, alerts = await wire(controller, layout, store, state, clock)
+        await put(registry, "wind", "40")
+
+        gate.clear()
+        raising = asyncio.create_task(alert(alerts, "WIND <var:wind>"))
+        await paused.wait()
+        assert alerts.active is None  # written, and not yet recorded
+
+        deleting = asyncio.create_task(registry.remove_variable("wind"))
+        await asyncio.sleep(0.05)
+        assert not deleting.done()
+
+        gate.set()
+        await raising
+        with pytest.raises(VariableInUse):
+            await deleting
+
+
+class TestAlertsAfterARestart:
+    """Putting back an alert that calls a variable, and letting go of one."""
+
+    async def restart(self, store, transport, clock) -> tuple[MessageRegistry, AlertService]:
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        registry, alerts = await wire(
+            controller, Layout(3, 256, 3, 16), store, store.load(), clock
+        )
+        # A release takes the registry's lock again, through the run sequence it
+        # may have held back, so a restore holding that lock while it released
+        # would hang here rather than fail. The deadline turns a hang into a
+        # failure.
+        await asyncio.wait_for(alerts.restore(), timeout=2)
+        return registry, alerts
+
+    @pytest.fixture
+    async def wired(self, controller, layout, store, state, clock):
+        return await wire(controller, layout, store, state, clock)
+
+    async def test_an_alert_calling_a_variable_comes_back_calling_it(
+        self, wired, store, transport, clock
+    ):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>")
+
+        _registry, restored = await self.restart(store, transport, clock)
+
+        assert restored.active is not None
+        assert payloads(transport)[-1] == priority(b"WIND " + c.STRING_FILE_INSERT + b"a")
+
+    async def test_an_alert_calling_a_variable_that_did_not_come_back_stays_and_says_so(
+        self, wired, store, transport, clock, caplog
+    ):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>")
+        # A file outside the pool is what a smaller pool after an upgrade leaves.
+        state = store.load()
+        state.variables["wind"].label = "z"
+        store.save(state)
+
+        with caplog.at_level(logging.WARNING):
+            _registry, restored = await self.restart(store, transport, clock)
+
+        assert "the alert calls variable 'wind', which no longer exists" in caplog.text
+        assert restored.active is not None
+        # The call draws nothing, which is what the sign would draw for it.
+        assert payloads(transport)[-1] == priority(b"WIND ")
+
+    async def test_it_is_reasserted_calling_it(self, wired, transport):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>")
+        transport.clear()
+
+        assert await alerts.reassert() is True
+
+        assert payloads(transport) == [priority(b"WIND " + c.STRING_FILE_INSERT + b"a")]
+
+    async def test_an_alert_that_expired_while_down_is_let_go(
+        self, wired, store, transport, clock
+    ):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "WIND <var:wind>", ttl_seconds=30)
+
+        clock.advance(600)
+        _registry, restored = await self.restart(store, transport, clock)
+
+        assert restored.active is None
+
+    async def test_an_alert_that_outgrew_the_priority_file_is_let_go(
+        self, wired, store, transport, clock
+    ):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "<var:wind>" + "A" * 100)
+        state = store.load()
+        assert state.alert is not None
+        state.alert.message = "<var:wind><dbl_height_on>" * 8 + "A" * 100
+        store.save(state)
+
+        _registry, restored = await self.restart(store, transport, clock)
+
+        assert restored.active is None
+        assert payloads(transport)[-1] == frames.clear_priority_file()
+
+    async def test_an_empty_alert_is_let_go(self, wired, store, transport, clock):
+        _registry, alerts = wired
+        await alert(alerts, "")
+
+        _registry, restored = await self.restart(store, transport, clock)
+
+        assert restored.active is None

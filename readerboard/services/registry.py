@@ -19,13 +19,18 @@ because the rule that holds them together spans both: a variable cannot be
 deleted while a message calls it. Its STRING file's label is written into every
 calling message as raw bytes, so handing that label to another variable would
 make those messages show the wrong value, with nothing on the sign to say so.
+
+An alert can call variables too, and the same rule covers it. The alert service
+writes the priority file itself, so it renders through :meth:`rendering`, which
+holds this lock across the render and the write.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 
 from readerboard.protocol.markup import references, render, render_value
@@ -59,7 +64,7 @@ class VariableTooLong(RegistryError):
 
 
 class VariableInUse(RegistryError):
-    """A variable cannot be deleted while a message calls it."""
+    """A variable cannot be deleted while a message or the alert calls it."""
 
 
 class VariablesDisabled(RegistryError):
@@ -126,6 +131,17 @@ class MessageRegistry:
         """Return the keys of the slots whose messages call a variable, in rotation order."""
         return [slot.key for slot in self.list_slots() if name in references(slot.message)]
 
+    def alert_calls(self, name: str) -> bool:
+        """Say whether the alert holding the sign calls a variable.
+
+        Read from the state both services share rather than from anything the
+        alert service reports, so there is nothing to fall out of step. The
+        alert is recorded under this registry's lock, in :meth:`rendering`, so
+        a check made under the same lock never sees an alert half raised.
+        """
+        alert = self._state.alert
+        return alert is not None and name in references(alert.message)
+
     @property
     def occupancy(self) -> tuple[int, int]:
         """How many slots are used, and how many there are in total."""
@@ -173,7 +189,8 @@ class MessageRegistry:
         A slot calling a variable that did not come back stays. The call draws
         nothing, which is what the sign itself draws for a call to a STRING that
         is not there, and losing a whole message over one missing value would be
-        the harsher outcome.
+        the harsher outcome. An alert calling one stays too, with a warning of
+        its own.
         """
         for name, variable in list(self._state.variables.items()):
             try:
@@ -211,6 +228,17 @@ class MessageRegistry:
                         key,
                         name,
                     )
+
+        # The alert outlives a reallocation, since the priority file is outside
+        # the pool, so it can be left calling a variable that did not come back.
+        alert = self._state.alert
+        for name in references(alert.message) if alert is not None else []:
+            if name not in self._state.variables:
+                logger.warning(
+                    "the alert calls variable %r, which no longer exists; the call will "
+                    "show nothing until the variable is written again",
+                    name,
+                )
 
     async def _rewrite_all(self, *, force: bool = False) -> None:
         # Variables first, so that no message is ever drawn calling a STRING that
@@ -297,6 +325,23 @@ class MessageRegistry:
     def in_sync(self) -> bool:
         """Whether everything registered is believed to be on the sign."""
         return not self._dirty
+
+    @contextlib.asynccontextmanager
+    async def rendering(self) -> AsyncIterator[Callable[..., bytes]]:
+        """Hold the variables still while a message calling them is rendered and written.
+
+        For the alert service, which writes the priority file itself. It gets
+        the renderer a slot's message goes through, so an alert is refused for
+        the same reasons and in the same words, and it keeps this lock until the
+        write is done: a variable deleted between the render and the write
+        would leave the alert calling a file the next variable could be given.
+
+        The renderer takes a message and ``strict``, as :func:`render` does.
+        Nothing that holds this may wait on anything that takes this lock, and
+        releasing an alert does, through the run sequence it may have held back.
+        """
+        async with self._lock:
+            yield self._render_message
 
     # == changing slots =====================================================
 
@@ -516,22 +561,13 @@ class MessageRegistry:
         return variable
 
     async def remove_variable(self, name: str) -> None:
-        """Delete a variable, refusing while any message calls it."""
+        """Delete a variable, refusing while any message or the alert calls it."""
         async with self._lock:
             variable = self.get_variable(name)
             callers = self.callers(name)
-            if callers:
-                raise VariableInUse(
-                    "variable %r is called by %s %s. Change or remove %s first; deleting it "
-                    "now would leave %s calling a file another variable could be given next."
-                    % (
-                        name,
-                        "slot" if len(callers) == 1 else "slots",
-                        ", ".join(repr(key) for key in callers),
-                        "that message" if len(callers) == 1 else "those messages",
-                        "it" if len(callers) == 1 else "them",
-                    )
-                )
+            alert = self.alert_calls(name)
+            if callers or alert:
+                raise VariableInUse(_in_use(name, callers, alert=alert))
 
             del self._state.variables[name]
             self._layout.variables.release(name)
@@ -599,11 +635,16 @@ class MessageRegistry:
                 "restart, which reallocates the sign and clears it."
             )
 
-    def _render_message(self, message: str) -> bytes:
-        """Render a message strictly, with the variables that exist right now."""
-        if references(message):
+    def _render_message(self, message: str, *, strict: bool = True) -> bytes:
+        """Render a message with the variables that exist right now.
+
+        Strictly for a message being accepted, and leniently for one accepted
+        earlier and being written again, where a call to a variable that has
+        since gone draws nothing, as the sign itself draws it.
+        """
+        if strict and references(message):
             self._require_variables()
-        return render(message, variables=self._variable_labels())
+        return render(message, strict=strict, variables=self._variable_labels())
 
     def _render_value(self, value: str, field: str) -> bytes:
         """Render a value strictly and make sure it fits its STRING file."""
@@ -621,7 +662,7 @@ class MessageRegistry:
         # Content already accepted once is re-rendered leniently, so that a slot
         # restored from disk cannot fail to come back because the rules around
         # it tightened in the meantime.
-        body = render(slot.message, strict=False, variables=self._variable_labels())
+        body = self._render_message(slot.message, strict=False)
         await self._controller.write_text_file(
             slot.label.encode("ascii"),
             body,
@@ -704,6 +745,33 @@ class MessageRegistry:
 
     def _save(self) -> None:
         self._store.save(self._state)
+
+
+def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
+    """Say what still calls a variable, and what to do about each."""
+    holders = []
+    remedies = []
+    if callers:
+        holders.append(
+            "%s %s"
+            % ("slot" if len(callers) == 1 else "slots", ", ".join(repr(key) for key in callers))
+        )
+        remedies.append(
+            "change or remove %s" % ("that message" if len(callers) == 1 else "those messages")
+        )
+    if alert:
+        holders.append("the alert holding the sign")
+        remedies.append("release or replace the alert")
+    return (
+        "variable %r is called by %s. First %s; deleting it now would leave %s calling a file "
+        "another variable could be given next."
+        % (
+            name,
+            " and ".join(holders),
+            " and ".join(remedies),
+            "it" if len(callers) + alert == 1 else "them",
+        )
+    )
 
 
 __all__ = [

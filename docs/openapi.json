@@ -12,7 +12,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
+            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It can call variables with <var:name>, as a message can. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -550,12 +550,17 @@
         "description": "A variable.",
         "properties": {
           "called_by": {
-            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do",
+            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do, nor while called_by_alert is true",
             "items": {
               "type": "string"
             },
             "title": "Called By",
             "type": "array"
+          },
+          "called_by_alert": {
+            "description": "true while the alert holding the sign calls this variable. It cannot be deleted until the alert is released or replaced with one that does not",
+            "title": "Called By Alert",
+            "type": "boolean"
           },
           "expires_at": {
             "anyOf": [
@@ -618,7 +623,8 @@
           "source",
           "expires_at",
           "updated_at",
-          "called_by"
+          "called_by",
+          "called_by_alert"
         ],
         "title": "VariableResponse",
         "type": "object"
@@ -634,7 +640,7 @@
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nA **variable** is a value a slot's message calls with `<var:name>`. Changing it\nrewrites only the variable, so the sign shows the new value without blanking or\nrestarting the message calling it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render or a call\nto a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404\nfor a slot or variable that does not exist, 409 when every slot or every\nvariable is already in use or a variable a message still calls is deleted, 503\nwhen the sign is unreachable, answers with something the service cannot read,\nor no API key is configured at all, 500 for something the service has no code\nfor, and 422 for a body that is not the shape the endpoint declares, which\nincludes a display mode the sign does not have.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nA **variable** is a value a slot's message or an alert calls with `<var:name>`.\nChanging it rewrites only the variable, so the sign shows the new value without\nblanking or restarting what calls it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render or a call\nto a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404\nfor a slot or variable that does not exist, 409 when every slot or every\nvariable is already in use or a variable a message still calls is deleted, 503\nwhen the sign is unreachable, answers with something the service cannot read,\nor no API key is configured at all, 500 for something the service has no code\nfor, and 422 for a body that is not the shape the endpoint declares, which\nincludes a display mode the sign does not have.\n",
     "title": "readerboard",
     "version": "0.4.0"
   },
@@ -688,7 +694,7 @@
         ]
       },
       "post": {
-        "description": "Take the whole sign over until the alert is released.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.",
+        "description": "Take the whole sign over until the alert is released.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.\n\nAn alert can call variables with `<var:name>`, and a change to one shows on\nthe alert without restarting it, as it does in a message. A variable the\nalert calls cannot be deleted until the alert is released or replaced, and a\ncall to a variable that does not exist is a 400.",
         "operationId": "post_alert_alerts_post",
         "requestBody": {
           "content": {
@@ -1169,7 +1175,7 @@
     },
     "/variables": {
       "get": {
-        "description": "Return every variable, by name, with the slots that call each one.",
+        "description": "Return every variable, by name, with what calls each one.",
         "operationId": "list_variables_variables_get",
         "responses": {
           "200": {
@@ -1195,7 +1201,7 @@
     },
     "/variables/{name}": {
       "delete": {
-        "description": "Delete a variable and free the sign file it held.\n\n409 while any message still calls it, naming the slots that do. Its file is\nwritten into each of those messages, so deleting it would leave them calling\na file the next variable could be given, and showing that variable's value.",
+        "description": "Delete a variable and free the sign file it held.\n\n409 while any message or the alert still calls it, naming what does. Its\nfile is written into each of those messages, so deleting it would leave them\ncalling a file the next variable could be given, and showing that variable's\nvalue.",
         "operationId": "delete_variable_variables__name__delete",
         "parameters": [
           {

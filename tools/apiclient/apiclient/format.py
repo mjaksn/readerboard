@@ -396,9 +396,15 @@ _VARIABLE_COLUMNS = ("name", "file", "value", "stale", "called by", "source", "g
 
 
 def _called_by(variable: dict[str, object]) -> str:
-    """Render the slots calling a variable as a list, or say that none do."""
+    """Render what calls a variable as a list, or say that nothing does.
+
+    The alert is named in words, which no slot key can be mistaken for: the
+    service refuses whitespace in a key.
+    """
     raw = variable.get("called_by")
     callers = [str(key) for key in raw] if isinstance(raw, list) else []
+    if variable.get("called_by_alert"):
+        callers.append("the alert")
     return ", ".join(callers) if callers else "nothing"
 
 
@@ -457,7 +463,7 @@ def _variable(payload: object) -> list[Block]:
                 Row(
                     "called by",
                     _called_by(payload),
-                    "it cannot be deleted while any message calls it",
+                    "it cannot be deleted while any message or the alert calls it",
                 ),
                 Row("source", str(payload.get("source") or "not recorded")),
                 Row("updated", when(payload.get("updated_at"))),

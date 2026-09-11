@@ -170,12 +170,20 @@ class VariableResponse(BaseModel):
     called_by: list[str] = Field(
         description=(
             "the keys of the slots whose messages call this variable. It cannot be deleted "
-            "while any do"
+            "while any do, nor while called_by_alert is true"
+        )
+    )
+    called_by_alert: bool = Field(
+        description=(
+            "true while the alert holding the sign calls this variable. It cannot be "
+            "deleted until the alert is released or replaced with one that does not"
         )
     )
 
     @classmethod
-    def of(cls, variable: VariableState, called_by: list[str]) -> VariableResponse:
+    def of(
+        cls, variable: VariableState, called_by: list[str], *, called_by_alert: bool
+    ) -> VariableResponse:
         """Render a stored variable as the API's view of it."""
         return cls(
             name=variable.name,
@@ -187,6 +195,7 @@ class VariableResponse(BaseModel):
             expires_at=variable.expires_at,
             updated_at=variable.updated_at,
             called_by=called_by,
+            called_by_alert=called_by_alert,
         )
 
 
@@ -233,7 +242,8 @@ class AlertRequest(BaseModel):
         max_length=4096,
         description=(
             "the alert text. The sign's priority file holds 125 bytes once markup has "
-            "been rendered, and cannot be resized. It cannot be empty: a write with no "
+            "been rendered, and cannot be resized. It can call variables with "
+            "<var:name>, as a message can. It cannot be empty: a write with no "
             "text still carries the formatting bytes around it, which the sign reads as "
             "a blank priority message and displays, so the sign would sit blank with "
             "the rotation suppressed behind it and an alert reported as active"

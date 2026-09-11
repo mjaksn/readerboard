@@ -495,7 +495,8 @@ What this settles for the service:
 - **A dangling call is invisible.** A call whose STRING has gone draws nothing, not garbage,
   and a freshly allocated STRING needs no blanking before it is used.
 - **Alerts can carry live values**, and a STRING write needs no deferral while an alert is
-  up. It is not on the list of things that cancel one, and on this sign it did not.
+  up. It is not on the list of things that cancel one, and on this sign it did not. That
+  rests on one alert calling one STRING, which is all the session tried.
 - **Reading a STRING back has no place in normal running.** It blanks the display, and it
   cannot tell an unallocated label from an empty one.
 
