@@ -464,18 +464,12 @@ character forms, rainbow 1 but not rainbow 2 or automatic colour, and none of `<
 `<half_space>` or `<no_hold_speed>`. The rule below is an inference by family from those.
 
 The spike looked for each STRING's entry in the `F$` memory configuration reply and found
-none, although the files plainly existed. The reply explains it, and the fault was the
-reader's, not the sign's:
-
-```
-<- 49 bytes: b'\x01000\x02E$AAU0100FFFFBAU00'
-```
-
-That stops five characters into the second entry, with no ETX, checksum or EOT after it.
-This was first put down to the sign pausing mid-reply for longer than the spike's 200 ms
-quiet rule, and that was wrong. The reader took one byte a poll, for the reason given under
-"Reading state back", and ran out of time with the reply half collected. So how the sign
-lists a STRING entry is still unmeasured.
+none, although the files plainly existed. The fault was the reader's, not the sign's: the
+reply it collected stopped partway through the second entry, with no ETX, checksum or EOT
+after it. This was first put down to the sign pausing mid-reply for longer than the
+spike's 200 ms quiet rule, and that was wrong. The reader took one byte a poll, for the
+reason given under "Reading state back", and ran out of time with the reply half
+collected. So how the sign lists a STRING entry is still unmeasured.
 
 And at speed 5 the person watching counted eight repetitions of a word sent five times,
 which is more likely a count lost at that speed than the sign repeating anything.
