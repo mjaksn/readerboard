@@ -460,19 +460,31 @@ class OperationForm(QWidget):
             self._refresh_token_button(button)
 
     def offer_slot_keys(self, keys: list[str]) -> None:
-        """Fill any slot key box with the keys a message list came back with."""
+        """Fill any slot key box with the keys a message list came back with.
+
+        Nothing is chosen for the caller. Leaving the first key selected would
+        make Load followed by Send act on a message at random, which for the
+        delete beside this one is the worst version of that mistake.
+
+        A key already typed is kept only if the sign turned out to have it. The
+        list is the answer to "what is registered", so a key missing from it is
+        one no request in this form can succeed with: the read would 404 and the
+        delete would too. Clearing it says that at the moment it becomes known,
+        rather than leaving it sitting there looking as valid as it did before
+        the list arrived. Comparison is on the trimmed text because that is what
+        would be sent.
+        """
         for item in self.operation.path_inputs:
             widget = self._path.get(item.name)
             if item.slot_keys and isinstance(widget, QComboBox):
-                # Offered, never chosen. Leaving the first key selected would
-                # make Load followed by Send delete a message at random.
                 current = widget.currentText()
                 widget.clear()
                 widget.addItems(keys)
-                if current:
+                if current.strip() and current.strip() in keys:
                     widget.setCurrentText(current)
                 else:
                     widget.setCurrentIndex(-1)
+                    widget.setCurrentText("")
 
     def fill_from(self, payload: dict[str, object]) -> None:
         """Put a stored resource into the body fields, for editing rather than retyping.

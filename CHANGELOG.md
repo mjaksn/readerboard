@@ -38,6 +38,22 @@ library, and the names inside it may move without that being a breaking change.
   the field's own way of saying no deadline, and the response panel shows the
   timestamp regardless.
 
+### Changed
+
+- **Loading the slot keys in the client now clears a key that is not among
+  them.** The key box keeps what was typed if the sign turned out to have that
+  slot, and is emptied if it did not. The list is the answer to "what is
+  registered", so a key missing from it is one no request on that form can
+  succeed with: the read would 404 and so would the delete. It used to be kept
+  regardless, which left a key that had just been shown not to exist sitting
+  there looking exactly as valid as it did a moment earlier.
+
+  A key that differs only in case is cleared too, because slot keys are compared
+  exactly and `Kitchen` is not `kitchen`. Surrounding whitespace is ignored,
+  since that is what the request would send. Nothing is ever chosen for you: an
+  empty box stays empty rather than taking the first key, which for the delete
+  on the same form would be the worst version of that mistake.
+
 ## [0.4.0] - 2026-09-10
 
 **This is the release that met the hardware.** Everything in it comes from

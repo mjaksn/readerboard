@@ -49,6 +49,14 @@ beside a set is unambiguous. All four answer the same shape, `name` and
 objects but not *this* list of objects is refused rather than quietly producing
 a set of empty names, which on screen looks exactly like a healthy one.
 
+**The key boxes offer what is registered, and say when what you typed is not.**
+Any form taking a slot key has a **Load keys** button beside the box, which calls
+`GET /messages` and offers the keys that came back. What you had already typed is
+kept if it is among them and cleared if it is not, because the list is the answer
+to what exists: a key missing from it is one the read would 404 on and the delete
+too. Nothing is selected for you either way, so Load followed by Send cannot act
+on a slot you never named.
+
 **A message already on the sign can be loaded back to edit it.** Register or
 replace a message carries a **Load From Sign** button under the message caption.
 It calls `GET /messages/{key}` for whatever key is in the box above and fills the
