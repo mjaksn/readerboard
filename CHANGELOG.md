@@ -63,6 +63,21 @@ library, and the names inside it may move without that being a breaking change.
   the key that was used. A key of nothing but spaces now shows as the empty box
   it is, beside the warning that says the key cannot be empty.
 
+### Fixed
+
+- **`GET /sign/information` could stop reading partway through the sign's
+  answer.** The service stopped as soon as the line had been quiet for 200ms,
+  and the sign can pause for longer than that in the middle of a reply: a
+  memory configuration read through a reader using the same rule came back cut
+  off partway through its second entry. What had arrived still parsed, so the
+  result was wrong rather than missing, and the rest of the answer was left on
+  the line to be read as the start of the next one.
+
+  A reply is now read until the EOT that closes it, and one that has started
+  but not finished within three seconds is a 503 rather than half an answer.
+  The general information reply is short and has not been seen to pause, so
+  this is a fix for a trap rather than for a wrong answer anybody reported.
+
 ## [0.4.0] - 2026-09-10
 
 **This is the release that met the hardware.** Everything in it comes from

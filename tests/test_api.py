@@ -466,8 +466,13 @@ class TestSignInformation:
     """The service's only read, and the only place a silent sign is visible."""
 
     def reply(self, data: bytes) -> bytes:
-        """Frame a data field the way the sign frames its answers."""
-        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + b"\x02" + b"E" + b'"' + data + b"\x03"
+        """Frame a data field the way the sign frames its answers.
+
+        The checksum is the sum of every byte from STX to ETX as four hex digits,
+        and the EOT after it is what tells the service the answer is complete.
+        """
+        body = b"\x02" + b"E" + b'"' + data + b"\x03"
+        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + body + b"%04X" % sum(body) + b"\x04"
 
     def test_it_reports_what_the_sign_says(self, client, sign):
         sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]

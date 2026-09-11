@@ -184,6 +184,18 @@ def recording_sleep(recorded: list[float]):
     return sleep
 
 
+def answer(data: bytes) -> bytes:
+    """Frame ``data`` the way the sign closes a reply: ETX, checksum, EOT.
+
+    The checksum is the sum of every byte from STX to ETX as four hex digits,
+    which is what the sign sent when this was measured: ``GaREAD ME`` came back
+    with ``027B`` and an empty ``Gz`` with ``00C6``. Nothing here checks it, and
+    it is included so that a reader stopping at the ETX would be caught short.
+    """
+    body = c.STX + data + c.ETX
+    return body + b"%04X" % sum(body) + c.EOT
+
+
 class TestWaitingForAReset:
     async def test_a_resetting_command_waits_for_the_sign_to_come_back(self):
         slept: list[float] = []
@@ -407,7 +419,7 @@ class TestReadingAReply:
         non-empty read would return only the nulls and fail this.
         """
         head = b"\x00\x00\x00"
-        tail = b"\x02E\x22DATA\x03"
+        tail = answer(b"E\x22DATA")
         transport = FakeTransport()
         transport.replies = [head, b"", b"", tail]
         controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
@@ -416,9 +428,60 @@ class TestReadingAReply:
 
         assert reply == head + tail
 
+    async def test_a_pause_partway_through_a_reply_does_not_cut_it_short(self):
+        """The sign can go quiet in the middle of an answer and carry on.
+
+        A reader that stopped after 200ms of quiet had a memory configuration
+        read come back cut off partway through its second entry, and the half it
+        had still parsed. Ten empty reads here is half a second of silence
+        between the two halves, longer than that reader waited.
+        """
+        head = b"\x00" * 20 + c.SOH + b"000" + c.STX + b"E$AAU0100FFFFBAU00"
+        rest = b"20000000" + c.ETX + b"0000" + c.EOT
+        transport = FakeTransport()
+        transport.replies = [head, *[b""] * 10, rest]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        reply = await controller.read_special(frames.read_memory_config())
+
+        assert reply == head + rest
+
+    async def test_reading_stops_at_the_end_of_transmission(self):
+        # Whatever follows the EOT belongs to something else, and must be left
+        # on the line rather than taken as part of this answer.
+        transport = FakeTransport()
+        transport.replies = [answer(b"E\x22DATA"), b"NEXT"]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        reply = await controller.read_special(frames.read_general_information())
+
+        assert reply == answer(b"E\x22DATA")
+        assert transport.replies == [b"NEXT"]
+
+    async def test_an_eot_before_the_start_of_text_does_not_end_the_read(self):
+        # The tail of an earlier reply, still on the line, ends in an EOT too.
+        stale = b"0000" + c.EOT
+        transport = FakeTransport()
+        transport.replies = [stale, b"", answer(b"E\x22DATA")]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        reply = await controller.read_special(frames.read_general_information())
+
+        assert reply == stale + answer(b"E\x22DATA")
+
+    async def test_a_reply_that_never_finishes_raises_rather_than_returning_half(self):
+        # Half an answer can still parse, into a confident wrong result. This
+        # reaches a caller as a 503, the same as a sign that says nothing.
+        transport = FakeTransport()
+        transport.replies = [b"\x00" * 20 + c.SOH + b"000" + c.STX + b"E\x221044"]
+        controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
+
+        with pytest.raises(TransportError, match="had not finished"):
+            await controller.read_special(frames.read_general_information())
+
     async def test_the_question_goes_out_before_the_answer_is_collected(self):
         transport = FakeTransport()
-        transport.replies = [b"\x02E\x22DATA\x03"]
+        transport.replies = [answer(b"E\x22DATA")]
         controller = SignController(transport, inter_packet_delay=0.01, sleep=recording_sleep([]))
 
         await controller.read_special(frames.read_general_information())
@@ -450,7 +513,7 @@ class TestReadingAReply:
             await release.wait()
 
         transport = FakeTransport()
-        transport.replies = [b"\x02E\x22DATA\x03"]
+        transport.replies = [answer(b"E\x22DATA")]
         controller = SignController(transport, inter_packet_delay=0.01, sleep=sleep)
 
         read = asyncio.create_task(controller.read_special(frames.read_general_information()))
