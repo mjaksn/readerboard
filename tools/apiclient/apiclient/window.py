@@ -294,7 +294,15 @@ class OperationForm(QWidget):
             return label
 
         source = catalogue.BY_ID[item.fill_from]
-        load = QPushButton("Load From Sign")
+        # Two lines, and it is the width that wants them rather than the
+        # wording. This button sits in the form's label column, so on one line
+        # it became the widest thing there and pushed every field right by the
+        # difference. Broken in two it is narrower than "display mode" below
+        # it, which was already setting that width, so the column is exactly as
+        # wide as it would be if this button were not here. The row is tall
+        # enough for the second line at no cost, because the message field
+        # beside it is a textarea.
+        load = QPushButton("Load From\nSign")
         load.setToolTip(
             "Call %s for the key above and fill this form from what comes back"
             % source.signature
