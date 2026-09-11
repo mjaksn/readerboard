@@ -82,7 +82,7 @@ STATUS_MEANING = {
     401: "the API key was missing or wrong",
     403: "refused",
     404: "no slot or variable by that name, or no such route on this service",
-    409: "a pool is full, or the variable is still called by a message",
+    409: "a pool is full, or the variable is still called by a message or the alert",
     422: "the body was not the shape the endpoint declares",
     500: "the service raised something it did not expect",
     503: "the sign is unreachable, or no API key is configured at all",
