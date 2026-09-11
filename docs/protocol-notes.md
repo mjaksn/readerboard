@@ -20,8 +20,8 @@ display seven pixels high.
 `scripts/protocol_spike.py` re-proves the wire formats end to end. It is destructive, and
 it refuses to run without `--confirm-erase`. `scripts/string_file_spike.py` does the same
 for STRING files, which a session on 2026-09-10 measured; see "STRING files, measured on
-the sign". `scripts/dots_spike.py` does it for SMALL DOTS PICTURE files, which have not
-been measured yet.
+the sign". `scripts/dots_spike.py` does it for SMALL DOTS PICTURE files, which a session on
+2026-09-11 measured; see "SMALL DOTS PICTURE files, measured on the sign".
 
 ## Sources
 
@@ -500,6 +500,65 @@ What this settles for the service:
 - **Reading a STRING back has no place in normal running.** It blanks the display, and it
   cannot tell an unallocated label from an empty one.
 
+## SMALL DOTS PICTURE files, measured on the sign
+
+A SMALL DOTS PICTURE is a bitmap in a file of its own, allocated in the memory
+configuration as type `D`, written with `I` (49H), read with `J` (4AH), and drawn inline
+by a TEXT file calling it with 14H followed by its label. The allocation's size is not a
+byte count: "the first two bytes = # pixel rows and the last two bytes = the # of pixel
+columns in the picture", and where a TEXT file has its schedule a picture has a colour
+status, "1000 = monochrome, 2000 = 3-color, 4000 = 8-color". A write carries the height
+and width in two hex digits each, then one row per line, each ended with a carriage
+return, one digit a pixel. Table 22 gives nine of those digits: off, red, green, amber,
+dim red, dim green, brown, orange and yellow.
+
+`scripts/dots_spike.py` put that to the sign on 2026-09-11, through the Ethernet adapter at
+9600 baud. What it found:
+
+| Question | What the sign did |
+| --- | --- |
+| Does a picture draw? | Yes. A 7 by 7 red heart drew alone in HOLD, centred like a short line of text, and in the middle of a line between two words with the usual spaces either side. |
+| Does a picture take the colour of the text around it? | No. A red heart between two runs of green text stayed red. |
+| And in ROTATE? | It scrolled with the text, whole and in place. |
+| Which colours does a 3-colour picture draw? | Three. Eight bands in codes 1 to 8 came out red, green, amber, a gap, then red, green, amber and nothing: code 4 drew nothing, 5 to 7 drew as red, green and amber, and 8 drew nothing. The pattern the data fits is the code taken modulo 4. |
+| And an 8-colour one? | All eight, each a different colour: the band that was a gap became dim red and the last became a pale yellow. Some are close to each other, and tell apart only side by side. |
+| And a monochrome one? | Practically identical to the 3-colour one, not one colour. |
+| How wide is the display? | Between 80 and 89 dots. A 120-dot ruler with a tick every ten showed eight ticks in HOLD, the fifth one green, which puts the left edge at the picture's first column; it was cut at the right edge, not centred or squeezed. |
+| Does a picture wider than the display scroll? | Yes, all of it. In ROTATE the whole ruler went by, twelve ticks with the fifth and tenth green. |
+| A picture taller than seven rows? | Its top seven rows, and nothing else. The document's own 15 by 9 arrow drew as the upper half of an arrow sitting low on the display, since its first two rows are blank, and the green dot on the eighth row did not show. |
+| A picture wider than its allocation? | Drawn at its written width, damaged. Sixteen columns written to a file allocated eight drew both halves, but the right end of each half's top row was off: faintly brighter on the red half, and plainly amber in the green half's four rightmost pixels. |
+| And narrower? | Drawn at its written width with nothing padded: four columns written to a file allocated eight drew a block four wide. |
+| Is the pause after the width needed? | No. Table 22 asks for "at least a 100 millisecond delay" after the width; a write sent in one piece, the way the service sends everything, drew exactly as asked. |
+| Does rewriting a picture blank the display? | Yes, as the document says. In HOLD the whole display blanked briefly on each of four rewrites. In ROTATE it blanked unevenly, some dots going dark before the rest, and the scroll started again from the beginning with the new picture. |
+| What does a call to nothing draw? | Nothing, not even a space, whether the picture was allocated and never written or never allocated at all. |
+| Can the priority file call a picture? | Yes. An alert with a heart between two words took the sign, and the bare release brought the rotation back. |
+| What does a read return, and does the display pause? | The reply begins `I`, the label, the height and the width, then the rows, each ended with a carriage return: `I107070110110` and so on. The display went blank, a handful of random dots flashed on across it, it went blank again and came back, all in under a second. |
+
+Three questions are left open. The session's two reads, the `F$` memory configuration and
+the `J` read of the heart, both came back cut short by the reader rather than the sign,
+which took one byte a poll over `socket://` until that was fixed. So how `F$` lists a
+DOTS entry is still unmeasured beyond its first six characters, `1DU070`, and the whole of
+a read reply is too. And with a red heart between two runs of green text, in HOLD, the
+heart flashed on and off about once a second while the text moved sideways each time it
+did. That line is wider than the display, and the likeliest reading is that HOLD showed it
+in two parts in turn, each centred, one with the heart and one without. A rerun with a
+shorter line would settle it.
+
+What this settles for the service, if it ever sends pictures:
+
+- **Allocate them as 8-colour.** Nothing else draws Table 22's full palette, and a
+  3-colour picture silently maps half the codes onto the other half.
+- **A picture is at most seven rows and, to stay still in HOLD, at most 80 columns.** A
+  taller one loses its lower rows without a word.
+- **A write must fit its allocation.** An overrun is not refused and not clipped; it draws
+  wrong.
+- **A picture can go in one transmission.** The pause Table 22 asks for is not needed, so
+  the controller's ordinary write path would serve.
+- **A picture is not a live value.** Rewriting one blanks the display and restarts a
+  scroll, like rewriting a TEXT file and unlike a STRING. A picture that changes often
+  would flicker.
+- **A dangling call is invisible**, as it is for a STRING, and alerts can carry a picture.
+
 ## What the spike still has to confirm
 
 The wire format questions are closed. Four behavioural ones were open, and a session with
@@ -779,11 +838,10 @@ of their own above, "STRING files, measured on the sign".
 up to 31 by 255 pixels that "can be used to create virtually any logo pattern on the
 display of the sign", stored as their own file type and inserted into a TEXT file. On a
 seven-high display that is a 7 by N bitmap, and it is the way to draw an arrow, a heart or
-a musical note now that the pictograph range has turned out to be absent. Two things in
-Table 22 matter to how the service could send one: the document asks for "at least a 100
-millisecond delay" after the width, partway through the transmission, and says the sign
-"will go blank until the transmission is complete". `scripts/dots_spike.py` asks the sign
-about both, and about which of the nine pixel colours it draws.
+a musical note now that the pictograph range has turned out to be absent. The sign has
+since been asked, and "SMALL DOTS PICTURE files, measured on the sign" has what it said:
+they draw, the pause Table 22 asks for is not needed, and a rewrite blanks the display as
+the document warns, so a picture suits an icon and not a changing value.
 
 **Read General Information** (`F"`). See "Reading state back" above.
 
