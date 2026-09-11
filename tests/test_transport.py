@@ -14,7 +14,7 @@ import pytest
 
 from readerboard.transport.base import Transport, TransportError
 from readerboard.transport.fake import FakeTransport
-from readerboard.transport.serial_link import SerialTransport
+from readerboard.transport.serial_link import READ_LIMIT_BYTES, SerialTransport
 
 
 class Clock:
@@ -149,6 +149,24 @@ class TestSerialTransportOverASocket:
             transport.close()
             listener.close()
             server.join(5)
+
+    def test_a_link_that_never_stops_delivering_still_hands_back(self):
+        # Without the cap this read would never return, and the controller
+        # would never reach its deadline.
+        class Flooding:
+            is_open = True
+            in_waiting = 1
+
+            def read(self, size: int) -> bytes:
+                return b"\x00" * size
+
+            def close(self) -> None:
+                pass
+
+        transport = SerialTransport("socket://sign.example:4001")
+        transport._port = Flooding()  # type: ignore[assignment]
+
+        assert len(transport.read_available()) == READ_LIMIT_BYTES
 
 
 class TestBackoff:

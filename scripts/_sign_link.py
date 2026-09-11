@@ -19,9 +19,12 @@ from readerboard.protocol import constants as c
 # waiting is drained on every poll rather than read once, because over socket://
 # pyserial's in_waiting is 1 whenever anything is waiting, not how much. Reading
 # it once took one byte a poll, and cut every reply longer than about fifty bytes
-# off at the timeout. See "Reading state back" in docs/protocol-notes.md.
+# off at the timeout. See "Reading state back" in docs/protocol-notes.md. Each
+# poll takes at most READ_LIMIT_BYTES, so a link that never stops delivering
+# still reaches the EOT check and the timeout.
 READ_POLL_SECONDS = 0.05
 READ_TIMEOUT_SECONDS = 3.0
+READ_LIMIT_BYTES = 4096
 
 
 class Link:
@@ -66,8 +69,11 @@ class Link:
         reply = bytearray()
         for _ in range(max(1, int(READ_TIMEOUT_SECONDS / READ_POLL_SECONDS))):
             try:
-                while waiting := self._port.in_waiting:
-                    reply += self._port.read(waiting)
+                budget = READ_LIMIT_BYTES
+                while budget > 0 and (waiting := self._port.in_waiting):
+                    asked = min(waiting, budget)
+                    reply += self._port.read(asked)
+                    budget -= asked
             except Exception as err:
                 print("     ! the link failed while reading: %s" % err)
                 self.close()

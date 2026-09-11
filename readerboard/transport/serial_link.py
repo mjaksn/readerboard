@@ -29,6 +29,12 @@ from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
+# The most one call to read_available takes. A reply is a few dozen bytes, so
+# this never splits one in practice. It is there for a link that never stops
+# delivering, which would otherwise keep the read going for ever, holding the
+# lock, and never let the controller reach its deadline.
+READ_LIMIT_BYTES = 4096
+
 
 class SerialTransport:
     """A held-open pyserial link with capped exponential backoff on failure."""
@@ -135,7 +141,8 @@ class SerialTransport:
         anything is waiting and 0 when nothing is, so a single read of it takes
         one byte, and a reply collected at one byte a poll ran out of time
         partway through. A serial port reports the real count and is drained in
-        one pass.
+        one pass. Either way it stops at :data:`READ_LIMIT_BYTES`, counted by
+        what was asked for, and the caller reads again for the rest.
         """
         if not self.is_open:
             raise self._down_error()
@@ -145,8 +152,11 @@ class SerialTransport:
                 raise self._down_error()
             try:
                 received = bytearray()
-                while waiting := port.in_waiting:
-                    received += port.read(waiting)
+                budget = READ_LIMIT_BYTES
+                while budget > 0 and (waiting := port.in_waiting):
+                    asked = min(waiting, budget)
+                    received += port.read(asked)
+                    budget -= asked
                 return bytes(received)
             except (serial.SerialException, OSError) as err:
                 self._record_failure(err)
