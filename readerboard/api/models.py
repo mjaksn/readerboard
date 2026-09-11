@@ -164,7 +164,10 @@ class VariableResponse(BaseModel):
     )
     source: str | None
     expires_at: datetime | None = Field(
-        description="when the value goes stale, or null if it never will"
+        description=(
+            "when the value goes stale, or null if it never will or already has, which "
+            "stale tells apart"
+        )
     )
     updated_at: datetime
     called_by: list[str] = Field(

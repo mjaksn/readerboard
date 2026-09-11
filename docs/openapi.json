@@ -572,7 +572,7 @@
                 "type": "null"
               }
             ],
-            "description": "when the value goes stale, or null if it never will",
+            "description": "when the value goes stale, or null if it never will or already has, which stale tells apart",
             "title": "Expires At"
           },
           "label": {
