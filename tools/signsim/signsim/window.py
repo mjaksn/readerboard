@@ -321,8 +321,9 @@ class MainWindow(QMainWindow):
         reset.setToolTip(
             "Forget the file table, the messages and the run sequence, as a sign "
             "that has lost its memory would. This is the case the service's "
-            "refresh timer exists to repair. It is not a power cycle: this sign "
-            "kept its files through one."
+            "refresh timer exists to repair. On this sign it takes a long power "
+            "cut: a few minutes unplugged leaves its memory alone, a day or more "
+            "wipes it."
         )
         reset.triggered.connect(self.on_reset_sign)
         bar.addAction(reset)

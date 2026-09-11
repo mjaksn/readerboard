@@ -455,7 +455,7 @@ file calling each STRING. What it found:
 | A STRING written past its size | Emptied. Twenty-four bytes into a 16-byte STRING and 130 into a 125-byte one each left the call drawing nothing. Not truncated and not refused: the previous value was lost too. |
 | Can the priority file call a STRING? | Yes. An alert calling one drew it, a STRING write during the alert changed the number inside it, and the alert kept the sign throughout. The bare release brought the rotation back as usual. |
 | What does a read return? | What Table 20 says: `G`, the label, the data, ETX and a checksum, which summed correctly by hand (`027B` for `GaREAD ME`). The display blanked briefly mid-scroll and picked up from about where it was. A read of a label never allocated came back as `Gz` with no data. No empty STRING was read, but that reply has nowhere to say "not allocated", so presumably the two look the same. |
-| Does a STRING survive a power cycle? | Yes, and so did the TEXT file calling it: `PC:42` came back. |
+| Does a STRING survive a power cycle? | A short one, yes, and so did the TEXT file calling it: `PC:42` came back. Not one to rely on, though. From experience with this sign, its memory lasts through about five minutes unplugged and is gone after a day or more, and the point between has not been pinned down. So the service goes on assuming a power cut can wipe the sign, which is what the periodic refresh repairs. |
 
 One sample was tried from each family of codes rather than every token: one character set
 of the three, one 1DH attribute of the two, two speeds of five, two of the extended

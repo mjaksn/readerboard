@@ -167,8 +167,8 @@ class SignState:
     def reset(self) -> None:
         """Forget everything, as a sign that has lost its memory would.
 
-        Not a power cycle, which is what this was once taken to be: this sign
-        was measured keeping both a TEXT file and a STRING file through one.
+        On this sign that is a long power cut. It keeps its files through a
+        short one, measured, and loses them after a day or more unplugged.
         """
         self.memory_config = None
         self.memory_order = []
