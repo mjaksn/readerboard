@@ -57,6 +57,14 @@ to what exists: a key missing from it is one the read would 404 on and the delet
 too. Nothing is selected for you either way, so Load followed by Send cannot act
 on a slot you never named.
 
+The whitespace around a key is trimmed, both when it is compared with that list
+and when Send is pressed, and the box is rewritten to the trimmed key in both
+cases. The client trims every path value on its way out regardless, and the
+service refuses whitespace in a key at all, so the trimmed key is the one that is
+actually used. Showing it in the box means the screen says so, rather than
+keeping the spaces as though they had gone somewhere. Case is left alone:
+`Porch` and `porch` are different slots.
+
 **A message already on the sign can be loaded back to edit it.** Register or
 replace a message carries a **Load From Sign** button under the message caption.
 It calls `GET /messages/{key}` for whatever key is in the box above and fills the

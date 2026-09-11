@@ -473,24 +473,40 @@ class OperationForm(QWidget):
         rather than leaving it sitting there looking as valid as it did before
         the list arrived.
 
-        The comparison is exact, with no trimming and no case folding. Slot keys
-        are case sensitive, and the service refuses whitespace anywhere in one,
-        so a key with spaces around it can never be among those that come back.
-        Trimming it into a match would be answering whether the request would
-        work, which is a different question from whether this is a key the sign
-        has.
+        What is compared is the key with the whitespace around it trimmed,
+        because that is what this client sends: ``request.fill_path`` trims
+        every path value on its way out, and the service would refuse the
+        untrimmed one anyway. So ``  porch `` is the key ``porch`` as far as any
+        request is concerned, and on a match the box is rewritten to the
+        trimmed form, so that what it shows is the key the sign actually has.
+        Case is not folded: slot keys are case sensitive, and ``Porch`` is a
+        different slot that the sign does not have.
         """
         for item in self.operation.path_inputs:
             widget = self._path.get(item.name)
             if item.slot_keys and isinstance(widget, QComboBox):
-                current = widget.currentText()
+                wanted = widget.currentText().strip()
                 widget.clear()
                 widget.addItems(keys)
-                if current and current in keys:
-                    widget.setCurrentText(current)
+                if wanted and wanted in keys:
+                    widget.setCurrentText(wanted)
                 else:
                     widget.setCurrentIndex(-1)
                     widget.setCurrentText("")
+
+    def trim_path_values(self) -> None:
+        """Trim the whitespace from the path boxes in place.
+
+        ``request.fill_path`` trims every path value on its way out, so what
+        reaches the service is already the trimmed key whatever the box shows.
+        Doing it to the box as well makes the two agree: the key on screen after
+        Send is the key that was used, rather than the one the user typed and
+        the client quietly changed.
+        """
+        for widget in self._path.values():
+            text = _text_of(widget)
+            if text != text.strip():
+                _set_text(widget, text.strip())
 
     def fill_from(self, payload: dict[str, object]) -> None:
         """Put a stored resource into the body fields, for editing rather than retyping.
@@ -531,6 +547,16 @@ def _placeholder(combo: QComboBox, text: str) -> None:
     line = combo.lineEdit()
     if line is not None:
         line.setPlaceholderText(text)
+
+
+def _trimmed(values: dict[str, str]) -> dict[str, str]:
+    """Return path values as they are sent, with the whitespace around each trimmed.
+
+    Used where a reply is matched back to the question that produced it, so the
+    comparison is between what went out and what the box would send now. A key
+    the user padded with a space while the call was out is still the same key.
+    """
+    return {name: value.strip() for name, value in values.items()}
 
 
 def _remaining(expires_at: object) -> str:
@@ -814,9 +840,15 @@ class MainWindow(QMainWindow):
             return None
 
     def _send_current(self) -> None:
-        """Send whichever operation is selected."""
+        """Send whichever operation is selected, trimming its path boxes first.
+
+        Trimmed before the send rather than after it went out, so that a key of
+        nothing but spaces shows as the empty box it is when the refusal to send
+        it explains that the key cannot be empty.
+        """
         if self._form is None:
             return
+        self._form.trim_path_values()
         self.run(self._form.operation)
 
     def run(
@@ -921,7 +953,7 @@ class MainWindow(QMainWindow):
             return
         asked = form.path_values()
         if self.run(catalogue.BY_ID[operation_id], path_values=asked):
-            self._pending_fill = (form, operation_id, asked)
+            self._pending_fill = (form, operation_id, _trimmed(asked))
 
     def _copy_curl(self) -> None:
         """Put the current form's call on the clipboard as a curl command."""
@@ -995,7 +1027,7 @@ class MainWindow(QMainWindow):
                 ok
                 and isinstance(payload, dict)
                 and self._form is form
-                and form.path_values() == asked
+                and _trimmed(form.path_values()) == asked
             ):
                 form.fill_from(payload)
 

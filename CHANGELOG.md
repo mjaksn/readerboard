@@ -48,12 +48,20 @@ library, and the names inside it may move without that being a breaking change.
   regardless, which left a key that had just been shown not to exist sitting
   there looking exactly as valid as it did a moment earlier.
 
-  The comparison is exact. A key that differs only in case is cleared, because
-  `Kitchen` and `kitchen` are different slots, and so is one with spaces around
-  it, because the service refuses whitespace anywhere in a slot key and so no
-  registered key can match it. Nothing is ever chosen for you: an empty box stays
-  empty rather than taking the first key, which for the delete on the same form
-  would be the worst version of that mistake.
+  The whitespace around a typed key is trimmed before it is compared, and on a
+  match the box is rewritten to the trimmed key, so `  porch ` becomes `porch`.
+  That is what the client sends anyway: it trims every path value on the way
+  out, and the service refuses whitespace anywhere in a slot key. Case is not
+  folded, because `Porch` and `porch` are different slots. Nothing is ever chosen
+  for you: an empty box stays empty rather than taking the first key, which for
+  the delete on the same form would be the worst version of that mistake.
+
+- **Send trims the client's key box before it sends.** The client has always
+  trimmed the key on its way to the service, so a request typed as `  kitchen `
+  went out as `kitchen` while the box went on showing the spaces. The box is now
+  trimmed too, on every form that takes a key, so the key on screen after Send is
+  the key that was used. A key of nothing but spaces now shows as the empty box
+  it is, beside the warning that says the key cannot be empty.
 
 ## [0.4.0] - 2026-09-10
 
