@@ -72,15 +72,38 @@ class AlertState(BaseModel):
 
 
 class AppliedLayout(BaseModel):
-    """The memory configuration currently believed to be on the sign."""
+    """The memory configuration currently believed to be on the sign.
+
+    A file written before variables existed has none of the ``variable_``
+    fields, reads as a layout with no STRING files, and so still matches a
+    configuration that asks for none.
+    """
 
     slot_count: int
     slot_capacity: int
     labels: list[str]
+    variable_count: int = 0
+    variable_capacity: int = 0
+    variable_labels: list[str] = Field(default_factory=list)
 
-    def matches(self, slot_count: int, slot_capacity: int) -> bool:
-        """Whether this layout is already what the given settings ask for."""
-        return self.slot_count == slot_count and self.slot_capacity == slot_capacity
+    def matches(
+        self,
+        slot_count: int,
+        slot_capacity: int,
+        variable_count: int = 0,
+        variable_capacity: int = 0,
+    ) -> bool:
+        """Whether this layout is already what the given settings ask for.
+
+        With no variables, their size means nothing, so changing it alone must
+        not cost an erase.
+        """
+        return (
+            self.slot_count == slot_count
+            and self.slot_capacity == slot_capacity
+            and self.variable_count == variable_count
+            and (variable_count == 0 or self.variable_capacity == variable_capacity)
+        )
 
 
 class ServiceState(BaseModel):

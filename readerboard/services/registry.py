@@ -129,7 +129,7 @@ class MessageRegistry:
                 continue
 
             try:
-                self._layout.restore(key, slot.label.encode("ascii"))
+                self._layout.slots.restore(key, slot.label.encode("ascii"))
             except ValueError:
                 logger.warning(
                     "slot %r used file %s, which is outside the current pool; dropping it",
@@ -234,7 +234,7 @@ class MessageRegistry:
         async with self._lock:
             existed = key in self._state.slots
             previous = self._state.slots.get(key)
-            label = self._layout.assign(key)  # raises LayoutFull when the pool is full
+            label = self._layout.slots.assign(key)  # raises LayoutFull when the pool is full
 
             now = self._now()
             slot = SlotState(
@@ -268,7 +268,7 @@ class MessageRegistry:
                     self._state.slots[key] = previous
                 else:
                     del self._state.slots[key]
-                    self._layout.release(key)
+                    self._layout.slots.release(key)
                 raise
 
             self._save()
@@ -289,7 +289,7 @@ class MessageRegistry:
             if slot is None:
                 raise UnknownSlot("no slot named %r is registered" % key)
 
-            self._layout.release(key)
+            self._layout.slots.release(key)
             try:
                 await self._apply_run_sequence()
                 await self._blank(slot)
@@ -306,7 +306,7 @@ class MessageRegistry:
             slots = list(self._state.slots.values())
             self._state.slots.clear()
             for slot in slots:
-                self._layout.release(slot.key)
+                self._layout.slots.release(slot.key)
 
             try:
                 await self._apply_run_sequence()
@@ -333,7 +333,7 @@ class MessageRegistry:
 
             for slot in expired:
                 del self._state.slots[slot.key]
-                self._layout.release(slot.key)
+                self._layout.slots.release(slot.key)
 
             # Taking the labels out of the run sequence is what removes them
             # from the sign. The files themselves are left alone, because

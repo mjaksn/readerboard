@@ -4,6 +4,12 @@ The message language is deliberately small: printable text, plus tokens written
 as ``<name>``. ``<red>Hello <degree>`` is a colour change, the word Hello, and a
 degree symbol.
 
+One tag is not a token. ``<var:name>`` calls a variable, which lives in a STRING
+file of its own, and renders as the two bytes that call that file. The renderer
+is told which file each variable name lives in and knows nothing else about
+variables, so the registry that hands the files out stays the one place that
+decides whether a name exists.
+
 Two rules here are load bearing, and both have an obvious wrong answer.
 
 First, the cursor advances on every branch. A tokenizer that only moves forward
@@ -21,8 +27,11 @@ replaced depending on how strict the caller asked us to be.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
+
 from readerboard.protocol import constants as c
-from readerboard.protocol.tokens import MARKUP_BY_TEXT
+from readerboard.protocol.tokens import MARKUP_BY_TEXT, MARKUP_TOKENS
 
 
 class MarkupError(ValueError):
@@ -119,10 +128,39 @@ REPLACEMENT = b"?"
 
 # The tag name may only contain these, which keeps a stray "<" in prose such as
 # "a < b" from being mistaken for the start of a tag that runs to the next ">".
-_TAG_CHARACTERS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+# The colon is there for the one tag that carries an argument, <var:name>.
+_TAG_CHARACTERS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:")
+
+VARIABLE_TAG_PREFIX = "<var:"
+
+# What a variable may be called. Narrower than a slot key on purpose: it has to
+# sit inside a tag, and a name the tag cannot hold is a variable no message can
+# call. The API validates the name in its path against the same pattern.
+VARIABLE_NAME_PATTERN = r"^[a-z0-9_]{1,32}$"
+_VARIABLE_NAME = re.compile(VARIABLE_NAME_PATTERN)
+
+# Every date insert starts with 0BH. Inside a STRING file the sign drops that
+# byte and draws the selector after it as a literal character, so <week_day> in
+# a value shows a 9 rather than the day. Measured on 2026-09-10; see "STRING
+# files, measured on the sign" in docs/protocol-notes.md.
+_DATE_INSERT = c.CURDATE_WEEKDAYY[:1]
+_NOT_IN_A_VALUE = {
+    token.text: (
+        "%s cannot go in a variable's value, because the sign draws it there as a "
+        "literal character; put it in the message that calls the variable instead"
+        % token.text
+    )
+    for token in MARKUP_TOKENS
+    if token.value.startswith(_DATE_INSERT)
+}
 
 
-def render(message: str, *, strict: bool = True) -> bytes:
+def render(
+    message: str,
+    *,
+    strict: bool = True,
+    variables: Mapping[str, bytes] | None = None,
+) -> bytes:
     """Render ``message`` to sign bytes.
 
     When ``strict`` is true an unknown tag, an unterminated tag or a character
@@ -134,7 +172,63 @@ def render(message: str, *, strict: bool = True) -> bytes:
     path is for re-rendering a message this service already accepted once, so
     that a slot or an alert restored from disk cannot fail to come back because
     the rules around it tightened in the meantime.
+
+    ``variables`` maps each variable name to the STRING file it lives in, and a
+    ``<var:name>`` becomes the call to that file. None means no variable can be
+    called here at all, which is a different refusal from a map that lacks the
+    name. When not strict, a call that cannot be made renders nothing, which is
+    also what the sign draws for a call to a STRING that is not there.
     """
+    return _render(message, strict=strict, variables=variables, in_value=False)
+
+
+def render_value(value: str, *, strict: bool = True) -> bytes:
+    """Render a variable's value, the bytes a STRING file holds.
+
+    The message language again, less the two things the sign cannot draw from
+    inside a STRING: a date insert, which it draws as its selector character,
+    and a call to another variable, which it draws as the label's letter. The
+    document's own list of what a STRING may hold is narrower than this, and
+    wrong: rainbow, flash, the attributes and the extended characters it leaves
+    out all worked on the sign.
+
+    Formatting in a value is not contained by it. A colour set in a value
+    carries on into the message after the call, as a character set and a speed
+    do, which the caller has to know and this cannot fix.
+    """
+    return _render(value, strict=strict, variables=None, in_value=True)
+
+
+def references(message: str) -> list[str]:
+    """Return the variable names a message calls, each once, in order of first use.
+
+    Tags are found exactly as :func:`render` finds them, so the two cannot
+    disagree about what counts as a call. A name that is not a valid variable
+    name is still returned, since the caller wants to know what was asked for.
+    """
+    names: list[str] = []
+    index = 0
+    while index < len(message):
+        if message[index] == "<":
+            tag, after = _read_tag(message, index)
+            if tag is not None:
+                if tag.startswith(VARIABLE_TAG_PREFIX):
+                    name = tag[len(VARIABLE_TAG_PREFIX) : -1]
+                    if name not in names:
+                        names.append(name)
+                index = after
+                continue
+        index += 1
+    return names
+
+
+def _render(
+    message: str,
+    *,
+    strict: bool,
+    variables: Mapping[str, bytes] | None,
+    in_value: bool,
+) -> bytes:
     out = bytearray()
     index = 0
     length = len(message)
@@ -155,6 +249,17 @@ def render(message: str, *, strict: bool = True) -> bytes:
                 index += 1
                 continue
 
+            if tag.startswith(VARIABLE_TAG_PREFIX):
+                out += _call(tag, strict=strict, variables=variables, in_value=in_value)
+                index = after
+                continue
+
+            if in_value and tag in _NOT_IN_A_VALUE:
+                if strict:
+                    raise MarkupError(_NOT_IN_A_VALUE[tag])
+                index = after
+                continue
+
             token = MARKUP_BY_TEXT.get(tag)
             if token is None:
                 if strict:
@@ -169,6 +274,38 @@ def render(message: str, *, strict: bool = True) -> bytes:
         index += 1
 
     return bytes(out)
+
+
+def _call(
+    tag: str,
+    *,
+    strict: bool,
+    variables: Mapping[str, bytes] | None,
+    in_value: bool,
+) -> bytes:
+    """Render one ``<var:name>``, or explain why it cannot be rendered."""
+    name = tag[len(VARIABLE_TAG_PREFIX) : -1]
+    if in_value:
+        problem = (
+            "a variable's value cannot call another variable; the sign draws %s there "
+            "as a letter" % tag
+        )
+    elif not _VARIABLE_NAME.match(name):
+        problem = (
+            "%r is not a variable name; use one to 32 lowercase letters, digits and "
+            "underscores" % name
+        )
+    elif variables is None:
+        problem = "%s calls a variable, and variables cannot be used here" % tag
+    else:
+        label = variables.get(name)
+        if label is not None:
+            return c.STRING_FILE_INSERT + label
+        problem = "there is no variable named %r; create it before a message calls it" % name
+
+    if strict:
+        raise MarkupError(problem)
+    return b""
 
 
 def _read_tag(message: str, start: int) -> tuple[str | None, int]:

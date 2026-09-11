@@ -317,9 +317,11 @@ telnet serial protocol, `/dev/ttyUSB0` or `COM3` for a cable plugged straight in
 and the port, and pyserial's answer to one that has a slash names neither the setting
 nor the value.
 
-Two settings reallocate the sign's memory when changed, and **that erases every message
-on it**: `slot_count` and `slot_capacity`. The service will do it, and say so loudly in
-the log, but they are not settings to fiddle with.
+Four settings reallocate the sign's memory when changed, and **that erases every message
+on it**: `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity`. The
+service will do it, and say so loudly in the log, but they are not settings to fiddle
+with. With `variable_count` at 0, `variable_capacity` allocates nothing, so changing it
+alone reallocates nothing either.
 
 ## Security
 

@@ -706,11 +706,20 @@ RUN_SEQ_DELETE_AT_STOP = b"D"
 # exists on a sign", and writing to it stops every other TEXT file from being
 # displayed.
 #
-# This service hands out "A" to "Z" only. A label a person can read in a log line
-# is worth more than the extra capacity, and the real ceiling is the memory pool
-# in bytes rather than a count of files. Two ranges are kept back: "0", the
-# priority file, and "1" to "5", which become reserved target files if the sign's
-# counter feature is ever switched on.
+# This service hands out "A" to "Z" for TEXT files and "a" to "z" for STRING
+# files. A label a person can read in a log line is worth more than the extra
+# capacity, and the real ceiling is the memory pool in bytes rather than a count
+# of files. Two ranges are kept back: "0", the priority file, and "1" to "5",
+# which become reserved target files if the sign's counter feature is ever
+# switched on.
+#
+# That the two alphabets are separate files is measured rather than read: the
+# document says only that labels run from 20H to 7EH. A STRING "a" and a TEXT
+# "A" were allocated side by side on the sign on 2026-09-10 and neither disturbed
+# the other. See "STRING files, measured on the sign" in docs/protocol-notes.md.
+#
+# Appendix A rules two labels out for a STRING file in particular: 'File Label
+# "0" (30H) and "?" (3FH) can not be used as STRING file labels.'
 
 FILE_PRIORITY = b"0"
 PRIORITY_FILE_CAPACITY = 125
@@ -742,6 +751,8 @@ TEXT_FILE_LABELS = (
     b"Y",
     b"Z",
 )
+STRING_FILE_LABELS = tuple(bytes([code]) for code in range(ord("a"), ord("z") + 1))
+STRING_FILE_FORBIDDEN_LABELS = (b"0", b"?")
 RESERVED_FILE_LABELS = (
     b"0",
     b"1",
@@ -750,6 +761,25 @@ RESERVED_FILE_LABELS = (
     b"4",
     b"5",
 )
+
+# ==========================================================================
+# STRING files
+# ==========================================================================
+# Section 6.3, document page 36. A STRING file holds a short value that a TEXT
+# file calls inline with STRING_FILE_INSERT and the STRING's label, and writing
+# one does not blank the display. "Because the STRING file data is buffered, the
+# size of a STRING file is limited to 125 bytes."
+#
+# Table 15 sets two rules for a STRING file's entry in the memory configuration:
+# 'For a STRING file, "L" must be selected', and 'For a STRING file, use "0000"
+# as place holders because these four characters have no special meaning.'
+#
+# A write past a STRING's allocated size does not truncate it. On the sign it
+# emptied the STRING, previous value and all, so the size check is the caller's
+# job and not optional.
+
+STRING_FILE_CAPACITY = 125
+STRING_SCHEDULE = b"0000"
 
 # ==========================================================================
 # What this sign will accept

@@ -235,6 +235,16 @@ class SignController:
             return True
         return await self._send_if_changed(label, payload)
 
+    async def write_string_file(self, label: bytes, data: bytes) -> bool:
+        """Put ``data`` in a STRING file. Returns False if the write was suppressed.
+
+        Suppressed on the same terms as a TEXT file, by label, which cannot
+        collide with one: the two pools use different labels. Unlike a TEXT
+        write this does not blank the display, which is the point of it, so an
+        unchanged value costs nothing and a changed one costs one short packet.
+        """
+        return await self._send_if_changed(label, frames.write_string_file(label, data))
+
     async def write_priority(
         self,
         body: bytes,

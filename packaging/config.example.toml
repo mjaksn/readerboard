@@ -60,11 +60,18 @@ backoff_max = 60.0
 
 # How many messages can share the sign at once. Each takes one sign file.
 #
-# Changing either of these reallocates the sign's memory on the next start, and
-# that ERASES every message on it. The service will do it and say so in the log,
-# but do not change them casually.
+# Changing any of the four settings in this section reallocates the sign's
+# memory on the next start, and that ERASES every message on it. The service
+# will do it and say so in the log, but do not change them casually.
 slot_count = 8
 slot_capacity = 256
+
+# How many variables the sign can hold, and the bytes each value may take. A
+# variable is a small file of its own that a message calls with <var:name>, and
+# changing its value does not restart the message calling it. The sign allows at
+# most 125 bytes. A variable_count of 0 turns variables off.
+variable_count = 8
+variable_capacity = 32
 
 # == behaviour ===============================================================
 

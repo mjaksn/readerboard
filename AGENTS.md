@@ -79,9 +79,10 @@ table is overwritten."
 
 So the service allocates its whole file pool once, records the applied plan in
 its state file, and reconfigures only when the plan itself changes. Changing
-`slot_count` or `slot_capacity` is therefore destructive on the next start. It
-is done deliberately, it is logged at WARNING, and it must never become
-something an ordinary message update can trigger.
+`slot_count`, `slot_capacity`, `variable_count` or `variable_capacity` is
+therefore destructive on the next start. It is done deliberately, it is logged
+at WARNING, and it must never become something an ordinary message or variable
+update can trigger.
 
 Note that the protocol has a second reset which is nothing to do with this one.
 `E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,

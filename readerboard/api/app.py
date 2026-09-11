@@ -137,7 +137,12 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         )
         store = StateStore(settings.state_path)
         state = store.load()
-        layout = Layout(settings.slot_count, settings.slot_capacity)
+        layout = Layout(
+            settings.slot_count,
+            settings.slot_capacity,
+            settings.variable_count,
+            settings.variable_capacity,
+        )
         alerts = AlertService(controller, store, state)
         registry = MessageRegistry(
             controller, layout, store, state, alert_active=lambda: alerts.active is not None
