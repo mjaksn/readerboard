@@ -49,6 +49,7 @@ from readerboard.protocol.markup import render
 
 POOL = [b"A", b"B", b"C"]
 SLOT_CAPACITY = 256
+READ_LIMIT_BYTES = 4096
 
 observations: list[tuple[str, str]] = []
 
@@ -84,7 +85,16 @@ def read_back(link: serial.Serial, payload: bytes, *, label: str, wait: float = 
     link.flush()
 
     time.sleep(wait)
-    reply = link.read(link.in_waiting or 1)
+    # Drained rather than read once: over socket:// in_waiting is 1 whenever
+    # anything is waiting, so one read of it returns a lone byte. Capped, so a
+    # link that never stops delivering cannot keep this going for ever.
+    received = bytearray()
+    budget = READ_LIMIT_BYTES
+    while budget > 0 and (waiting := link.in_waiting):
+        asked = min(waiting, budget)
+        received += link.read(asked)
+        budget -= asked
+    reply = bytes(received)
     if reply:
         print("     <- %d bytes: %r" % (len(reply), reply))
     else:

@@ -6,11 +6,15 @@ a fake that is never checked against the thing it stands in for is just a second
 implementation of the same guesswork.
 """
 
+import socket
+import threading
+import time
+
 import pytest
 
 from readerboard.transport.base import Transport, TransportError
 from readerboard.transport.fake import FakeTransport
-from readerboard.transport.serial_link import SerialTransport
+from readerboard.transport.serial_link import READ_LIMIT_BYTES, SerialTransport
 
 
 class Clock:
@@ -98,6 +102,71 @@ class TestSerialTransportOverLoopback:
         assert SerialTransport("socket://sign.example:4001").description == (
             "socket://sign.example:4001"
         )
+
+
+class TestSerialTransportOverASocket:
+    """socket:// is how the sign is reached through an adapter, and it counts differently.
+
+    pyserial's ``in_waiting`` over a socket is 1 while anything is waiting, not
+    how much, which loop:// cannot show because it reports the real count. A
+    read that trusted it took one byte a poll, and a reply the length of the
+    general information ran out of time before its end.
+    """
+
+    REPLY = b"\x00" * 20 + b"\x01000\x02E\x221044-160B01931433M004000,0BB8\x030BA4\x04"
+
+    def test_everything_waiting_is_read_at_once(self):
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        sent = threading.Event()
+        done = threading.Event()
+
+        def serve() -> None:
+            conn, _ = listener.accept()
+            with conn:
+                # Answer only when asked, as the sign does. pyserial empties
+                # the input as it opens, and would take an answer sent sooner.
+                conn.recv(64)
+                conn.sendall(self.REPLY)
+                sent.set()
+                done.wait(5)
+
+        server = threading.Thread(target=serve, daemon=True)
+        server.start()
+        transport = SerialTransport("socket://127.0.0.1:%d" % listener.getsockname()[1])
+        try:
+            transport.ensure_open()
+            transport.write(b"QUESTION")
+            assert sent.wait(5)
+            # Let the whole reply land before the one read that must take it all.
+            time.sleep(0.2)
+
+            assert transport.read_available() == self.REPLY
+            assert transport.read_available() == b""
+        finally:
+            done.set()
+            transport.close()
+            listener.close()
+            server.join(5)
+
+    def test_a_link_that_never_stops_delivering_still_hands_back(self):
+        # Without the cap this read would never return, and the controller
+        # would never reach its deadline.
+        class Flooding:
+            is_open = True
+            in_waiting = 1
+
+            def read(self, size: int) -> bytes:
+                return b"\x00" * size
+
+            def close(self) -> None:
+                pass
+
+        transport = SerialTransport("socket://sign.example:4001")
+        transport._port = Flooding()  # type: ignore[assignment]
+
+        assert len(transport.read_available()) == READ_LIMIT_BYTES
 
 
 class TestBackoff:

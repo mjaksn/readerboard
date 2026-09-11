@@ -471,11 +471,10 @@ reader's, not the sign's:
 ```
 
 That stops five characters into the second entry, with no ETX, checksum or EOT after it.
-The spike stopped collecting once the line had been quiet for 200 ms, and the rest of a
-reply that long arrived later than that. So how the sign lists a STRING entry is still
-unmeasured, and the spike's reader now reads until the EOT that ends every reply.
-`SignController.read_special` stopped on the same 200 ms rule and now reads to the EOT
-too, as described under "Reading state back".
+This was first put down to the sign pausing mid-reply for longer than the spike's 200 ms
+quiet rule, and that was wrong. The reader took one byte a poll, for the reason given under
+"Reading state back", and ran out of time with the reply half collected. So how the sign
+lists a STRING entry is still unmeasured.
 
 And at speed 5 the person watching counted eight repetitions of a word sent five times,
 which is more likely a count lost at that speed than the sign repeating anything.
@@ -591,9 +590,9 @@ the middle: read the fields left to right at fixed offsets and a sign that omits
 every field after it into a plausible wrong answer. The parser measures from both ends
 instead.
 
-Collecting the reply has its own trap, described under "Reading state back" and now encoded
-in `tests/test_controller.py`: the answer is read until its EOT arrives, never with a single
-`read(in_waiting or 1)` and never until the line merely goes quiet.
+Collecting the reply has its own traps, described under "Reading state back" and encoded in
+`tests/test_controller.py` and `tests/test_transport.py`: the answer is read until its EOT
+arrives, and what is waiting is drained rather than read once.
 
 These would turn divergence detection from a timer into a question. The service currently
 re-pushes everything every fifteen minutes, because the sign and the Ethernet adapter are
@@ -607,17 +606,30 @@ which read two text files back with `B` as well. Nothing in the service depends 
 yet, which is deliberate; the reads are available whenever divergence detection is worth
 building.
 
-One trap when reading: a reply opens with a run of `NUL`s and the payload arrives a moment
-behind the first byte, so a reader that takes `in_waiting or 1` and stops returns a lone
-`b"\x00"` for every question. Compare two of those and they match, which looks like proof
-and is not. `scripts/protocol_spike.py` has the eager version. Nothing in the service
-depends on the answer yet, which is deliberate.
+The trap when reading is pyserial's, not the sign's. Over `socket://`, which is how this
+sign has always been reached, `in_waiting` is not a byte count: it is 1 while anything is
+waiting and 0 when nothing is. So `read(in_waiting)` takes one byte however much has
+arrived, and that went wrong three ways before it was found:
 
-Reading until the line goes quiet is not the fix either, because the sign can pause partway
-through a reply. A reader that stopped after 200ms of quiet had a memory configuration read
-come back cut off partway through its second entry, and what it had still parsed as a
-configuration, a shorter one. Read until the EOT that closes every transmission, with a
-deadline for a sign that never sends it.
+- A reader that waited two seconds and then read `in_waiting or 1` once got a lone
+  `b"\x00"`, the first of the run of `NUL`s every reply opens with, for every question.
+  Compare two of those and they match, which looks like proof and is not. This was
+  first explained as the payload arriving a moment behind the nulls, and nothing
+  measured says it does.
+- A reader polling every 50 ms collected one byte per poll, twenty a second, and a
+  three second deadline cut every reply longer than about fifty bytes off partway
+  through. The memory configuration read in "STRING files, measured on the sign" came
+  back that way. This was first explained as the sign pausing mid-reply, which is also
+  unmeasured.
+- In 0.5.0, where a reply that has not finished by the deadline is a 503 rather than
+  half an answer, `GET /sign/information` failed through the adapter every time.
+
+So drain what is waiting, reading until `in_waiting` says nothing is left, and keep
+reading until the EOT that closes every transmission, with a deadline for a sign that
+never sends it. A serial port reports the real count and drains in one pass. A reader that
+stops when the line goes quiet is still wrong, even though no pause has been measured,
+because a reply that stops early can still parse: half a memory configuration is a shorter
+configuration.
 
 One trap when comparing a read-back memory configuration against a plan: the sign gives
 whatever is left of the memory pool to the **first** file in the configuration once it

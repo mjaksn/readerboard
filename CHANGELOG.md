@@ -11,6 +11,23 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Fixed
+
+- **`GET /sign/information` never worked through an Ethernet adapter.** Over a
+  `socket://` address pyserial reports at most one byte as waiting, however many
+  have arrived, and the service read exactly what it reported. So it took one
+  byte every 50ms, and a reply the length of the general information ran out
+  the three second deadline before its end. Before 0.5.0 the cut-off reply went
+  to the parser, which could refuse it or read it wrong; since 0.5.0 it has been
+  a 503 every time. What is waiting is now read until nothing is left, so a
+  reply arrives as fast as the link carries it. A serial port was not affected.
+
+  The 0.5.0 entry below puts the cut-off replies down to the sign pausing
+  mid-reply. That was wrong: this was the cause, and no pause has been
+  measured. Reading to the EOT is still how a reply is collected.
+
 ## [0.5.0] - 2026-09-11
 
 **This is the release that adds variables.** A variable is a value in a small file
