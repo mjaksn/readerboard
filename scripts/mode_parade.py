@@ -59,7 +59,7 @@ from __future__ import annotations
 import argparse
 import time
 
-import serial
+from _sign_link import Link
 
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
@@ -115,45 +115,6 @@ OFFERED = [
         "random transition and random colour, the 64H the document calls reserved",
     ),
 ]
-
-
-class Link:
-    """A connection to the sign that reopens itself when the adapter drops it."""
-
-    def __init__(self, url: str, baud: int) -> None:
-        """Remember where the sign is. Nothing is opened until the first send."""
-        self._url = url
-        self._baud = baud
-        self._port: serial.Serial | None = None
-        self.reconnects = 0
-
-    def send(self, packet: bytes, *, attempts: int = 4) -> bool:
-        """Send one transmission, reopening the link as many times as it takes."""
-        for attempt in range(attempts):
-            try:
-                if self._port is None:
-                    self._port = serial.serial_for_url(self._url, baudrate=self._baud, timeout=2)
-                self._port.write(packet)
-                self._port.flush()
-                return True
-            except Exception as err:
-                self.close()
-                if attempt == attempts - 1:
-                    print("     ! giving up on this write: %s" % err)
-                    return False
-                self.reconnects += 1
-                print("     . adapter dropped the link, reconnecting")
-                time.sleep(1.5)
-        return False
-
-    def close(self) -> None:
-        """Close the link, ignoring a port that will not close cleanly."""
-        try:
-            if self._port is not None:
-                self._port.close()
-        except Exception:
-            pass
-        self._port = None
 
 
 def main() -> None:
