@@ -26,12 +26,17 @@ library, and the names inside it may move without that being a breaking change.
   other failure is. No field changes, so a half-written message survives a
   mistyped key.
 
-  `ttl_seconds` is left alone, because the response does not carry it. What comes
-  back is `expires_at`, an absolute time, and converting it to a duration would
-  drift for as long as the editing took. The box keeps whatever it held, which is
-  worth knowing: the service reads a PUT with no `ttl_seconds` as a message with
-  no deadline, so loading one that expires and sending it back unchanged makes it
-  permanent.
+  `ttl_seconds` is converted rather than copied, since the service takes a
+  deadline as seconds from now and reports it as `expires_at`, the moment itself.
+  The box gets the whole seconds remaining, so loading a message that expires and
+  sending it back keeps roughly the deadline it had rather than dropping it. The
+  clock runs while the form is open, so the deadline moves out by however long
+  the edit took.
+
+  It is left empty where there is no positive count of seconds ahead to show: no
+  deadline, a timestamp that could not be read, and one already past. Empty is
+  the field's own way of saying no deadline, and the response panel shows the
+  timestamp regardless.
 
 ## [0.4.0] - 2026-09-10
 

@@ -469,16 +469,24 @@ class OperationForm(QWidget):
     def fill_from(self, payload: dict[str, object]) -> None:
         """Put a stored resource into the body fields, for editing rather than retyping.
 
-        Only fields the response actually carries a value for are touched. That
-        is what keeps ``ttl_seconds`` alone: the response says ``expires_at``,
-        an absolute time, and there is no honest conversion to a duration that
-        does not drift for as long as somebody spends editing.
+        Only fields the response carries a value for are touched, so a response
+        that omits one leaves whatever was typed there alone.
+
+        A duration field is the exception, because the service answers in the
+        other unit: it takes ``ttl_seconds`` from now and reports ``expires_at``,
+        the moment itself. The remaining time is worked out here so that sending
+        the form straight back keeps roughly the deadline the message already
+        had, rather than the deadline being quietly dropped.
         """
         for item in self.operation.body:
-            if item.name not in payload:
-                continue
             widget = self._body.get(item.name)
             if widget is None:
+                continue
+            if item.seconds_until:
+                if item.seconds_until in payload:
+                    _set_text(widget, _remaining(payload[item.seconds_until]))
+                continue
+            if item.name not in payload:
                 continue
             value = payload[item.name]
             _set_text(widget, "" if value is None else str(value))
@@ -497,6 +505,25 @@ def _placeholder(combo: QComboBox, text: str) -> None:
     line = combo.lineEdit()
     if line is not None:
         line.setPlaceholderText(text)
+
+
+def _remaining(expires_at: object) -> str:
+    """Return the seconds left before a deadline, as a duration field wants it.
+
+    Empty for the three cases that cannot be written as a positive number of
+    seconds ahead: no deadline at all, one this could not read, and one that has
+    already passed. Empty is also what the field means by "no deadline", which
+    is the honest answer for the first and the only available one for the other
+    two, and the response panel shows the timestamp either way.
+
+    Whole seconds, because the box is something a person reads and edits, and
+    because the round trip that carried the answer here already cost more
+    precision than the fraction would have carried.
+    """
+    remaining = fmt.seconds_until(expires_at)
+    if remaining is None or remaining < 1:
+        return ""
+    return str(round(remaining))
 
 
 def _set_text(widget: QWidget, value: str) -> None:

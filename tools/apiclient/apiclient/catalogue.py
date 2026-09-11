@@ -52,6 +52,11 @@ class Input:
     field the response has a value for, not only this one; the field owns the
     button because that is where it is worth having, next to the content
     somebody is about to edit.
+
+    ``seconds_until`` names the field in that response which this one is a
+    duration to. The service takes a deadline as seconds from now and reports
+    it as the moment it falls, so the two are the same fact in different
+    units and neither side can use the other's directly.
     """
 
     name: str
@@ -62,6 +67,7 @@ class Input:
     markup: bool = False
     slot_keys: bool = False
     fill_from: str | None = None
+    seconds_until: str | None = None
     description: str = ""
 
     @property
@@ -162,6 +168,7 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(
                 name="ttl_seconds",
                 kind="float",
+                seconds_until="expires_at",
                 description="drop the message this many seconds from now; leave empty to keep it",
             ),
             Input(

@@ -7,6 +7,9 @@ JSON at all, which is what a proxy error page on the right port looks like.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
+
+import pytest
 
 from apiclient import catalogue
 from apiclient.format import (
@@ -18,6 +21,7 @@ from apiclient.format import (
     is_error,
     parse_body,
     render,
+    seconds_until,
 )
 
 
@@ -343,3 +347,48 @@ def test_an_enumeration_is_read_with_the_same_field_the_store_reads():
     other_shape = json.dumps([{"display_mode": "HOLD", "description": "hold"}])
     _result, text = rendered_text("display_modes", 200, other_shape)
     assert "HOLD" not in text
+class TestSecondsUntil:
+    """The deadline the service reports, read back as the duration it takes.
+
+    The service takes ``ttl_seconds`` from now and answers ``expires_at``, the
+    moment itself, so anything filling that field back in has to convert. These
+    pin the conversion rather than the field, because the arithmetic is where a
+    timezone or a missing value turns into a wrong deadline rather than an
+    error.
+    """
+
+    def test_a_deadline_ahead_is_the_seconds_to_it(self):
+        moment = datetime.now(UTC) + timedelta(minutes=10)
+        assert seconds_until(moment.isoformat()) == pytest.approx(600, abs=2)
+
+    def test_a_deadline_that_has_passed_is_negative_rather_than_nothing(self):
+        # Kept distinct from None on purpose. An expired deadline and no
+        # deadline mean different things, and merging them here would take the
+        # choice away from whoever has to act on it.
+        moment = datetime.now(UTC) - timedelta(minutes=5)
+        assert seconds_until(moment.isoformat()) == pytest.approx(-300, abs=2)
+
+    def test_no_timestamp_is_no_answer(self):
+        assert seconds_until(None) is None
+
+    def test_something_that_is_not_a_timestamp_is_no_answer(self):
+        assert seconds_until("whenever") is None
+        assert seconds_until("") is None
+
+    def test_a_timestamp_with_no_zone_is_read_as_utc(self):
+        """The service sends UTC, and a bare one must not be read as local time.
+
+        Read as local, a deadline an hour away comes out hours wrong wherever
+        the machine is not on UTC, and it stays plausible while being wrong,
+        which is the failure that would survive a glance at the box.
+        """
+        moment = datetime.now(UTC) + timedelta(hours=1)
+        bare = moment.replace(tzinfo=None).isoformat()
+        assert seconds_until(bare) == pytest.approx(3600, abs=2)
+
+    def test_the_zulu_spelling_is_read_the_same_as_an_offset(self):
+        moment = datetime.now(UTC) + timedelta(minutes=2)
+        offset = moment.isoformat()
+        assert seconds_until(offset.replace("+00:00", "Z")) == pytest.approx(
+            seconds_until(offset), abs=2
+        )

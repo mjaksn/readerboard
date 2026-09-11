@@ -60,13 +60,20 @@ A key with nothing stored under it answers 404, which is shown like any other
 failure and changes no field, so a half-written message survives a mistyped key.
 Nothing about the failure is special-cased; it is the ordinary response display.
 
-`ttl_seconds` is the one field it leaves alone, and deliberately. The response
-does not carry it: what comes back is `expires_at`, an absolute time, and the
-only way to turn that into a duration is to subtract the current one, which
-drifts for as long as the editing takes. So the box keeps whatever it held. Worth
-knowing, because an empty one is not "leave the deadline as it is": the service
-reads a PUT with no `ttl_seconds` as a message with no deadline at all, so
-loading a message that expires and sending it straight back makes it permanent.
+`ttl_seconds` is converted rather than copied, because the service answers in
+the other unit: it takes a deadline as seconds from now and reports it as
+`expires_at`, the moment itself. The box is filled with the whole seconds left
+until that moment, so loading a message that expires in ten minutes and sending
+it straight back keeps roughly the deadline it had. Roughly, and not exactly:
+the clock runs while the form sits open, so the deadline moves out by however
+long the editing took.
+
+The box is left empty for the three cases with no positive number of seconds
+ahead to show: a message with no deadline, a timestamp the client could not
+read, and one that has already passed. Empty is also what the field means by
+"no deadline", which is the right answer for the first and the only available
+one for the other two. The response panel shows the timestamp in every case, so
+an expired deadline is visible there rather than only implied by an empty box.
 
 **Responses are read, not dumped.** Every shape the service answers with has a
 formatter: the health breakdown, the slot table, the alert, the clock, the

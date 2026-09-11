@@ -36,6 +36,17 @@ def described() -> set[tuple[str, str]]:
     }
 
 
+def response_properties(operation: catalogue.Operation) -> set[str]:
+    """Return the field names the description says an operation answers with."""
+    document = json.loads(OPENAPI.read_text(encoding="utf-8"))
+    body = document["paths"][operation.path][operation.method.lower()]
+    schema = body["responses"]["200"]["content"]["application/json"]["schema"]
+    if "$ref" in schema:
+        name = schema["$ref"].rsplit("/", 1)[-1]
+        schema = document["components"]["schemas"][name]
+    return set(schema.get("properties", {}))
+
+
 def catalogued() -> set[tuple[str, str]]:
     """Return every (method, path) this client can call."""
     return {(operation.method, operation.path) for operation in catalogue.OPERATIONS}
@@ -152,6 +163,50 @@ def test_a_field_loads_from_an_operation_taking_the_same_path_parameters():
             assert [i.name for i in source.path_inputs] == [
                 i.name for i in operation.path_inputs
             ], item.fill_from
+
+
+def test_the_only_duration_read_back_from_a_moment_is_the_message_deadline():
+    durations = {
+        (operation.id, item.name, item.seconds_until)
+        for operation in catalogue.OPERATIONS
+        for item in operation.body
+        if item.seconds_until
+    }
+    assert durations == {("put_message", "ttl_seconds", "expires_at")}
+
+
+def test_a_duration_field_is_a_number():
+    # It is filled with a computed second count, so a text field would be
+    # offering the service something it declared as a number.
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if item.seconds_until:
+                assert item.kind in ("float", "int"), item.name
+
+
+def test_a_duration_names_a_moment_its_own_form_can_actually_read_back():
+    """The field it converts from has to be one the read actually answers with.
+
+    This is the half that a table compared only with itself would miss. The
+    client can believe in an ``expires_at`` the service stopped sending, and the
+    box would then quietly stay empty, which reads as "no deadline" and is the
+    one wrong answer that looks like a correct one.
+    """
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if not item.seconds_until:
+                continue
+            assert item.fill_from or any(
+                other.fill_from for other in operation.body
+            ), "%s has nothing that would fill it" % item.name
+            source_id = item.fill_from or next(
+                other.fill_from for other in operation.body if other.fill_from
+            )
+            source = catalogue.BY_ID[source_id]
+            assert item.seconds_until in response_properties(source), (
+                item.seconds_until,
+                source.signature,
+            )
 
 
 def test_only_clearing_every_message_is_marked_destructive():
