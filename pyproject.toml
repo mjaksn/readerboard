@@ -78,7 +78,7 @@ dev = [
     # plainly: anyio arrives through fastapi and starlette, and pinning it in a
     # dev extra is how a transitive dependency gets held still without a lock
     # file. Issue #41 is about doing this properly.
-    "anyio>=4.14.2,<4.15",
+    "anyio>=4.14.2,<4.16",
     "ruff>=0.16.2,<0.17",
     "mypy>=2.3.0,<3",
 ]
