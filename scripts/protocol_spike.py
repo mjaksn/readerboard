@@ -4,7 +4,7 @@
 The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
-RS-232 adapter. Four things are genuinely open, and this script settles them:
+RS-232 adapter. Five things are genuinely open, and this script settles them:
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
@@ -15,6 +15,11 @@ RS-232 adapter. Four things are genuinely open, and this script settles them:
    run sequence writes back while an alert is up.
 4. Does the sign answer read commands through the adapter? If it does,
    divergence can be detected by asking rather than by re-pushing on a timer.
+5. What does an empty run sequence show? The sign is told to play nothing while
+   its files still hold their text. The document does not say whether that
+   blanks the display, freezes the last message on it, or falls back to
+   something of the sign's own. A message that is deactivated rather than
+   deleted rests on the answer.
 
 It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.
@@ -153,9 +158,41 @@ def step_3_rotation(link: serial.Serial, settle: float) -> None:
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
 
 
-def step_4_priority(link: serial.Serial, settle: float) -> None:
+def step_4_empty_sequence(link: serial.Serial, settle: float) -> None:
+    """Find out what the sign shows when it is told to play nothing at all."""
+    print("\nStep 4: an empty run sequence, with the files left in place")
+    print("  The three files still hold ONE, TWO and THREE, and only the sequence")
+    print("  changes. It is emptied rather than shortened, which step 3 covered.")
+    print("  The document does not say what that shows: a blank display, the last")
+    print("  message frozen on it, or something of the sign's own. A message")
+    print("  deactivated rather than deleted rests on the answer, and so does")
+    print("  clearing every message at once.")
+    send(link, frames.set_run_sequence([]), label="run sequence, empty", settle=settle)
+    print("\n  Watch it for half a minute before answering. Nothing more is being sent.")
+    print("  These files are held rather than scrolled, so the question is what the")
+    print("  sign does when the message it is holding ends and the sequence names")
+    print("  nothing to follow it. Frozen for one turn and then blank is a different")
+    print("  answer from frozen, so give it long enough to tell them apart.")
+    ask("With an empty sequence, what is on the sign? [blank/frozen/other]")
+
+    # Read after the question, not before it. A read can disturb the display,
+    # and what is on the display is the whole point of the step.
+    reply = read_back(link, frames.read_run_sequence(), label="read run sequence (F.)")
+    note("Run sequence read back while empty", repr(reply) if reply else "nothing")
+
+    print("\n  Now the same three files are named again. Nothing has been rewritten,")
+    print("  so if the rotation comes back whole, the sign kept every file through")
+    print("  the empty sequence and reactivating a message costs one packet and no")
+    print("  redraw of the message itself.")
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+    print("\n  Give it a full cycle before answering, so that all three are seen.")
+    ask("Has the rotation come back, with ONE, TWO and THREE all there? [y/n]")
+    ask("Did any of the three lose its text or its colour? [y/n]")
+
+
+def step_5_priority(link: serial.Serial, settle: float) -> None:
     """Confirm takeover, release, and whether a run sequence write cancels an alert."""
-    print("\nStep 4: priority takeover and release")
+    print("\nStep 5: priority takeover and release")
     send(
         link,
         frames.write_text_file(c.FILE_PRIORITY, render("<red>ALERT")),
@@ -177,9 +214,9 @@ def step_4_priority(link: serial.Serial, settle: float) -> None:
     ask("Has the rotation resumed on its own? [y/n]")
 
 
-def step_5_reads(link: serial.Serial) -> None:
+def step_6_reads(link: serial.Serial) -> None:
     """Find out whether the sign answers read commands through this adapter."""
-    print("\nStep 5: can the sign be asked what it is holding?")
+    print("\nStep 6: can the sign be asked what it is holding?")
     print("  Two-way traffic over the Ethernet adapter has never been tried.")
     print("  If it works, divergence can be detected by asking the sign rather")
     print("  than by re-pushing everything on a timer.")
@@ -208,9 +245,9 @@ def step_5_reads(link: serial.Serial) -> None:
         print("\n  The sign answered nothing. Reconciliation stays on the timer.")
 
 
-def step_6_timing(link: serial.Serial, settle: float) -> None:
+def step_7_timing(link: serial.Serial, settle: float) -> None:
     """Find the shortest gap between writes this sign will actually accept."""
-    print("\nStep 6: how much settling time the sign actually needs")
+    print("\nStep 7: how much settling time the sign actually needs")
     print("  inter_packet_delay defaults to a conservative value, not a measured one.")
     print("  The protocol's own inter-byte timeout is %.0fs." % c.INTER_BYTE_TIMEOUT_SECONDS)
 
@@ -274,9 +311,10 @@ def main() -> int:
     try:
         step_2_memory(link, args.settle)
         step_3_rotation(link, args.settle)
-        step_4_priority(link, args.settle)
-        step_5_reads(link)
-        step_6_timing(link, args.settle)
+        step_4_empty_sequence(link, args.settle)
+        step_5_priority(link, args.settle)
+        step_6_reads(link)
+        step_7_timing(link, args.settle)
     finally:
         link.close()
 

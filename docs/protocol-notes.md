@@ -7,8 +7,9 @@ service depends on, with the quotation behind each claim.
 sign.** The wire formats below are quoted from the Alpha Sign Communications Protocol
 itself, so they are no longer anybody's reading of anybody else's implementation. A session
 with the real BetaBrite Classic at the end of an Ethernet to RS-232 adapter on 2026-09-09
-settled three of the four behavioural questions that were open, and the fourth is still
-open; they are all listed at the end, with what each turned out to be.
+settled three of the four behavioural questions that were open then, and the fourth is
+still open. A fifth has been added since and has not been put to the sign yet. They are all
+listed at the end, with what each turned out to be.
 
 That session also answered several things nobody had thought to doubt, each recorded below
 beside the measurement: a memory configuration does not display unless a bare `E$` clear
@@ -501,10 +502,11 @@ What this settles for the service:
 
 ## What the spike still has to confirm
 
-The wire format questions are closed. Four behavioural ones were open, and a session with
-the sign on 2026-09-09 settled three of them. What each turned out to be is recorded here
-rather than deleted, because the next person will want to know it was answered on hardware
-and not merely assumed.
+The wire format questions are closed. Five behavioural ones are on this list. A session
+with the sign on 2026-09-09 settled three of the four that were open then; the fourth is
+still open, and the fifth was added afterwards and has not been put to the sign yet. What
+each turned out to be is recorded here rather than deleted, because the next person will
+want to know it was answered on hardware and not merely assumed.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
@@ -517,8 +519,16 @@ and not merely assumed.
 4. **Does the sign answer reads through the Ethernet adapter?** Answered yes. All four
    reads in the table below came back correct, so the adapter is two-way and divergence
    could be detected by asking rather than by re-pushing on a timer.
+5. **What does an empty run sequence show?** Open, and newer than the other four. The sign
+   is told to play nothing while its files still hold their text. The document does not say
+   whether that blanks the display, freezes the last message on it, or falls back to
+   something of the sign's own. It is not hypothetical: `DELETE /messages` empties the
+   sequence today and then blanks each file, and a message that is deactivated rather than
+   deleted would rest on the answer entirely. Step 4 of `scripts/protocol_spike.py` asks,
+   and asks as well whether naming the same files again brings the rotation back with
+   nothing rewritten.
 
-The same session turned up a fifth thing that was not on this list, because nobody thought
+The same session turned up another thing that was not on this list, because nobody thought
 to doubt it: a memory configuration does not display unless a bare `E$` clear precedes it.
 See "A clear must come first" above. That was the bug behind a sign that accepted every
 write and showed nothing.

@@ -68,7 +68,7 @@ And being told to, which needs no reason.
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
-under `readerboard/protocol/`. It also lists the four questions the document
+under `readerboard/protocol/`. It also lists the five questions the document
 cannot answer, three of which a session with the sign has since settled.
 
 ## The one dangerous operation
@@ -270,7 +270,7 @@ The state is what makes it worth having over a packet log. It says when a write
 lands in a file no memory configuration allocated, when a message overruns its
 file, when the run sequence names a file that does not exist, and when a run
 sequence write arrives during an alert, which `docs/protocol-notes.md` lists
-as one of the four questions only the sign can settle.
+as one of the questions only the sign can settle.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but
