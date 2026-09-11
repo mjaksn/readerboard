@@ -78,11 +78,11 @@ STATUS_MEANING = {
     200: "the call succeeded",
     201: "created",
     204: "the service accepted it and had nothing to send back",
-    400: "the sign cannot render what was sent",
+    400: "the sign cannot render what was sent, or it does not fit",
     401: "the API key was missing or wrong",
     403: "refused",
-    404: "no slot by that name, or no such route on this service",
-    409: "the slot pool is full",
+    404: "no slot or variable by that name, or no such route on this service",
+    409: "a pool is full, or the variable is still called by a message",
     422: "the body was not the shape the endpoint declares",
     500: "the service raised something it did not expect",
     503: "the sign is unreachable, or no API key is configured at all",
@@ -320,6 +320,12 @@ def _health(payload: object) -> list[Block]:
                     "%s of %s" % (payload.get("slots_used", 0), payload.get("slots_total", 0)),
                 ),
                 Row(
+                    "variables used",
+                    "%s of %s"
+                    % (payload.get("variables_used", 0), payload.get("variables_total", 0)),
+                    "0 of 0 means variables are switched off",
+                ),
+                Row(
                     "sign in sync",
                     yes_no(payload.get("sign_in_sync")),
                     "no means something was accepted but has not reached the sign",
@@ -380,6 +386,80 @@ def _slot(payload: object) -> list[Block]:
                     "expires",
                     when(payload["expires_at"]) if payload.get("expires_at") else "never",
                 ),
+                Row("updated", when(payload.get("updated_at"))),
+            ),
+        )
+    ]
+
+
+_VARIABLE_COLUMNS = ("name", "file", "value", "stale", "called by", "source", "goes stale")
+
+
+def _called_by(variable: dict[str, object]) -> str:
+    """Render the slots calling a variable as a list, or say that none do."""
+    raw = variable.get("called_by")
+    callers = [str(key) for key in raw] if isinstance(raw, list) else []
+    return ", ".join(callers) if callers else "nothing"
+
+
+def _goes_stale(variable: dict[str, object]) -> str:
+    """Say when a variable goes stale, which is never once it already has."""
+    if variable.get("stale"):
+        return "already has"
+    expires = variable.get("expires_at")
+    return when(expires) if expires else "never"
+
+
+def _variable_row(variable: dict[str, object]) -> tuple[str, ...]:
+    """Render one variable as a table row."""
+    return (
+        str(variable.get("name", "")),
+        str(variable.get("label", "")),
+        str(variable.get("value", "")),
+        yes_no(variable.get("stale")),
+        _called_by(variable),
+        str(variable.get("source") or ""),
+        _goes_stale(variable),
+    )
+
+
+def _variables(payload: object) -> list[Block]:
+    """Render the list of variables."""
+    if not isinstance(payload, list):
+        return _generic(payload)
+    if not payload:
+        return [Note("No variables exist. A message calls one as <var:name> once it does.")]
+    rows = tuple(_variable_row(item) for item in payload if isinstance(item, dict))
+    return [
+        Note("%d variable%s, by name." % (len(rows), "" if len(rows) == 1 else "s")),
+        Table(title="", columns=_VARIABLE_COLUMNS, rows=rows),
+    ]
+
+
+def _variable(payload: object) -> list[Block]:
+    """Render one variable."""
+    if not isinstance(payload, dict):
+        return _generic(payload)
+    return [
+        Section(
+            title="",
+            rows=(
+                Row("name", str(payload.get("name", ""))),
+                Row("sign file", str(payload.get("label", "")), "the file on the sign it occupies"),
+                Row("value", str(payload.get("value", ""))),
+                Row(
+                    "stale",
+                    yes_no(payload.get("stale")),
+                    "yes means the sign is showing the stale value instead",
+                ),
+                Row("stale value", str(payload.get("stale_value", "")) or "nothing"),
+                Row("goes stale", _goes_stale(payload)),
+                Row(
+                    "called by",
+                    _called_by(payload),
+                    "it cannot be deleted while any message calls it",
+                ),
+                Row("source", str(payload.get("source") or "not recorded")),
                 Row("updated", when(payload.get("updated_at"))),
             ),
         )
@@ -534,6 +614,8 @@ _FORMATTERS = {
     "health": _health,
     "slots": _slots,
     "slot": _slot,
+    "variables": _variables,
+    "variable": _variable,
     "alert": _alert,
     "clock": _clock,
     "sign_information": _sign_information,

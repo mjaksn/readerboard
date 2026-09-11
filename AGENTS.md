@@ -154,6 +154,25 @@ sign cycles them by itself, so a message appearing or disappearing costs one
 small write and nothing after that. This is the whole design: the host does not
 rotate anything.
 
+A **variable** is a value in a STRING file of its own, which a slot's message
+calls with `<var:name>`. Writing one rewrites only that STRING file, and the
+sign takes that without blanking or restarting the message calling it, so a
+value that changes every minute costs one short packet and no flicker. Three
+rules hold it together, and each has a reason that is easy to lose:
+
+- **A variable a message calls cannot be deleted.** The STRING file's label is
+  written into every calling message as raw bytes, so handing that file to the
+  next variable would put the wrong value on the sign with nothing to say so.
+  `MessageRegistry.remove_variable` refuses with a 409 instead, and slots and
+  variables share one lock so that nothing can slip between the check and the
+  write.
+- **Variables are written before messages** on a restore, a refresh and a
+  reboot, so no message is drawn calling a STRING not yet written.
+- **The size check is not optional.** The sign does not truncate a value that
+  overruns its file, it empties it. `docs/protocol-notes.md` has that and the
+  rest of what the sign was measured doing, under "STRING files, measured on
+  the sign".
+
 An **alert** is written to the sign's priority file, which by protocol
 suppresses every other file until a bare priority write releases it. An
 ordinary write with an empty body is not a release: the sign reads its
@@ -241,7 +260,8 @@ integration. Nothing in the service knows it exists.
 
 It shows each transmission byte by byte, coloured by what each span is and
 annotated with the protocol's own meaning, and it keeps the sign's state: the
-file table, the contents of each file, the run sequence and the priority file.
+file table, the contents of each file and each STRING file, the run sequence
+and the priority file.
 The state is what makes it worth having over a packet log. It says when a write
 lands in a file no memory configuration allocated, when a message overruns its
 file, when the run sequence names a file that does not exist, and when a run
@@ -263,7 +283,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all sixteen endpoints, formats every
+it at a running service and it can call all twenty-one endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are

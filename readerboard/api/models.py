@@ -14,9 +14,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from readerboard.protocol.markup import VARIABLE_NAME_PATTERN
 from readerboard.protocol.replies import GeneralInformation
 from readerboard.protocol.tokens import COMMAND_BY_NAME, MODE_BY_NAME
-from readerboard.sign.state import AlertState, SlotState
+from readerboard.sign.state import AlertState, SlotState, VariableState
 
 SlotKey = Annotated[
     str,
@@ -25,6 +26,19 @@ SlotKey = Annotated[
         max_length=64,
         pattern=r"^[A-Za-z0-9._-]+$",
         description="the name of the slot, chosen by whoever owns it",
+    ),
+]
+
+# The same pattern the markup checks a <var:name> against, so that no variable
+# can be created under a name no message could call.
+VariableName = Annotated[
+    str,
+    Field(
+        pattern=VARIABLE_NAME_PATTERN,
+        description=(
+            "the variable's name, one to 32 lowercase letters, digits and underscores. "
+            "A message calls it as <var:name>"
+        ),
     ),
 ]
 
@@ -47,8 +61,9 @@ class MessageRequest(BaseModel):
         min_length=1,
         max_length=4096,
         description=(
-            "the message, including markup tokens such as <red> and <degree>. It cannot "
-            "be empty: an empty message holds a slot open around nothing, and the sign "
+            "the message, including markup tokens such as <red> and <degree>, and "
+            "<var:name> to call a variable, which has to exist first. It cannot be "
+            "empty: an empty message holds a slot open around nothing, and the sign "
             "cycles to a file with no text in it. Use DELETE to give the slot back"
         ),
     )
@@ -95,6 +110,83 @@ class SlotResponse(BaseModel):
             source=slot.source,
             expires_at=slot.expires_at,
             updated_at=slot.updated_at,
+        )
+
+
+class VariableRequest(BaseModel):
+    """A value for a variable, which the messages calling it show."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    value: str = Field(
+        max_length=1024,
+        description=(
+            "the value, with the same markup a message takes except <week_day> and "
+            "<var:name>, which the sign draws as a literal character from inside a "
+            "variable. Formatting set here carries on into the message after the call: "
+            "a value of <red>DOWN turns the rest of the message red too. May be empty, "
+            "which shows nothing where the variable is called"
+        ),
+    )
+    ttl_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "show stale_value in its place this many seconds from now unless a fresh "
+            "value arrives first. The variable itself stays, since messages call it. "
+            "Omit to keep the value until replaced"
+        ),
+    )
+    stale_value: str = Field(
+        default="",
+        max_length=1024,
+        description=(
+            "what to show once ttl_seconds has passed, such as --. Empty shows nothing. "
+            "Checked against the variable's size now, not when it is needed"
+        ),
+    )
+    source: str | None = Field(
+        default=None,
+        max_length=128,
+        description="who wrote this, recorded so the variable list is readable",
+    )
+
+
+class VariableResponse(BaseModel):
+    """A variable."""
+
+    name: str
+    label: str = Field(description="the sign file this variable occupies, a through z")
+    value: str
+    stale_value: str
+    stale: bool = Field(
+        description="true once ttl_seconds has passed, when the sign shows stale_value instead"
+    )
+    source: str | None
+    expires_at: datetime | None = Field(
+        description="when the value goes stale, or null if it never will"
+    )
+    updated_at: datetime
+    called_by: list[str] = Field(
+        description=(
+            "the keys of the slots whose messages call this variable. It cannot be deleted "
+            "while any do"
+        )
+    )
+
+    @classmethod
+    def of(cls, variable: VariableState, called_by: list[str]) -> VariableResponse:
+        """Render a stored variable as the API's view of it."""
+        return cls(
+            name=variable.name,
+            label=variable.label,
+            value=variable.value,
+            stale_value=variable.stale_value,
+            stale=variable.stale,
+            source=variable.source,
+            expires_at=variable.expires_at,
+            updated_at=variable.updated_at,
+            called_by=called_by,
         )
 
 
@@ -222,6 +314,8 @@ class HealthResponse(BaseModel):
     link: LinkHealth
     slots_used: int
     slots_total: int
+    variables_used: int
+    variables_total: int = Field(description="0 when variables are switched off")
     sign_in_sync: bool = Field(
         description=(
             "false when the sign is behind the service's record, which is a removal or "

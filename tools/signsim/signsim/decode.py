@@ -105,6 +105,14 @@ class WriteText(Command):
 
 
 @dataclass(frozen=True)
+class WriteString(Command):
+    """A Write STRING file, which changes a value without blanking the display."""
+
+    label: bytes = b""
+    data: bytes = b""
+
+
+@dataclass(frozen=True)
 class SetMemoryConfig(Command):
     """A Set Memory Configuration, which erases every file in the memory pool.
 
@@ -342,6 +350,8 @@ def decode_payload(payload: bytes, *, offset: int = 0) -> Command:
     code = payload[0:1]
     if code == c.COMMAND_WRITE_TEXT:
         return _write_text(payload, offset)
+    if code == c.COMMAND_WRITE_STRING:
+        return _write_string(payload, offset)
     if code == c.COMMAND_WRITE_SPECIAL:
         return _write_special(payload, offset)
     if code in (c.COMMAND_READ_TEXT, c.COMMAND_READ_SPECIAL, c.COMMAND_READ_STRING,
@@ -507,6 +517,86 @@ def _write_text(payload: bytes, offset: int) -> Command:
         mode=mode,
         body=body,
         has_start_of_mode=has_som,
+    )
+
+
+# What a STRING file cannot hold, measured on the sign on 2026-09-10 rather than
+# read: the document's own list is narrower than what the sign accepts, and
+# wrong about rainbow. These two drew wrongly. See "STRING files, measured on the
+# sign" in docs/protocol-notes.md.
+_NOT_IN_A_STRING = {
+    c.CURDATE_WEEKDAYY[:1]: (
+        "a date insert (0BH) inside a STRING file draws its selector as a literal "
+        "character on this sign rather than the date"
+    ),
+    c.STRING_FILE_INSERT: (
+        "a STRING file cannot call another; this sign draws the called label as a "
+        "letter rather than its contents"
+    ),
+}
+
+
+def _write_string(payload: bytes, offset: int) -> Command:
+    """Decode a Write STRING file, the command that changes a value in place."""
+    code = payload[0:1]
+    label = payload[1:2]
+    data = payload[2:]
+    spans = [_command_span(code, offset)]
+
+    if not label:
+        return Unrecognised(
+            code=code,
+            name="Write STRING file",
+            summary="A write with no file label",
+            spans=tuple(spans),
+            complaints=("a Write STRING file needs a one byte file label after the 'G'",),
+            payload=payload,
+        )
+
+    spans.append(
+        Span(
+            SpanKind.COMMAND,
+            offset + 1,
+            label,
+            "file %s" % printable(label),
+            "The STRING file this value is written into",
+        )
+    )
+    data_spans = annotate(data, offset=offset + 2)
+    spans.extend(data_spans)
+
+    complaints: list[str] = []
+    if label in c.STRING_FILE_FORBIDDEN_LABELS:
+        complaints.append(
+            "%r cannot be a STRING file's label; Appendix A rules out 0 and ?" % printable(label)
+        )
+    if len(data) > c.STRING_FILE_CAPACITY:
+        complaints.append(
+            "a STRING file holds at most %d bytes and this value is %d"
+            % (c.STRING_FILE_CAPACITY, len(data))
+        )
+    for byte, why in _NOT_IN_A_STRING.items():
+        if byte in data:
+            complaints.append(why)
+
+    shown = readable(data_spans)
+    return WriteString(
+        code=code,
+        name="Write STRING file",
+        summary=(
+            "Write STRING file %s: %s" % (printable(label), shown)
+            if data
+            else "Empty STRING file %s" % printable(label)
+        ),
+        details=(
+            Detail("File", printable(label)),
+            Detail("Value", shown or "empty"),
+            Detail("Value length", "%d bytes" % len(data)),
+        ),
+        spans=tuple(spans),
+        complaints=tuple(complaints),
+        label=label,
+        data=data,
     )
 
 
@@ -874,7 +964,9 @@ def _read(payload: bytes, offset: int) -> Command:
                 offset + 1,
                 label,
                 "reads %s" % printable(label),
-                SPECIAL_FUNCTION_NAMES.get(label, "A label this tool has no reading for"),
+                "The STRING file to read"
+                if code == c.COMMAND_READ_STRING
+                else SPECIAL_FUNCTION_NAMES.get(label, "A label this tool has no reading for"),
             )
         )
 
@@ -883,7 +975,10 @@ def _read(payload: bytes, offset: int) -> Command:
     # and the hex view then renders fewer bytes than its own header announces.
     spans.extend(annotate(payload[2:], offset=offset + 2))
 
-    what = SPECIAL_FUNCTION_NAMES.get(label, "file %s" % printable(label))
+    if code == c.COMMAND_READ_STRING:
+        what = "STRING file %s" % printable(label)
+    else:
+        what = SPECIAL_FUNCTION_NAMES.get(label, "file %s" % printable(label))
     return ReadCommand(
         code=code,
         name=COMMAND_NAMES.get(code, "Read"),

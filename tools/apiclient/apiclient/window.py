@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all sixteen
+Everything the tool does is on it: the connection, the enumerations, all twenty-one
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -241,7 +241,7 @@ class OperationForm(QWidget):
         self._window = window
         self._path: dict[str, QWidget] = {}
         self._body: dict[str, QWidget] = {}
-        self._token_buttons: list[QPushButton] = []
+        self._token_buttons: list[tuple[QPushButton, str]] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -321,8 +321,8 @@ class OperationForm(QWidget):
         return holder
 
     def _path_widget(self, item: Input) -> QWidget:
-        """Build a path parameter, with the slot key loader when it is one."""
-        if not item.slot_keys:
+        """Build a path parameter, with a loader for the keys it can take when it has one."""
+        if not item.keys_from:
             edit = QLineEdit()
             edit.setPlaceholderText(item.description)
             self._path[item.name] = edit
@@ -334,8 +334,13 @@ class OperationForm(QWidget):
         self._path[item.name] = combo
 
         load = QPushButton("Load keys")
-        load.setToolTip("Call GET /messages and offer the keys it returns")
-        load.clicked.connect(self._window.load_slot_keys)
+        load.setToolTip(
+            "Call %s and offer the keys it returns"
+            % catalogue.BY_ID[item.keys_from].signature
+        )
+        load.clicked.connect(
+            lambda _checked=False, op=item.keys_from: self._window.load_keys(op)
+        )
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
@@ -364,9 +369,11 @@ class OperationForm(QWidget):
 
             insert = QPushButton("Insert token")
             insert.clicked.connect(
-                lambda _checked=False, name=item.name: self._insert_token(name)
+                lambda _checked=False, name=item.name, tokens=item.markup: self._insert_token(
+                    name, tokens
+                )
             )
-            self._token_buttons.append(insert)
+            self._token_buttons.append((insert, item.markup))
 
             row = QVBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
@@ -377,7 +384,7 @@ class OperationForm(QWidget):
             row.addLayout(buttons)
             holder = QWidget()
             holder.setLayout(row)
-            self._refresh_token_button(insert)
+            self._refresh_token_button(insert, item.markup)
             return holder
 
         line = QLineEdit()
@@ -422,23 +429,24 @@ class OperationForm(QWidget):
                 % catalogue.SET_TITLES.get(item.enum_set or "", "the set").lower(),
             )
 
-    def _refresh_token_button(self, button: QPushButton) -> None:
-        """Enable the token inserter only once the tokens are actually loaded."""
-        loaded = self._window.store.is_loaded(catalogue.MARKUP_TOKENS)
+    def _refresh_token_button(self, button: QPushButton, tokens: str) -> None:
+        """Enable the token inserter only once its tokens are actually loaded."""
+        loaded = self._window.store.is_loaded(tokens)
+        title = catalogue.SET_TITLES[tokens].lower()
         button.setEnabled(loaded)
         button.setToolTip(
-            "Choose from the loaded markup tokens"
+            "Choose from the loaded %s" % title
             if loaded
-            else "Load the markup tokens on the left first"
+            else "Load the %s on the left first" % title
         )
 
-    def _insert_token(self, field_name: str) -> None:
-        """Ask for a token and put it where the cursor is."""
-        loaded = self._window.store.get(catalogue.MARKUP_TOKENS)
+    def _insert_token(self, field_name: str, tokens: str) -> None:
+        """Ask for a token from the field's own set and put it where the cursor is."""
+        loaded = self._window.store.get(tokens)
         if loaded is None:
             return
         picker = EntryPicker(
-            "Markup tokens", loaded.entries, parent=self._window, insert=True
+            catalogue.SET_TITLES[tokens], loaded.entries, parent=self._window, insert=True
         )
         chosen = picker.selected if picker.exec() else None
         # Read first, dropped second. The read is why this one cannot carry
@@ -456,11 +464,15 @@ class OperationForm(QWidget):
             widget = self._body.get(item.name)
             if item.enum_set and isinstance(widget, QComboBox):
                 self._fill_combo(item, widget)
-        for button in self._token_buttons:
-            self._refresh_token_button(button)
+        for button, tokens in self._token_buttons:
+            self._refresh_token_button(button, tokens)
 
-    def offer_slot_keys(self, keys: list[str]) -> None:
-        """Fill any slot key box with the keys a message list came back with.
+    def offer_keys(self, listed_by: str, entries: list[object]) -> None:
+        """Fill the key box a list operation serves with the keys it came back with.
+
+        Each entry carries its key under the parameter's own name, ``key`` for
+        a message and ``name`` for a variable, which is what the catalogue's
+        ``keys_from`` relies on.
 
         Nothing is chosen for the caller. Leaving the first key selected would
         make Load followed by Send act on a message at random, which for the
@@ -484,7 +496,12 @@ class OperationForm(QWidget):
         """
         for item in self.operation.path_inputs:
             widget = self._path.get(item.name)
-            if item.slot_keys and isinstance(widget, QComboBox):
+            if item.keys_from == listed_by and isinstance(widget, QComboBox):
+                keys = [
+                    str(entry[item.name])
+                    for entry in entries
+                    if isinstance(entry, dict) and item.name in entry
+                ]
                 wanted = widget.currentText().strip()
                 widget.clear()
                 widget.addItems(keys)
@@ -635,7 +652,7 @@ class MainWindow(QMainWindow):
         # checked address is never fetched twice, so a verdict thrown away on a
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
-        self._pending_slot_keys: OperationForm | None = None
+        self._pending_keys: tuple[OperationForm, str] | None = None
         self._pending_fill: tuple[OperationForm, str, dict[str, str]] | None = None
         self._started_at = datetime.now()
 
@@ -922,8 +939,8 @@ class MainWindow(QMainWindow):
         box.setStyleSheet("QLabel { color: %s }" % self.theme.bad)
         return box.exec() == QMessageBox.StandardButton.Yes
 
-    def load_slot_keys(self) -> None:
-        """Fetch the message list so the key boxes can offer what is registered.
+    def load_keys(self, operation_id: str) -> None:
+        """Fetch a list so the key box it serves can offer what exists.
 
         What is remembered is the form that asked, and it is set only once the
         request is on its way. Set before, a send that never happened would leave
@@ -933,8 +950,8 @@ class MainWindow(QMainWindow):
         it and not to whichever one is on screen when it arrives.
         """
         form = self._form
-        if self.run(catalogue.BY_ID["list_messages"]):
-            self._pending_slot_keys = form
+        if form is not None and self.run(catalogue.BY_ID[operation_id]):
+            self._pending_keys = (form, operation_id)
 
     def load_from_sign(self, operation_id: str) -> None:
         """Read what is already stored under the key on screen, to edit rather than retype.
@@ -1042,20 +1059,16 @@ class MainWindow(QMainWindow):
             ):
                 form.fill_from(payload)
 
-        asking = self._pending_slot_keys
-        if asking is not None and operation.id == "list_messages":
-            self._pending_slot_keys = None
+        asking = self._pending_keys
+        if asking is not None and operation.id == asking[1]:
+            self._pending_keys = None
             # Only to the form that asked. The tree stays live while a call is
             # out, and offering keys now clears a typed key the list does not
             # contain, so a reply landing on a form selected since would erase a
             # key typed into it by somebody who never pressed Load keys there.
-            if ok and same_service and isinstance(payload, list) and self._form is asking:
-                keys = [
-                    str(item["key"])
-                    for item in payload
-                    if isinstance(item, dict) and "key" in item
-                ]
-                asking.offer_slot_keys(keys)
+            form, listed_by = asking
+            if ok and same_service and isinstance(payload, list) and self._form is form:
+                form.offer_keys(listed_by, payload)
 
     def _absorb(self, operation: Operation, payload: object) -> None:
         """Take an enumeration into the store, if that is what just came back."""

@@ -18,7 +18,14 @@ from readerboard.protocol.markup import MarkupError
 from readerboard.protocol.replies import ReplyError
 from readerboard.services import commands
 from readerboard.services.alerts import AlertTooLong
-from readerboard.services.registry import MessageTooLong, UnknownSlot
+from readerboard.services.registry import (
+    MessageTooLong,
+    UnknownSlot,
+    UnknownVariable,
+    VariableInUse,
+    VariablesDisabled,
+    VariableTooLong,
+)
 from readerboard.sign.layout import LayoutFull
 from readerboard.transport.base import TransportError
 
@@ -26,11 +33,18 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     (MarkupError, status.HTTP_400_BAD_REQUEST),
     (ProtocolError, status.HTTP_400_BAD_REQUEST),
     (MessageTooLong, status.HTTP_400_BAD_REQUEST),
+    (VariableTooLong, status.HTTP_400_BAD_REQUEST),
+    (VariablesDisabled, status.HTTP_400_BAD_REQUEST),
     (AlertTooLong, status.HTTP_400_BAD_REQUEST),
     (commands.UnknownCommand, status.HTTP_400_BAD_REQUEST),
     (commands.BadParameter, status.HTTP_400_BAD_REQUEST),
     (UnknownSlot, status.HTTP_404_NOT_FOUND),
+    (UnknownVariable, status.HTTP_404_NOT_FOUND),
     (LayoutFull, status.HTTP_409_CONFLICT),
+    # Deleting a variable a message still calls would leave that message
+    # calling a file the next variable could be given. Not the caller's
+    # request being malformed, which is what makes it a conflict.
+    (VariableInUse, status.HTTP_409_CONFLICT),
     (TransportError, status.HTTP_503_SERVICE_UNAVAILABLE),
     # A sign that answers with something unreadable is as unusable as one
     # that does not answer, and neither is the caller's doing. The route

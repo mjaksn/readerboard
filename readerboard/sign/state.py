@@ -1,8 +1,9 @@
 """What the service remembers across a restart.
 
-Three things have to survive: which messages are registered and where on the
-sign each one lives, whether an alert is currently holding the display, and
-which memory configuration was last applied.
+Four things have to survive: which messages are registered and where on the
+sign each one lives, which variables hold which values and where, whether an
+alert is currently holding the display, and which memory configuration was last
+applied.
 
 The last of those matters more than it looks. Writing a memory configuration
 erases every file on the sign, so the service must be able to tell "the pool I
@@ -62,6 +63,29 @@ class SlotState(BaseModel):
     updated_at: datetime
 
 
+class VariableState(BaseModel):
+    """One variable: a value in a STRING file of its own, called from messages by name.
+
+    ``stale`` is set when the TTL runs out. The variable is not deleted then,
+    because messages still call it; its STRING file is given ``stale_value``
+    instead, and the next write of a fresh value clears the flag.
+    """
+
+    name: str
+    label: str
+    value: str
+    stale_value: str = ""
+    stale: bool = False
+    source: str | None = None
+    expires_at: datetime | None = None
+    updated_at: datetime
+
+    @property
+    def shown(self) -> str:
+        """What the sign should be showing for this variable now."""
+        return self.stale_value if self.stale else self.value
+
+
 class AlertState(BaseModel):
     """An alert holding the priority file."""
 
@@ -111,6 +135,7 @@ class ServiceState(BaseModel):
 
     version: int = STATE_VERSION
     slots: dict[str, SlotState] = Field(default_factory=dict)
+    variables: dict[str, VariableState] = Field(default_factory=dict)
     alert: AlertState | None = None
     layout: AppliedLayout | None = None
 
@@ -252,8 +277,9 @@ class StateStore:
             return ServiceState()
 
         logger.info(
-            "restored %d slot(s)%s from %s",
+            "restored %d slot(s), %d variable(s)%s from %s",
             len(state.slots),
+            len(state.variables),
             " and an active alert" if state.alert else "",
             self.path,
         )

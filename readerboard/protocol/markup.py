@@ -154,6 +154,9 @@ _NOT_IN_A_VALUE = {
     if token.value.startswith(_DATE_INSERT)
 }
 
+# The tokens a variable's value may contain: every one a message may, less those.
+VALUE_TOKENS = tuple(token for token in MARKUP_TOKENS if token.text not in _NOT_IN_A_VALUE)
+
 
 def render(
     message: str,

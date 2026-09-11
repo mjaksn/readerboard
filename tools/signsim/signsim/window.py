@@ -755,7 +755,7 @@ class MainWindow(QMainWindow):
         if state.priority_active:
             colour = self._note_colours[NoteLevel.VIOLATION]
             text = "Showing the priority message, which suppresses every other file: %s" % (
-                _rendered(state.priority)
+                state.drawn(state.priority)
             )
         elif state.playing:
             colour = self._note_colours[NoteLevel.INFO]
@@ -846,10 +846,18 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_files(self) -> None:
-        """One row per TEXT file the sign is holding."""
+        """One row per TEXT file the sign is holding, then one per STRING file.
+
+        A message calling a STRING reads with the value in place, as
+        ``{a: 72}``, because what a call draws is the thing worth checking and
+        the file alone does not say it.
+        """
         state = self._state
         labels = sorted(state.files)
-        self._files.setRowCount(len(labels) + (1 if state.priority_active else 0))
+        strings = sorted(state.strings)
+        self._files.setRowCount(
+            len(labels) + len(strings) + (1 if state.priority_active else 0)
+        )
 
         row = 0
         if state.priority_active:
@@ -862,7 +870,7 @@ class MainWindow(QMainWindow):
                     str(c.PRIORITY_FILE_CAPACITY),
                     "",
                     "",
-                    _rendered(state.priority),
+                    state.drawn(state.priority),
                 ],
             )
             row += 1
@@ -885,7 +893,24 @@ class MainWindow(QMainWindow):
                     "?" if capacity is None else str(capacity),
                     mode_name(stored.mode) if stored.mode else "",
                     position_name(stored.position) if stored.position else "",
-                    stored.rendered,
+                    state.drawn(stored.visible),
+                ],
+            )
+            row += 1
+
+        for label in strings:
+            value = state.strings[label]
+            capacity = state.capacity_of(label)
+            _fill(
+                self._files,
+                row,
+                [
+                    "%s (STRING)" % label.decode("latin-1"),
+                    str(len(value)),
+                    "?" if capacity is None else str(capacity),
+                    "",
+                    "",
+                    _rendered(value) if value else "empty",
                 ],
             )
             row += 1

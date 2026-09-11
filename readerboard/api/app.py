@@ -45,6 +45,10 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the registered slots by itself. An **alert** takes the
 whole display over until it is released, then the rotation resumes.
 
+A **variable** is a value a slot's message calls with `<var:name>`. Changing it
+rewrites only the variable, so the sign shows the new value without blanking or
+restarting the message calling it.
+
 Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
 which reads the sign rather than the service: it puts a question on the wire and
 holds the sign until the answer comes back. The service's own reads and
@@ -53,13 +57,14 @@ holds the sign until the answer comes back. The service's own reads and
 
 A failure is reported by the status code, with the reason in a `detail` field:
 400 for a command the sign does not have, a parameter it will not accept, a
-message too long for its slot or markup the sign cannot render, 401 for a
-missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when
-every message slot is already in use, 503 when the sign is unreachable, answers
-with something the service cannot read, or no API key is configured at all, 500
-for something the service has no code for, and 422 for a body that is not the
-shape the endpoint declares, which includes a display mode the sign does not
-have.
+message or value too long for its file, markup the sign cannot render or a call
+to a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404
+for a slot or variable that does not exist, 409 when every slot or every
+variable is already in use or a variable a message still calls is deleted, 503
+when the sign is unreachable, answers with something the service cannot read,
+or no API key is configured at all, 500 for something the service has no code
+for, and 422 for a body that is not the shape the endpoint declares, which
+includes a display mode the sign does not have.
 """
 
 
@@ -245,6 +250,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         clock = get_clock(request)
 
         used, total = registry.occupancy
+        variables_used, variables_total = registry.variable_occupancy
         return HealthResponse(
             status="ok" if controller.is_connected else "degraded",
             version=__version__,
@@ -258,6 +264,8 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             ),
             slots_used=used,
             slots_total=total,
+            variables_used=variables_used,
+            variables_total=variables_total,
             sign_in_sync=registry.in_sync,
             alert_active=alerts.active is not None,
             clock_last_synced_at=clock.last_sync_at,

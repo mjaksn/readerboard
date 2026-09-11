@@ -89,7 +89,9 @@ Every span is coloured by what it is, with the protocol's own meaning beside it:
 
 **The state column**, beside the detail pane, is the sign itself: a section each
 for how it is set up, the contents of each file, the memory configuration and
-the run sequence. They are sections rather than tabs on purpose. A write that
+the run sequence. STRING files are listed among the files, and a message calling
+one reads with the value in place, as `{a: 72}`, here and in the band across the
+top. The four are sections rather than tabs on purpose. A write that
 changes something nobody has open changes nothing a person can see, which is the
 opposite of what this tool is for, so all four are on one scrolling column and a
 write to any of them is visible where it lands. Each header carries its own row
@@ -117,6 +119,14 @@ among others:
 - a run sequence naming a file that does not exist, or one allocated as a STRING
   or DOTS picture rather than a TEXT file, both of which the sign skips;
 - a Write TEXT aimed at a label allocated as something other than a TEXT file;
+- a Write STRING aimed at a label that is not an allocated STRING file, or sent
+  before any memory configuration;
+- a value longer than its STRING file, which the sign empties rather than cuts
+  short, so every message calling it shows nothing there;
+- a message calling a STRING file that is not there, which the sign draws as
+  nothing at all, not even a space;
+- a date insert or a STRING call inside a value, both of which the sign draws
+  as a literal character from inside a STRING file;
 - a priority message over the fixed 125 bytes;
 - a transmission too truncated to act on, which is left to change nothing rather
   than applied with the decoder's placeholder values. A write cut off inside its
