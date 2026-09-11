@@ -1020,6 +1020,13 @@ class MainWindow(QMainWindow):
             # this call went to, which is not always the one in the box now.
             self._check_surface(result.prepared.origin)
 
+        # Whether the reply came from the service the box still names. The base
+        # URL is editable while a call is out, and both loaders below write into
+        # the form: a reply from the service it was aimed at a moment ago would
+        # fill it with one service's message, or clear a key against another's
+        # list, and Send would then act on the service the box names now.
+        same_service = result.prepared.origin == self._current_address()
+
         pending = self._pending_fill
         if pending is not None and operation.id == pending[1]:
             form, _, asked = pending
@@ -1028,6 +1035,7 @@ class MainWindow(QMainWindow):
             self._pending_fill = None
             if (
                 ok
+                and same_service
                 and isinstance(payload, dict)
                 and self._form is form
                 and _trimmed(form.path_values()) == asked
@@ -1041,7 +1049,7 @@ class MainWindow(QMainWindow):
             # out, and offering keys now clears a typed key the list does not
             # contain, so a reply landing on a form selected since would erase a
             # key typed into it by somebody who never pressed Load keys there.
-            if ok and isinstance(payload, list) and self._form is asking:
+            if ok and same_service and isinstance(payload, list) and self._form is asking:
                 keys = [
                     str(item["key"])
                     for item in payload
