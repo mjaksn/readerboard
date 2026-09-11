@@ -319,9 +319,10 @@ class MainWindow(QMainWindow):
 
         reset = QAction("Reset sign", self)
         reset.setToolTip(
-            "Forget the file table, the messages and the run sequence, as if the "
-            "sign had been power cycled with the link still up. This is the case "
-            "the service's refresh timer exists to repair."
+            "Forget the file table, the messages and the run sequence, as a sign "
+            "that has lost its memory would. This is the case the service's "
+            "refresh timer exists to repair. It is not a power cycle: this sign "
+            "kept its files through one."
         )
         reset.triggered.connect(self.on_reset_sign)
         bar.addAction(reset)
@@ -525,7 +526,7 @@ class MainWindow(QMainWindow):
 
     @Slot()
     def on_reset_sign(self) -> None:
-        """Forget everything the sign holds, as a power cycle would."""
+        """Forget everything the sign holds, as a sign that lost its memory would."""
         self._state.reset()
         self._refresh_state()
         self._update_status()

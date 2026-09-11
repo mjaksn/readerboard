@@ -165,7 +165,11 @@ class SignState:
         return "".join(out)
 
     def reset(self) -> None:
-        """Forget everything, as if the sign had just been switched on."""
+        """Forget everything, as a sign that has lost its memory would.
+
+        Not a power cycle, which is what this was once taken to be: this sign
+        was measured keeping both a TEXT file and a STRING file through one.
+        """
         self.memory_config = None
         self.memory_order = []
         self.files = {}
