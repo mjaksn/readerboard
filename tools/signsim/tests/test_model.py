@@ -353,6 +353,21 @@ class TestStringFiles:
         send(sign, frames.write_string_file(b"a", b"73"))
         assert sign.drawn(sign.files[b"A"].body) == "T={a: 73}F"
 
+    @pytest.mark.parametrize(
+        "value, shown",
+        [
+            # The sign drew the day of the week's selector, a 9, not the day.
+            (b"X\x0b9X", "X9X"),
+            # And a call to another STRING as the called label, not its value.
+            (b"X\x10bX", "XbX"),
+        ],
+    )
+    def test_what_a_string_cannot_do_reads_as_what_the_sign_drew(self, sign, value, shown):
+        self.configured(sign)
+        send(sign, frames.write_string_file(b"a", value))
+        send(sign, frames.write_text_file(b"A", b"\x10a"))
+        assert sign.drawn(sign.files[b"A"].body) == "{a: %s}" % shown
+
     def test_a_value_past_its_size_empties_the_string(self, sign):
         # Not truncated, and not refused either: the previous value goes too.
         self.configured(sign)

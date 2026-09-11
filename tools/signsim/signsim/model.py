@@ -156,6 +156,7 @@ class SignState:
             if span.data[:1] == c.STRING_FILE_INSERT and len(span.data) == 2:
                 label = span.data[1:2]
                 value = self.strings.get(label, b"") if self._is_string_file(label) else b""
+                value = _as_a_string_draws(value)
                 out.append(
                     "{%s: %s}" % (_show(label), readable(annotate(value)) if value else "nothing")
                 )
@@ -680,6 +681,26 @@ class SignState:
         if entry is None or entry.file_type == c.FILE_TYPE_TEXT:
             return None
         return decode.FILE_TYPE_NAMES.get(entry.file_type, "an unlisted type")
+
+
+def _as_a_string_draws(value: bytes) -> bytes:
+    """Rewrite a STRING file's value as this sign draws it from inside a STRING.
+
+    Two codes that work in a TEXT file do not in a STRING, measured: a date
+    insert draws its selector as a literal character, so ``0BH 9`` shows ``9``,
+    and a call to another STRING draws the called label, so ``X 10H b X`` shows
+    ``XbX``. Everything else is drawn as it would be in a TEXT file.
+    """
+    out = bytearray()
+    for span in annotate(value):
+        if len(span.data) == 2 and span.data[:1] in _LITERAL_IN_A_STRING:
+            out += span.data[1:2]
+        else:
+            out += span.data
+    return bytes(out)
+
+
+_LITERAL_IN_A_STRING = (c.CURDATE_WEEKDAYY[:1], c.STRING_FILE_INSERT)
 
 
 def _show(label: bytes) -> str:
