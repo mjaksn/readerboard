@@ -76,18 +76,15 @@ RESET_SETTLE_SECONDS = 10.0
 # bytes, and nothing writes them again until the next periodic re-push.
 SOUND_SETTLE_SECONDS = 3.0
 
-# Reading a reply. The sign begins answering with a long run of nulls and the
-# payload follows a moment behind, so a reader that takes what is waiting and
-# stops gets a lone null byte back from every question it asks. Two of those
-# compare equal, which looks like a confirmation and is not; that mistake was
-# made once already against this sign.
+# Reading a reply. A reply comes in however many pieces the link hands over, and
+# nothing but its closing EOT says the last one has arrived. So a reply is
+# collected until that EOT, with a deadline for a sign that never sends it, and
+# neither the first piece nor a quiet spell is taken as the end. Stopping early
+# returns a reply that can still parse, into a confident wrong answer, and leaves
+# the rest on the line to be read as the head of the next one.
 #
-# So a reply is collected until its EOT arrives, the byte that closes every
-# transmission, and waiting for the line to go quiet is not a substitute. A
-# reader that stopped after 200ms of quiet had a memory configuration read come
-# back from this sign cut off partway through its second entry, and the half it
-# had still parsed. Stopping early also leaves the rest of the reply waiting on
-# the line, where it is read as the head of the next answer.
+# How big a piece is depends on the transport, and one of them once made every
+# piece a single byte: see SerialTransport.read_available.
 #
 # The numbers are polls rather than seconds so that a test can drive this with a
 # sleep that records instead of waiting, and still exercise the same loop.

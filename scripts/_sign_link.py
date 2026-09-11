@@ -15,13 +15,11 @@ import serial
 
 from readerboard.protocol import constants as c
 
-# A reply opens with a run of nulls and the payload follows a moment behind, so
-# stopping at the first byte gets a lone null back from every question. Stopping
-# at the first quiet spell is no better: a memory configuration reply read that
-# way on 2026-09-10 stopped partway through its second entry, because the rest
-# arrived more than 200 ms later. So a reply is read until the EOT that ends it,
-# or until the timeout. See "STRING files, measured on the sign" in
-# docs/protocol-notes.md.
+# A reply is read until the EOT that ends it, or until the timeout. What is
+# waiting is drained on every poll rather than read once, because over socket://
+# pyserial's in_waiting is 1 whenever anything is waiting, not how much. Reading
+# it once took one byte a poll, and cut every reply longer than about fifty bytes
+# off at the timeout. See "Reading state back" in docs/protocol-notes.md.
 READ_POLL_SECONDS = 0.05
 READ_TIMEOUT_SECONDS = 3.0
 
@@ -68,12 +66,12 @@ class Link:
         reply = bytearray()
         for _ in range(max(1, int(READ_TIMEOUT_SECONDS / READ_POLL_SECONDS))):
             try:
-                chunk = self._port.read(self._port.in_waiting)
+                while waiting := self._port.in_waiting:
+                    reply += self._port.read(waiting)
             except Exception as err:
                 print("     ! the link failed while reading: %s" % err)
                 self.close()
                 break
-            reply += chunk
             # Only an EOT after the reply's STX closes it. One before that is the
             # tail of something the line was already carrying.
             start = reply.find(c.STX)

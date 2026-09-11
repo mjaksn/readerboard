@@ -129,6 +129,13 @@ class SerialTransport:
         write's is: this one reaches a caller of ``GET /sign/information`` as the
         body of a 503, and "is down" on its own tells them neither why nor how
         long to wait.
+
+        It reads until nothing is left rather than reading once, because over
+        ``socket://`` pyserial's ``in_waiting`` is not a count. It is 1 while
+        anything is waiting and 0 when nothing is, so a single read of it takes
+        one byte, and a reply collected at one byte a poll ran out of time
+        partway through. A serial port reports the real count and is drained in
+        one pass.
         """
         if not self.is_open:
             raise self._down_error()
@@ -137,10 +144,10 @@ class SerialTransport:
             if port is None:
                 raise self._down_error()
             try:
-                waiting = port.in_waiting
-                if not waiting:
-                    return b""
-                return bytes(port.read(waiting))
+                received = bytearray()
+                while waiting := port.in_waiting:
+                    received += port.read(waiting)
+                return bytes(received)
             except (serial.SerialException, OSError) as err:
                 self._record_failure(err)
                 self._close_locked()

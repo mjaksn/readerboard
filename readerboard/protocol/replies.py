@@ -18,10 +18,11 @@ neither is checked here.
 The command code the sign echoes is ``E``, the **write** code, not the ``F``
 that was sent. That reads like a mistake and is what the document specifies.
 
-And the leading nulls are the reason a reply cannot be read with one
-``read(in_waiting or 1)``. The first byte arrives well before the rest, so an
-eager reader returns a lone null byte for every question asked, and two of
-those compare equal, which looks like a confirmation and is not.
+And the leading nulls make one kind of wrong reader look like it works. Over
+``socket://``, ``read(in_waiting or 1)`` takes one byte however much has
+arrived, because pyserial's ``in_waiting`` there is 1 rather than a count. That
+byte is a null for every question asked, and two of those compare equal, which
+looks like a confirmation and is not.
 """
 
 from __future__ import annotations

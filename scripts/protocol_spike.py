@@ -84,7 +84,12 @@ def read_back(link: serial.Serial, payload: bytes, *, label: str, wait: float = 
     link.flush()
 
     time.sleep(wait)
-    reply = link.read(link.in_waiting or 1)
+    # Drained rather than read once: over socket:// in_waiting is 1 whenever
+    # anything is waiting, so one read of it returns a lone byte.
+    received = bytearray()
+    while waiting := link.in_waiting:
+        received += link.read(waiting)
+    reply = bytes(received)
     if reply:
         print("     <- %d bytes: %r" % (len(reply), reply))
     else:

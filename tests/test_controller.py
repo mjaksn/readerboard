@@ -441,17 +441,15 @@ class TestReadingAReply:
             return False
 
     async def test_a_reply_arriving_in_pieces_is_collected_whole(self):
-        """The documented trap, encoded.
+        """A reader that stops at the first piece gets the nulls and nothing else.
 
-        The sign starts answering with a long run of nulls and the payload
-        follows a moment behind. A reader that takes what is waiting and stops
-        gets the nulls and nothing else, and two of those compare equal, which
-        looks like a confirmation. That mistake was made once against this sign
-        already, and a false result was reported off the back of it.
+        Two of those compare equal, which looks like a confirmation. That
+        mistake was made once against this sign already, and a false result was
+        reported off the back of it.
 
-        Here the reply is scripted the way the sign sends it: some nulls, a gap
-        of two empty reads, then the rest. A reader that stopped at the first
-        non-empty read would return only the nulls and fail this.
+        Here the reply comes as some nulls, a gap of two empty reads, then the
+        rest. A reader that stopped at the first non-empty read would return
+        only the nulls and fail this.
         """
         head = b"\x00\x00\x00"
         tail = answer(b"E\x22DATA")
@@ -464,12 +462,12 @@ class TestReadingAReply:
         assert reply == head + tail
 
     async def test_a_pause_partway_through_a_reply_does_not_cut_it_short(self):
-        """The sign can go quiet in the middle of an answer and carry on.
+        """A quiet spell is not the end of a reply; only its EOT is.
 
-        A reader that stopped after 200ms of quiet had a memory configuration
-        read come back cut off partway through its second entry, and the half it
-        had still parsed. Ten empty reads here is half a second of silence
-        between the two halves, longer than that reader waited.
+        Half a memory configuration still parses, into a shorter configuration
+        than the sign holds. Ten empty reads here is half a second of silence
+        between the two halves, longer than a reader that stopped after 200ms
+        of quiet would have waited.
         """
         head = b"\x00" * 20 + c.SOH + b"000" + c.STX + b"E$AAU0100FFFFBAU00"
         rest = b"20000000" + c.ETX + b"0000" + c.EOT
