@@ -635,7 +635,7 @@ class MainWindow(QMainWindow):
         # checked address is never fetched twice, so a verdict thrown away on a
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
-        self._pending_slot_keys = False
+        self._pending_slot_keys: OperationForm | None = None
         self._pending_fill: tuple[OperationForm, str, dict[str, str]] | None = None
         self._started_at = datetime.now()
 
@@ -925,13 +925,16 @@ class MainWindow(QMainWindow):
     def load_slot_keys(self) -> None:
         """Fetch the message list so the key boxes can offer what is registered.
 
-        The flag is set only once the request is on its way. Set before, a send
-        that never happened would leave it standing, and the next message list
-        the user asked for on their own account would quietly rewrite the key
-        box under them.
+        What is remembered is the form that asked, and it is set only once the
+        request is on its way. Set before, a send that never happened would leave
+        it standing, and the next message list the user asked for on their own
+        account would quietly rewrite the key box under them. The form rather
+        than a yes or no, because the answer belongs to the form that asked for
+        it and not to whichever one is on screen when it arrives.
         """
+        form = self._form
         if self.run(catalogue.BY_ID["list_messages"]):
-            self._pending_slot_keys = True
+            self._pending_slot_keys = form
 
     def load_from_sign(self, operation_id: str) -> None:
         """Read what is already stored under the key on screen, to edit rather than retype.
@@ -1031,16 +1034,20 @@ class MainWindow(QMainWindow):
             ):
                 form.fill_from(payload)
 
-        if self._pending_slot_keys and operation.id == "list_messages":
-            self._pending_slot_keys = False
-            if ok and isinstance(payload, list):
+        asking = self._pending_slot_keys
+        if asking is not None and operation.id == "list_messages":
+            self._pending_slot_keys = None
+            # Only to the form that asked. The tree stays live while a call is
+            # out, and offering keys now clears a typed key the list does not
+            # contain, so a reply landing on a form selected since would erase a
+            # key typed into it by somebody who never pressed Load keys there.
+            if ok and isinstance(payload, list) and self._form is asking:
                 keys = [
                     str(item["key"])
                     for item in payload
                     if isinstance(item, dict) and "key" in item
                 ]
-                if self._form is not None:
-                    self._form.offer_slot_keys(keys)
+                asking.offer_slot_keys(keys)
 
     def _absorb(self, operation: Operation, payload: object) -> None:
         """Take an enumeration into the store, if that is what just came back."""
