@@ -55,7 +55,7 @@ class Transport(Protocol):
         reply and does not decide when one is finished, because neither can be
         answered from here: the sign sends a run of nulls well ahead of the
         payload, so the first non-empty read is nowhere near the whole answer.
-        Collecting until the line goes quiet is the caller's job, and
+        Collecting until the reply's EOT arrives is the caller's job, and
         :meth:`SignController.read_special` is where that lives.
         """
         ...

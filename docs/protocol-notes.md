@@ -510,8 +510,8 @@ every field after it into a plausible wrong answer. The parser measures from bot
 instead.
 
 Collecting the reply has its own trap, described under "Reading state back" and now encoded
-in `tests/test_controller.py`: the answer is read until the line has been quiet for several
-polls, never with a single `read(in_waiting or 1)`.
+in `tests/test_controller.py`: the answer is read until its EOT arrives, never with a single
+`read(in_waiting or 1)` and never until the line merely goes quiet.
 
 These would turn divergence detection from a timer into a question. The service currently
 re-pushes everything every fifteen minutes, because the sign and the Ethernet adapter are
@@ -528,9 +528,14 @@ building.
 One trap when reading: a reply opens with a run of `NUL`s and the payload arrives a moment
 behind the first byte, so a reader that takes `in_waiting or 1` and stops returns a lone
 `b"\x00"` for every question. Compare two of those and they match, which looks like proof
-and is not. Drain until the sign goes quiet instead. `scripts/protocol_spike.py` has the
-eager version. Nothing in the service depends on the answer
-yet, which is deliberate.
+and is not. `scripts/protocol_spike.py` has the eager version. Nothing in the service
+depends on the answer yet, which is deliberate.
+
+Reading until the line goes quiet is not the fix either, because the sign can pause partway
+through a reply. A reader that stopped after 200ms of quiet had a memory configuration read
+come back cut off partway through its second entry, and what it had still parsed as a
+configuration, a shorter one. Read until the EOT that closes every transmission, with a
+deadline for a sign that never sends it.
 
 One trap when comparing a read-back memory configuration against a plan: the sign gives
 whatever is left of the memory pool to the **first** file in the configuration once it
