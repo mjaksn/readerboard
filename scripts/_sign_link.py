@@ -74,7 +74,10 @@ class Link:
                 self.close()
                 break
             reply += chunk
-            if c.EOT in reply:
+            # Only an EOT after the reply's STX closes it. One before that is the
+            # tail of something the line was already carrying.
+            start = reply.find(c.STX)
+            if start >= 0 and reply.find(c.EOT, start) >= 0:
                 break
             time.sleep(READ_POLL_SECONDS)
         return bytes(reply)
