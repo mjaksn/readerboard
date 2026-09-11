@@ -217,9 +217,9 @@ def step_5_priority(link: serial.Serial, settle: float) -> None:
 def step_6_reads(link: serial.Serial) -> None:
     """Find out whether the sign answers read commands through this adapter."""
     print("\nStep 6: can the sign be asked what it is holding?")
-    print("  Two-way traffic over the Ethernet adapter has never been tried.")
-    print("  If it works, divergence can be detected by asking the sign rather")
-    print("  than by re-pushing everything on a timer.")
+    print("  This sign answered all four of these on 2026-09-09, so the adapter")
+    print("  carries traffic both ways. Re-proving it is cheap, and divergence")
+    print("  could be detected by asking rather than re-pushing on a timer.")
 
     replies = {
         "memory configuration": read_back(

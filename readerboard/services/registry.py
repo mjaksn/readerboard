@@ -690,10 +690,16 @@ class MessageRegistry:
     async def _blank(self, slot: SlotState) -> None:
         """Empty a file that no longer holds a slot.
 
-        The run sequence has already stopped naming it, so this is tidiness
-        rather than necessity. It matters when the file is handed to a different
-        slot later, since a stale body would otherwise be what the suppression
-        cache compares against.
+        The run sequence has already stopped naming it, which is enough while
+        anything else is still named. It is not enough when that was the last
+        one. A sign given a sequence that names nothing freezes on the message
+        it was showing and holds it there, measured on 2026-09-11 and recorded
+        in docs/protocol-notes.md, so this is what actually clears the display
+        when the last slot goes rather than tidiness.
+
+        It matters a second time when the file is handed to a different slot
+        later, since a stale body would otherwise be what the suppression cache
+        compares against.
         """
         await self._controller.write_text_file(slot.label.encode("ascii"), b"")
 
@@ -702,14 +708,19 @@ class MessageRegistry:
 
         The protocol says a running priority message is cancelled by a serial
         write to the run time table or the run day table, and says nothing
-        either way about a write to the run sequence. Until the spike settles
-        that on real hardware, the safe reading is that it might: a slot
-        expiring during an alert would otherwise take the alert off the display
-        with nothing to explain why.
+        either way about a write to the run sequence, so this took the cautious
+        reading: a slot expiring during an alert would otherwise take the alert
+        off the display with nothing to explain why.
 
-        So while an alert is up, the sequence is remembered and applied when the
-        sign is handed back. Writing a slot's own TEXT file is not on the
-        protocol's list and carries on as normal, so content stays current
+        The spike settled it on 2026-09-11. The sign was given a real run
+        sequence change with an alert up and kept the alert, so the deferral
+        below is unnecessary and is waiting to be removed, along with
+        ``flush_deferred``, the ``force`` flag and the alert service's release
+        hook.
+
+        Until then, while an alert is up the sequence is remembered and applied
+        when the sign is handed back. Writing a slot's own TEXT file is not on
+        the protocol's list and carries on as normal, so content stays current
         behind the alert. Nor is writing a variable's STRING file, and on this
         sign that was measured leaving an alert in place.
 

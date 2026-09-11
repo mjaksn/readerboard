@@ -191,8 +191,9 @@ declines to write them again.
 
 - **Run sequence writes are held back while an alert is up.** The document says
   a write to the run time or run day table cancels a running priority message,
-  and says nothing either way about the run sequence. Until the spike settles
-  it, the safe reading is that it might. See
+  and says nothing either way about the run sequence, so the service took the
+  cautious reading. The spike settled it on 2026-09-11: the alert survived a run
+  sequence write. The deferral is unnecessary and is waiting to be removed. See
   `MessageRegistry._apply_run_sequence`.
 - **Everything is re-pushed on a timer.** The sign and the adapter are
   separately powered, so the sign can be power cycled with the TCP link still
@@ -269,8 +270,8 @@ and the priority file.
 The state is what makes it worth having over a packet log. It says when a write
 lands in a file no memory configuration allocated, when a message overruns its
 file, when the run sequence names a file that does not exist, and when a run
-sequence write arrives during an alert, which `docs/protocol-notes.md` lists
-as one of the questions only the sign can settle.
+sequence write arrives during an alert, which the sign has since been measured
+taking without dropping the alert; that flag goes when the deferral does.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but

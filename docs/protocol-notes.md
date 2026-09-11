@@ -7,9 +7,10 @@ service depends on, with the quotation behind each claim.
 sign.** The wire formats below are quoted from the Alpha Sign Communications Protocol
 itself, so they are no longer anybody's reading of anybody else's implementation. A session
 with the real BetaBrite Classic at the end of an Ethernet to RS-232 adapter on 2026-09-09
-settled three of the four behavioural questions that were open then, and the fourth is
-still open. A fifth has been added since and has not been put to the sign yet. They are all
-listed at the end, with what each turned out to be.
+settled three of the four behavioural questions that were open then. A second session on
+2026-09-11 settled the fourth, answered a fifth that had been added in between, and took the
+one measurement still outstanding. They are all listed at the end, with what each turned out
+to be.
 
 That session also answered several things nobody had thought to doubt, each recorded below
 beside the measurement: a memory configuration does not display unless a bare `E$` clear
@@ -502,40 +503,58 @@ What this settles for the service:
 
 ## What the spike still has to confirm
 
-The wire format questions are closed. Five behavioural ones are on this list. A session
-with the sign on 2026-09-09 settled three of the four that were open then; the fourth is
-still open, and the fifth was added afterwards and has not been put to the sign yet. What
-each turned out to be is recorded here rather than deleted, because the next person will
-want to know it was answered on hardware and not merely assumed.
+The wire format questions are closed, and as of 2026-09-11 so are all five behavioural ones.
+A session on 2026-09-09 settled three of the four open then, and a second on 2026-09-11
+settled the fourth along with a fifth added in between. What each turned out to be is
+recorded here rather than deleted, because the next person will want to know it was answered
+on hardware and not merely assumed.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
 2. **Does rewriting only the run sequence disturb the display?** Answered no. A run
    sequence written while the rotation was on screen left it running, with no blank and no
    restart. So a slot expiring by TTL, which rewrites the sequence, costs nothing visible.
-3. **Does a run sequence write cancel a running priority message?** Still open. The
-   session did not produce a clean test of it, so the service keeps the cautious reading
-   below and defers run sequence writes while an alert is up.
+3. **Does a run sequence write cancel a running priority message?** Answered no, on
+   2026-09-11. With ALERT holding the whole display, the run sequence was rewritten from
+   A B C to A B, a real change rather than a no-op, and the alert stayed up. The service
+   still defers run sequence writes while an alert is active, which is now unnecessary and
+   can be removed; see below.
 4. **Does the sign answer reads through the Ethernet adapter?** Answered yes. All four
    reads in the table below came back correct, so the adapter is two-way and divergence
    could be detected by asking rather than by re-pushing on a timer.
-5. **What does an empty run sequence show?** Open, and newer than the other four. The sign
-   is told to play nothing while its files still hold their text. The document does not say
-   whether that blanks the display, freezes the last message on it, or falls back to
-   something of the sign's own. It is not hypothetical: `DELETE /messages` empties the
-   sequence today and then blanks each file, and a message that is deactivated rather than
-   deleted would rest on the answer entirely. Step 4 of `scripts/protocol_spike.py` asks,
-   and asks as well whether naming the same files again brings the rotation back with
-   nothing rewritten.
+5. **What does an empty run sequence show?** Answered on 2026-09-11: **the sign freezes on
+   the message it was showing**, ONE in that run, and holds it for as long as the sequence
+   names nothing. It does not blank, and it falls back to nothing of its own. That matters
+   twice. `DELETE /messages` empties the sequence and then blanks each file, and the
+   blanking is load-bearing rather than tidiness: without it the last message would sit on
+   the display indefinitely. And a message deactivated rather than deleted would do the same
+   if it were the last one active, so whatever implements that has to blank the file when
+   the sequence empties. Naming the three files again brought the rotation straight back,
+   every message's text and colour intact, with nothing rewritten in between: reactivating
+   costs one packet and no redraw.
 
 The same session turned up another thing that was not on this list, because nobody thought
 to doubt it: a memory configuration does not display unless a bare `E$` clear precedes it.
 See "A clear must come first" above. That was the bug behind a sign that accepted every
 write and showed nothing.
 
-And one measurement remains: the inter-packet delay this sign actually needs. The old
-implementation slept two seconds after every write and closed the port; that number was
-never measured, and `inter_packet_delay` defaults to a conservative 0.5s until it is.
+The 2026-09-11 session turned up one of its own, from reading the run sequence back while it
+was empty. The write was `E.SU`, the ignore-time mode this service always sends, and the
+sign answered `E.TU`: the mode byte came back as `T`, run each file by its own times. That
+is not the reply format flattening it, because the same read on 2026-09-09 came back
+`E.SUABC` with the `S` intact. So an empty sequence appears to take the mode back to the
+default, or the sign declines to store `S` when there are no labels to apply it to. Nothing
+rests on it today, since every file this service allocates is always eligible and the two
+modes behave identically for it, but a file that ever gains a real schedule would want this
+settled first.
+
+The one outstanding measurement, the inter-packet delay this sign actually needs, was taken
+on 2026-09-11. Six writes in a row landed correctly at gaps of 1s, 0.5s and 0.25s, and
+failed at 0.1s. So this sign is good to at least 0.25s and its floor is somewhere between
+0.1s and 0.25s. `inter_packet_delay` still defaults to 0.5s, which is now a conservative
+choice with a measurement behind it rather than a guess, and 0.25s is there for anyone who
+wants the sign to keep up with a burst. The old implementation slept two seconds after every
+write and closed the port; that number was never measured at all.
 
 `scripts/protocol_spike.py` also re-proves the memory configuration, the run sequence and
 the priority takeover end to end, which is cheap and worth doing since it is already
@@ -556,17 +575,20 @@ The two in bold matter because they are things a service could plausibly do whil
 alert is up. This one does not touch either table, so it is safe on that count.
 
 What the document does **not** say either way is whether a **Set Run Sequence** write
-disturbs a running priority message. That is not an academic question: a slot expiring by
-TTL rewrites the run sequence, and if that cancels the alert then an alert would vanish
+disturbs a running priority message. That was not an academic question: a slot expiring by
+TTL rewrites the run sequence, and if that cancelled the alert then an alert would vanish
 mid-display for reasons nobody watching could explain.
 
-Until the spike answers it, the service takes the cautious reading. While an alert is
-active the registry holds run sequence writes back and applies them when the sign is
-handed back. Writing a slot's own TEXT file is not on the list above and carries on
-normally, so content stays current behind the alert.
+The spike answered it on 2026-09-11. With an alert holding the display, the run sequence was
+rewritten from A B C to A B, and the alert stayed up. So a Set Run Sequence write is not a
+fifth thing that cancels a priority message, and the list above is the whole list.
 
-If the spike shows a run sequence write is harmless during an alert, the deferral can be
-dropped and `MessageRegistry._apply_run_sequence` becomes simpler.
+The service still takes the cautious reading, which is now obsolete. While an alert is
+active the registry holds run sequence writes back and applies them when the sign is handed
+back. Writing a slot's own TEXT file was never on the list above and carries on normally, so
+content stays current behind the alert. The deferral can now go, and it takes with it
+`MessageRegistry._apply_run_sequence`'s `force` flag, `flush_deferred`, the alert service's
+release hook and the simulator's warning about it.
 
 ## Reading state back
 
@@ -844,5 +866,6 @@ Appendix A rules `?` out for a STRING file as well.
 
 **Timing.** The inter-byte timeout for a standard packet is one second, and a nested
 packet needs at least 100 ms after its `STX`. This service sends no nested packets. The
-`inter_packet_delay` setting defaults to a conservative 0.5s until the spike measures what
-this sign actually needs.
+`inter_packet_delay` setting defaults to 0.5s. This sign was measured on 2026-09-11 taking
+six writes in a row correctly at a 0.25s gap and failing at 0.1s, so the default has margin
+over what the hardware needs.
