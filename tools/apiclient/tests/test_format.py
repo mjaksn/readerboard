@@ -347,6 +347,8 @@ def test_an_enumeration_is_read_with_the_same_field_the_store_reads():
     other_shape = json.dumps([{"display_mode": "HOLD", "description": "hold"}])
     _result, text = rendered_text("display_modes", 200, other_shape)
     assert "HOLD" not in text
+
+
 class TestSecondsUntil:
     """The deadline the service reports, read back as the duration it takes.
 
