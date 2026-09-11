@@ -45,6 +45,18 @@ class Input:
     ``test_no_prefill_is_offered_that_the_schema_does_not_back`` in
     ``tools/apiclient/tests/test_catalogue.py`` refuses one that does not, so
     the client promises the caller nothing the service has not.
+
+    ``fill_from`` names an operation that reads the same resource this one
+    writes, and does two things at once: it puts a button under this field's
+    label, and it says what that button calls. Pressing it fills every body
+    field the response has a value for, not only this one; the field owns the
+    button because that is where it is worth having, next to the content
+    somebody is about to edit.
+
+    ``seconds_until`` names the field in that response which this one is a
+    duration to. The service takes a deadline as seconds from now and reports
+    it as the moment it falls, so the two are the same fact in different
+    units and neither side can use the other's directly.
     """
 
     name: str
@@ -54,6 +66,8 @@ class Input:
     enum_set: str | None = None
     markup: bool = False
     slot_keys: bool = False
+    fill_from: str | None = None
+    seconds_until: str | None = None
     description: str = ""
 
     @property
@@ -141,6 +155,7 @@ OPERATIONS: tuple[Operation, ...] = (
                 kind="textarea",
                 required=True,
                 markup=True,
+                fill_from="get_message",
                 description="the message, including markup tokens such as <red> and <degree>",
             ),
             _DISPLAY_MODE,
@@ -153,6 +168,7 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(
                 name="ttl_seconds",
                 kind="float",
+                seconds_until="expires_at",
                 description="drop the message this many seconds from now; leave empty to keep it",
             ),
             Input(

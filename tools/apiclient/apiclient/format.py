@@ -141,20 +141,46 @@ def is_error(status: int, payload: object | None) -> bool:
     return status == 0 or status >= 400 or payload is UNREADABLE
 
 
+def _moment(value: object) -> datetime | None:
+    """Read a timestamp the service sent, or None if it is not one.
+
+    A timestamp without a zone is read as UTC, which is what the service sends
+    and what every reader of one here has to assume alike. The rule lives here
+    rather than in each of them, because two copies of it are two chances to
+    disagree about what a bare timestamp means.
+    """
+    if value is None:
+        return None
+    try:
+        moment = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
+
+
+def seconds_until(value: object) -> float | None:
+    """Return how many seconds from now a timestamp falls, or None if it is not one.
+
+    Negative for one that has already passed. Whether that is worth acting on
+    is the caller's question, not this function's: turning it into None here
+    would make an expired deadline indistinguishable from no deadline, and
+    those two mean different things to whoever has to decide what to do.
+    """
+    moment = _moment(value)
+    if moment is None:
+        return None
+    return (moment - datetime.now(UTC)).total_seconds()
+
+
 def when(value: object) -> str:
     """Render a timestamp the way a person reads one, with how long ago it was."""
     if value is None:
         return "never"
-    text = str(value)
-    try:
-        moment = datetime.fromisoformat(text)
-    except ValueError:
-        return text
+    moment = _moment(value)
+    if moment is None:
+        return str(value)
 
-    if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
-    now = datetime.now(UTC)
-    seconds = (moment - now).total_seconds()
+    seconds = (moment - datetime.now(UTC)).total_seconds()
     stamp = moment.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     return "%s (%s)" % (stamp, _relative(seconds))
 

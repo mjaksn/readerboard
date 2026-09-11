@@ -11,6 +11,58 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## Unreleased
+
+### Added
+
+- **The client can load a stored message back into the form to edit it.**
+  Register or replace a message now carries a **Load From Sign** button under the
+  message caption. It calls `GET /messages/{key}` for the key in the box above
+  and fills the form from what comes back: the message text with its markup, the
+  display mode, the order and the source. Changing a message that is already on
+  the sign no longer means retyping it out of the slot table.
+
+  A key with nothing under it answers 404, and that answer is shown the way every
+  other failure is. No field changes, so a half-written message survives a
+  mistyped key.
+
+  `ttl_seconds` is converted rather than copied, since the service takes a
+  deadline as seconds from now and reports it as `expires_at`, the moment itself.
+  The box gets the whole seconds remaining, so loading a message that expires and
+  sending it back keeps roughly the deadline it had rather than dropping it. The
+  clock runs while the form is open, so the deadline moves out by however long
+  the edit took.
+
+  It is left empty where there is no positive count of seconds ahead to show: no
+  deadline, a timestamp that could not be read, and one already past. Empty is
+  the field's own way of saying no deadline, and the response panel shows the
+  timestamp regardless.
+
+### Changed
+
+- **Loading the slot keys in the client now clears a key that is not among
+  them.** The key box keeps what was typed if the sign turned out to have that
+  slot, and is emptied if it did not. The list is the answer to "what is
+  registered", so a key missing from it is one no request on that form can
+  succeed with: the read would 404 and so would the delete. It used to be kept
+  regardless, which left a key that had just been shown not to exist sitting
+  there looking exactly as valid as it did a moment earlier.
+
+  The whitespace around a typed key is trimmed before it is compared, and on a
+  match the box is rewritten to the trimmed key, so `  porch ` becomes `porch`.
+  That is what the client sends anyway: it trims every path value on the way
+  out, and the service refuses whitespace anywhere in a slot key. Case is not
+  folded, because `Porch` and `porch` are different slots. Nothing is ever chosen
+  for you: an empty box stays empty rather than taking the first key, which for
+  the delete on the same form would be the worst version of that mistake.
+
+- **Send trims the client's key box before it sends.** The client has always
+  trimmed the key on its way to the service, so a request typed as `  kitchen `
+  went out as `kitchen` while the box went on showing the spaces. The box is now
+  trimmed too, on every form that takes a key, so the key on screen after Send is
+  the key that was used. A key of nothing but spaces now shows as the empty box
+  it is, beside the warning that says the key cannot be empty.
+
 ## [0.4.0] - 2026-09-10
 
 **This is the release that met the hardware.** Everything in it comes from

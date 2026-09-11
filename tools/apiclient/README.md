@@ -49,6 +49,48 @@ beside a set is unambiguous. All four answer the same shape, `name` and
 objects but not *this* list of objects is refused rather than quietly producing
 a set of empty names, which on screen looks exactly like a healthy one.
 
+**The key boxes offer what is registered, and say when what you typed is not.**
+Any form taking a slot key has a **Load keys** button beside the box, which calls
+`GET /messages` and offers the keys that came back. What you had already typed is
+kept if it is among them and cleared if it is not, because the list is the answer
+to what exists: a key missing from it is one the read would 404 on and the delete
+too. Nothing is selected for you either way, so Load followed by Send cannot act
+on a slot you never named.
+
+The whitespace around a key is trimmed, both when it is compared with that list
+and when Send is pressed, and the box is rewritten to the trimmed key in both
+cases. The client trims every path value on its way out regardless, and the
+service refuses whitespace in a key at all, so the trimmed key is the one that is
+actually used. Showing it in the box means the screen says so, rather than
+keeping the spaces as though they had gone somewhere. Case is left alone:
+`Porch` and `porch` are different slots.
+
+**A message already on the sign can be loaded back to edit it.** Register or
+replace a message carries a **Load From Sign** button under the message caption.
+It calls `GET /messages/{key}` for whatever key is in the box above and fills the
+form from the answer: the message text with its markup intact, the display mode,
+the order and the source. Editing a message that is already up is then reading it
+first rather than retyping it from the slot table.
+
+A key with nothing stored under it answers 404, which is shown like any other
+failure and changes no field, so a half-written message survives a mistyped key.
+Nothing about the failure is special-cased; it is the ordinary response display.
+
+`ttl_seconds` is converted rather than copied, because the service answers in
+the other unit: it takes a deadline as seconds from now and reports it as
+`expires_at`, the moment itself. The box is filled with the whole seconds left
+until that moment, so loading a message that expires in ten minutes and sending
+it straight back keeps roughly the deadline it had. Roughly, and not exactly:
+the clock runs while the form sits open, so the deadline moves out by however
+long the editing took.
+
+The box is left empty for the three cases with no positive number of seconds
+ahead to show: a message with no deadline, a timestamp the client could not
+read, and one that has already passed. Empty is also what the field means by
+"no deadline", which is the right answer for the first and the only available
+one for the other two. The response panel shows the timestamp in every case, so
+an expired deadline is visible there rather than only implied by an empty box.
+
 **Responses are read, not dumped.** Every shape the service answers with has a
 formatter: the health breakdown, the slot table, the alert, the clock, the
 enumerations, and a 204 rendered as the success it is rather than as an empty

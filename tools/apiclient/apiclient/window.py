@@ -278,12 +278,47 @@ class OperationForm(QWidget):
 
         layout.addStretch(1)
 
-    def _label(self, item: Input, where: str) -> QLabel:
-        """Return the caption for a field, marking the required ones."""
+    def _label(self, item: Input, where: str) -> QWidget:
+        """Return the caption for a field, marking the required ones.
+
+        A field with ``fill_from`` gets its loader button here, under the
+        caption, rather than beside the field. The field's own row is already
+        spoken for: a markup textarea carries Insert token beneath it, and a
+        second button there would read as another way to edit the text rather
+        than a way to replace all of it.
+        """
         text = item.label + (" *" if item.required else "")
         label = QLabel(text)
         label.setToolTip("%s (%s)" % (item.description or item.name, where))
-        return label
+        if not item.fill_from:
+            return label
+
+        source = catalogue.BY_ID[item.fill_from]
+        # Two lines, and it is the width that wants them rather than the
+        # wording. This button sits in the form's label column, so on one line
+        # it became the widest thing there and pushed every field right by the
+        # difference. Broken in two it is narrower than "display mode" below
+        # it, which was already setting that width, so the column is exactly as
+        # wide as it would be if this button were not here. The row is tall
+        # enough for the second line at no cost, because the message field
+        # beside it is a textarea.
+        load = QPushButton("Load From\nSign")
+        load.setToolTip(
+            "Call %s for the key above and fill this form from what comes back"
+            % source.signature
+        )
+        load.clicked.connect(
+            lambda _checked=False, op=item.fill_from: self._window.load_from_sign(op)
+        )
+
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(label)
+        column.addWidget(load)
+        column.addStretch(1)
+        holder = QWidget()
+        holder.setLayout(column)
+        return holder
 
     def _path_widget(self, item: Input) -> QWidget:
         """Build a path parameter, with the slot key loader when it is one."""
@@ -425,19 +460,78 @@ class OperationForm(QWidget):
             self._refresh_token_button(button)
 
     def offer_slot_keys(self, keys: list[str]) -> None:
-        """Fill any slot key box with the keys a message list came back with."""
+        """Fill any slot key box with the keys a message list came back with.
+
+        Nothing is chosen for the caller. Leaving the first key selected would
+        make Load followed by Send act on a message at random, which for the
+        delete beside this one is the worst version of that mistake.
+
+        A key already typed is kept only if the sign turned out to have it. The
+        list is the answer to "what is registered", so a key missing from it is
+        one no request in this form can succeed with: the read would 404 and the
+        delete would too. Clearing it says that at the moment it becomes known,
+        rather than leaving it sitting there looking as valid as it did before
+        the list arrived.
+
+        What is compared is the key with the whitespace around it trimmed,
+        because that is what this client sends: ``request.fill_path`` trims
+        every path value on its way out, and the service would refuse the
+        untrimmed one anyway. So ``  porch `` is the key ``porch`` as far as any
+        request is concerned, and on a match the box is rewritten to the
+        trimmed form, so that what it shows is the key the sign actually has.
+        Case is not folded: slot keys are case sensitive, and ``Porch`` is a
+        different slot that the sign does not have.
+        """
         for item in self.operation.path_inputs:
             widget = self._path.get(item.name)
             if item.slot_keys and isinstance(widget, QComboBox):
-                # Offered, never chosen. Leaving the first key selected would
-                # make Load followed by Send delete a message at random.
-                current = widget.currentText()
+                wanted = widget.currentText().strip()
                 widget.clear()
                 widget.addItems(keys)
-                if current:
-                    widget.setCurrentText(current)
+                if wanted and wanted in keys:
+                    widget.setCurrentText(wanted)
                 else:
                     widget.setCurrentIndex(-1)
+                    widget.setCurrentText("")
+
+    def trim_path_values(self) -> None:
+        """Trim the whitespace from the path boxes in place.
+
+        ``request.fill_path`` trims every path value on its way out, so what
+        reaches the service is already the trimmed key whatever the box shows.
+        Doing it to the box as well makes the two agree: the key on screen after
+        Send is the key that was used, rather than the one the user typed and
+        the client quietly changed.
+        """
+        for widget in self._path.values():
+            text = _text_of(widget)
+            if text != text.strip():
+                _set_text(widget, text.strip())
+
+    def fill_from(self, payload: dict[str, object]) -> None:
+        """Put a stored resource into the body fields, for editing rather than retyping.
+
+        Only fields the response carries a value for are touched, so a response
+        that omits one leaves whatever was typed there alone.
+
+        A duration field is the exception, because the service answers in the
+        other unit: it takes ``ttl_seconds`` from now and reports ``expires_at``,
+        the moment itself. The remaining time is worked out here so that sending
+        the form straight back keeps roughly the deadline the message already
+        had, rather than the deadline being quietly dropped.
+        """
+        for item in self.operation.body:
+            widget = self._body.get(item.name)
+            if widget is None:
+                continue
+            if item.seconds_until:
+                if item.seconds_until in payload:
+                    _set_text(widget, _remaining(payload[item.seconds_until]))
+                continue
+            if item.name not in payload:
+                continue
+            value = payload[item.name]
+            _set_text(widget, "" if value is None else str(value))
 
     def path_values(self) -> dict[str, str]:
         """Return what has been typed into the path parameters."""
@@ -453,6 +547,45 @@ def _placeholder(combo: QComboBox, text: str) -> None:
     line = combo.lineEdit()
     if line is not None:
         line.setPlaceholderText(text)
+
+
+def _trimmed(values: dict[str, str]) -> dict[str, str]:
+    """Return path values as they are sent, with the whitespace around each trimmed.
+
+    Used where a reply is matched back to the question that produced it, so the
+    comparison is between what went out and what the box would send now. A key
+    the user padded with a space while the call was out is still the same key.
+    """
+    return {name: value.strip() for name, value in values.items()}
+
+
+def _remaining(expires_at: object) -> str:
+    """Return the seconds left before a deadline, as a duration field wants it.
+
+    Empty for the three cases that cannot be written as a positive number of
+    seconds ahead: no deadline at all, one this could not read, and one that has
+    already passed. Empty is also what the field means by "no deadline", which
+    is the honest answer for the first and the only available one for the other
+    two, and the response panel shows the timestamp either way.
+
+    Whole seconds, because the box is something a person reads and edits, and
+    because the round trip that carried the answer here already cost more
+    precision than the fraction would have carried.
+    """
+    remaining = fmt.seconds_until(expires_at)
+    if remaining is None or remaining < 1:
+        return ""
+    return str(round(remaining))
+
+
+def _set_text(widget: QWidget, value: str) -> None:
+    """Put text into a field widget, whichever kind it is. The mirror of ``_text_of``."""
+    if isinstance(widget, QPlainTextEdit):
+        widget.setPlainText(value)
+    elif isinstance(widget, QComboBox):
+        widget.setCurrentText(value)
+    elif isinstance(widget, QLineEdit):
+        widget.setText(value)
 
 
 def _text_of(widget: QWidget) -> str:
@@ -502,7 +635,8 @@ class MainWindow(QMainWindow):
         # checked address is never fetched twice, so a verdict thrown away on a
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
-        self._pending_slot_keys = False
+        self._pending_slot_keys: OperationForm | None = None
+        self._pending_fill: tuple[OperationForm, str, dict[str, str]] | None = None
         self._started_at = datetime.now()
 
         self.setCentralWidget(self._build())
@@ -677,10 +811,21 @@ class MainWindow(QMainWindow):
 
     # == sending ==========================================================
 
-    def _prepare(self, operation: Operation) -> request_module.Prepared | None:
-        """Build the request for an operation, reporting what stopped it if anything did."""
+    def _prepare(
+        self,
+        operation: Operation,
+        path_values: dict[str, str] | None = None,
+    ) -> request_module.Prepared | None:
+        """Build the request for an operation, reporting what stopped it if anything did.
+
+        ``path_values`` is given when the operation being sent is not the one on
+        screen, which is how a form borrows another operation's read of the same
+        resource. The body is still taken from the form only when the form is
+        this operation's, because another operation's fields are not this one's.
+        """
         form = self._form
-        path_values = form.path_values() if form and form.operation is operation else {}
+        if path_values is None:
+            path_values = form.path_values() if form and form.operation is operation else {}
         body_values = form.body_values() if form and form.operation is operation else {}
         try:
             return request_module.build(
@@ -695,12 +840,23 @@ class MainWindow(QMainWindow):
             return None
 
     def _send_current(self) -> None:
-        """Send whichever operation is selected."""
+        """Send whichever operation is selected, trimming its path boxes first.
+
+        Trimmed before the send rather than after it went out, so that a key of
+        nothing but spaces shows as the empty box it is when the refusal to send
+        it explains that the key cannot be empty.
+        """
         if self._form is None:
             return
+        self._form.trim_path_values()
         self.run(self._form.operation)
 
-    def run(self, operation: Operation) -> bool:
+    def run(
+        self,
+        operation: Operation,
+        *,
+        path_values: dict[str, str] | None = None,
+    ) -> bool:
         """Send one operation, confirming first if it is disruptive to run.
 
         Two operations ask first, and for different reasons: clearing every
@@ -734,7 +890,7 @@ class MainWindow(QMainWindow):
             if answer != QMessageBox.StandardButton.Yes:
                 return False
 
-        prepared = self._prepare(operation)
+        prepared = self._prepare(operation, path_values)
         if prepared is None:
             return False
 
@@ -769,13 +925,38 @@ class MainWindow(QMainWindow):
     def load_slot_keys(self) -> None:
         """Fetch the message list so the key boxes can offer what is registered.
 
-        The flag is set only once the request is on its way. Set before, a send
-        that never happened would leave it standing, and the next message list
-        the user asked for on their own account would quietly rewrite the key
-        box under them.
+        What is remembered is the form that asked, and it is set only once the
+        request is on its way. Set before, a send that never happened would leave
+        it standing, and the next message list the user asked for on their own
+        account would quietly rewrite the key box under them. The form rather
+        than a yes or no, because the answer belongs to the form that asked for
+        it and not to whichever one is on screen when it arrives.
         """
+        form = self._form
         if self.run(catalogue.BY_ID["list_messages"]):
-            self._pending_slot_keys = True
+            self._pending_slot_keys = form
+
+    def load_from_sign(self, operation_id: str) -> None:
+        """Read what is already stored under the key on screen, to edit rather than retype.
+
+        The key is passed across explicitly, because the operation being sent is
+        not the one the form is showing and the form's own values are only
+        offered for its own operation.
+
+        What is remembered is the form object, not its name. ``_selected``
+        builds a fresh form on every swap, so identity is what says the answer
+        is still going to the fields that asked for it, and a form that has
+        since been replaced is one this must not write into. The key asked for
+        is remembered with it for the same reason: a reply is matched to the
+        question by nothing but arriving next, so a key retyped while the call
+        was out would otherwise be answered with the previous key's message.
+        """
+        form = self._form
+        if form is None:
+            return
+        asked = form.path_values()
+        if self.run(catalogue.BY_ID[operation_id], path_values=asked):
+            self._pending_fill = (form, operation_id, _trimmed(asked))
 
     def _copy_curl(self) -> None:
         """Put the current form's call on the clipboard as a curl command."""
@@ -839,16 +1020,42 @@ class MainWindow(QMainWindow):
             # this call went to, which is not always the one in the box now.
             self._check_surface(result.prepared.origin)
 
-        if self._pending_slot_keys and operation.id == "list_messages":
-            self._pending_slot_keys = False
-            if ok and isinstance(payload, list):
+        # Whether the reply came from the service the box still names. The base
+        # URL is editable while a call is out, and both loaders below write into
+        # the form: a reply from the service it was aimed at a moment ago would
+        # fill it with one service's message, or clear a key against another's
+        # list, and Send would then act on the service the box names now.
+        same_service = result.prepared.origin == self._current_address()
+
+        pending = self._pending_fill
+        if pending is not None and operation.id == pending[1]:
+            form, _, asked = pending
+            # Cleared whatever happened, so a refusal does not leave this armed
+            # for somebody else's call to satisfy.
+            self._pending_fill = None
+            if (
+                ok
+                and same_service
+                and isinstance(payload, dict)
+                and self._form is form
+                and _trimmed(form.path_values()) == asked
+            ):
+                form.fill_from(payload)
+
+        asking = self._pending_slot_keys
+        if asking is not None and operation.id == "list_messages":
+            self._pending_slot_keys = None
+            # Only to the form that asked. The tree stays live while a call is
+            # out, and offering keys now clears a typed key the list does not
+            # contain, so a reply landing on a form selected since would erase a
+            # key typed into it by somebody who never pressed Load keys there.
+            if ok and same_service and isinstance(payload, list) and self._form is asking:
                 keys = [
                     str(item["key"])
                     for item in payload
                     if isinstance(item, dict) and "key" in item
                 ]
-                if self._form is not None:
-                    self._form.offer_slot_keys(keys)
+                asking.offer_slot_keys(keys)
 
     def _absorb(self, operation: Operation, payload: object) -> None:
         """Take an enumeration into the store, if that is what just came back."""
