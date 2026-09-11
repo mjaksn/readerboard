@@ -1,6 +1,7 @@
 """Tests for the HTTP surface."""
 
 import re
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -296,6 +297,43 @@ class TestAlerts:
         )
         assert response.status_code == 400
         assert "unknown markup token" in response.json()["detail"]
+
+
+class TestExpiry:
+    """A ttl is kept by the service's own sweep, on the service's own clock.
+
+    This runs the service with the default sweep interval and real time, which
+    every other test here replaces. The interval used to be fifteen seconds, and
+    a ten second ttl was timed on a real sign lasting eighteen and twenty two:
+    each expiry waited for the next sweep to notice it.
+    """
+
+    def test_a_message_goes_within_a_second_or_so_of_its_ttl(self, tmp_path, sign):
+        settings = Settings(
+            api_key=KEY,
+            state_path=tmp_path / "state.json",
+            serial_url="loop://",
+            inter_packet_delay=0,
+            settle_delays_enabled=False,
+            clock_sync_enabled=False,
+            refresh_interval_seconds=3600,
+        )
+        with TestClient(create_app(settings, transport=sign)) as client:
+            client.put(
+                "/messages/doorbell",
+                json={"message": "DOOR", "ttl_seconds": 0.2},
+                headers=HEADERS,
+            )
+            started = time.monotonic()
+            while client.get("/messages").json() and time.monotonic() - started < 5:
+                time.sleep(0.05)
+            waited = time.monotonic() - started
+            remaining = client.get("/messages").json()
+
+        assert remaining == []
+        # Generous for a loaded CI runner, and still well short of the fifteen
+        # seconds the old interval could take.
+        assert waited < 3, "the message outlived its 0.2s ttl by %.1fs" % waited
 
 
 class TestSignCommands:

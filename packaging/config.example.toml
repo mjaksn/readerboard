@@ -68,8 +68,10 @@ slot_capacity = 256
 
 # == behaviour ===============================================================
 
-# How often to expire messages and alerts whose deadlines have passed.
-registry_sweep_seconds = 15.0
+# How often to expire messages and alerts whose deadlines have passed. An
+# expiry can land up to this long after its deadline. A sweep that finds
+# nothing due writes nothing to the sign, so there is little to gain by raising it.
+registry_sweep_seconds = 1.0
 
 # How often to push every message to the sign again whether or not anything
 # changed. This is what repairs a sign that was power cycled while the Ethernet
