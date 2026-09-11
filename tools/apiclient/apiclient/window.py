@@ -471,8 +471,14 @@ class OperationForm(QWidget):
         one no request in this form can succeed with: the read would 404 and the
         delete would too. Clearing it says that at the moment it becomes known,
         rather than leaving it sitting there looking as valid as it did before
-        the list arrived. Comparison is on the trimmed text because that is what
-        would be sent.
+        the list arrived.
+
+        The comparison is exact, with no trimming and no case folding. Slot keys
+        are case sensitive, and the service refuses whitespace anywhere in one,
+        so a key with spaces around it can never be among those that come back.
+        Trimming it into a match would be answering whether the request would
+        work, which is a different question from whether this is a key the sign
+        has.
         """
         for item in self.operation.path_inputs:
             widget = self._path.get(item.name)
@@ -480,7 +486,7 @@ class OperationForm(QWidget):
                 current = widget.currentText()
                 widget.clear()
                 widget.addItems(keys)
-                if current.strip() and current.strip() in keys:
+                if current and current in keys:
                     widget.setCurrentText(current)
                 else:
                     widget.setCurrentIndex(-1)

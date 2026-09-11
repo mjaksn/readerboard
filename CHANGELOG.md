@@ -48,11 +48,12 @@ library, and the names inside it may move without that being a breaking change.
   regardless, which left a key that had just been shown not to exist sitting
   there looking exactly as valid as it did a moment earlier.
 
-  A key that differs only in case is cleared too, because slot keys are compared
-  exactly and `Kitchen` is not `kitchen`. Surrounding whitespace is ignored,
-  since that is what the request would send. Nothing is ever chosen for you: an
-  empty box stays empty rather than taking the first key, which for the delete
-  on the same form would be the worst version of that mistake.
+  The comparison is exact. A key that differs only in case is cleared, because
+  `Kitchen` and `kitchen` are different slots, and so is one with spaces around
+  it, because the service refuses whitespace anywhere in a slot key and so no
+  registered key can match it. Nothing is ever chosen for you: an empty box stays
+  empty rather than taking the first key, which for the delete on the same form
+  would be the worst version of that mistake.
 
 ## [0.4.0] - 2026-09-10
 
