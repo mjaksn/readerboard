@@ -78,6 +78,15 @@ library, and the names inside it may move without that being a breaking change.
   The general information reply is short and has not been seen to pause, so
   this is a fix for a trap rather than for a wrong answer anybody reported.
 
+- **A `ttl_seconds` now ends within about a second of when it says.** Expiries
+  are applied by a sweep, and the sweep ran every fifteen seconds, so a message
+  or alert stayed up for anything up to fifteen seconds past its deadline: a ten
+  second ttl was timed on a sign lasting eighteen and twenty two. The default
+  `registry_sweep_seconds` is now 1. A sweep that finds nothing due writes
+  nothing to the sign, so running it more often costs nothing on the line. A
+  config file that sets `registry_sweep_seconds` keeps its own value, so one
+  copied from the old example still says 15 and should be changed.
+
 ## [0.4.0] - 2026-09-10
 
 **This is the release that met the hardware.** Everything in it comes from

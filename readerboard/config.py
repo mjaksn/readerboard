@@ -101,7 +101,15 @@ class Settings(BaseSettings):
 
     # == behaviour =========================================================
 
-    registry_sweep_seconds: float = Field(default=15.0, gt=0)
+    registry_sweep_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        description=(
+            "how often to look for messages and alerts whose ttl has passed. An expiry "
+            "lands up to this much after its deadline, so it is kept short: a sweep that "
+            "finds nothing due writes nothing to the sign"
+        ),
+    )
     refresh_interval_seconds: float = Field(
         default=900.0,
         gt=0,
