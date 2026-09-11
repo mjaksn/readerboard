@@ -1,6 +1,7 @@
 """Tests for the HTTP surface."""
 
 import re
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -304,6 +305,43 @@ class TestAlerts:
         assert "unknown markup token" in response.json()["detail"]
 
 
+class TestExpiry:
+    """A ttl is kept by the service's own sweep, on the service's own clock.
+
+    This runs the service with the default sweep interval and real time, which
+    every other test here replaces. The interval used to be fifteen seconds, and
+    a ten second ttl was timed on a real sign lasting eighteen and twenty two:
+    each expiry waited for the next sweep to notice it.
+    """
+
+    def test_a_message_goes_within_a_second_or_so_of_its_ttl(self, tmp_path, sign):
+        settings = Settings(
+            api_key=KEY,
+            state_path=tmp_path / "state.json",
+            serial_url="loop://",
+            inter_packet_delay=0,
+            settle_delays_enabled=False,
+            clock_sync_enabled=False,
+            refresh_interval_seconds=3600,
+        )
+        with TestClient(create_app(settings, transport=sign)) as client:
+            client.put(
+                "/messages/doorbell",
+                json={"message": "DOOR", "ttl_seconds": 0.2},
+                headers=HEADERS,
+            )
+            started = time.monotonic()
+            while client.get("/messages").json() and time.monotonic() - started < 5:
+                time.sleep(0.05)
+            waited = time.monotonic() - started
+            remaining = client.get("/messages").json()
+
+        assert remaining == []
+        # Generous for a loaded CI runner, and still well short of the fifteen
+        # seconds the old interval could take.
+        assert waited < 3, "the message outlived its 0.2s ttl by %.1fs" % waited
+
+
 class TestSignCommands:
     def test_syncing_the_clock(self, client):
         response = client.post("/sign/sync-clock", headers=HEADERS)
@@ -472,8 +510,13 @@ class TestSignInformation:
     """The service's only read, and the only place a silent sign is visible."""
 
     def reply(self, data: bytes) -> bytes:
-        """Frame a data field the way the sign frames its answers."""
-        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + b"\x02" + b"E" + b'"' + data + b"\x03"
+        """Frame a data field the way the sign frames its answers.
+
+        The checksum is the sum of every byte from STX to ETX as four hex digits,
+        and the EOT after it is what tells the service the answer is complete.
+        """
+        body = b"\x02" + b"E" + b'"' + data + b"\x03"
+        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + body + b"%04X" % sum(body) + b"\x04"
 
     def test_it_reports_what_the_sign_says(self, client, sign):
         sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]

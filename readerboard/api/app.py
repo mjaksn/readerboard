@@ -60,11 +60,11 @@ A failure is reported by the status code, with the reason in a `detail` field:
 message or value too long for its file, markup the sign cannot render or a call
 to a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404
 for a slot or variable that does not exist, 409 when every slot or every
-variable is already in use or a variable a message still calls is deleted, 503
-when the sign is unreachable, answers with something the service cannot read,
-or no API key is configured at all, 500 for something the service has no code
-for, and 422 for a body that is not the shape the endpoint declares, which
-includes a display mode the sign does not have.
+variable is already in use or a variable something still calls is deleted, 503
+when the sign is unreachable, stops partway through an answer or answers with
+something the service cannot read, or no API key is configured at all, 500 for
+something the service has no code for, and 422 for a body that is not the shape
+the endpoint declares, which includes a display mode the sign does not have.
 """
 
 
@@ -104,7 +104,7 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
 
 
 async def _sweep_loop(app: FastAPI, interval: float) -> None:
-    """Expire slots and alerts whose deadlines have passed."""
+    """Expire slots and alerts, and turn variables stale, once their deadlines pass."""
     registry: MessageRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 

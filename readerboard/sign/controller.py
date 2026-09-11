@@ -80,13 +80,18 @@ SOUND_SETTLE_SECONDS = 3.0
 # payload follows a moment behind, so a reader that takes what is waiting and
 # stops gets a lone null byte back from every question it asks. Two of those
 # compare equal, which looks like a confirmation and is not; that mistake was
-# made once already against this sign. So a reply is collected until the line
-# has been quiet for a few polls running.
+# made once already against this sign.
+#
+# So a reply is collected until its EOT arrives, the byte that closes every
+# transmission, and waiting for the line to go quiet is not a substitute. A
+# reader that stopped after 200ms of quiet had a memory configuration read come
+# back from this sign cut off partway through its second entry, and the half it
+# had still parsed. Stopping early also leaves the rest of the reply waiting on
+# the line, where it is read as the head of the next answer.
 #
 # The numbers are polls rather than seconds so that a test can drive this with a
 # sleep that records instead of waiting, and still exercise the same loop.
 READ_POLL_SECONDS = 0.05
-READ_QUIET_POLLS = 4
 READ_TIMEOUT_SECONDS = 3.0
 
 ReconnectHook = Callable[[], Awaitable[None]]
@@ -94,6 +99,17 @@ ReconnectHook = Callable[[], Awaitable[None]]
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _is_finished(reply: bytes | bytearray) -> bool:
+    """Say whether a reply's closing EOT has arrived.
+
+    Only an EOT after the STX counts. Whatever came before the STX is the run of
+    nulls, or the tail of something the line was already carrying, and says
+    nothing about this reply.
+    """
+    start = reply.find(c.STX)
+    return start >= 0 and reply.find(c.EOT, start) >= 0
 
 
 class SignController:
@@ -371,14 +387,15 @@ class SignController:
         once would be told apart by luck. Holding the lock is what makes "the
         next thing on the wire" mean "the answer to this".
 
-        Raises :class:`TransportError` when the sign says nothing at all, which
-        is the same class a failed write raises and reaches a caller as a 503.
+        Raises :class:`TransportError` when the sign says nothing at all, and
+        when it starts answering and has not finished by the deadline, which is
+        the same class a failed write raises and reaches a caller as a 503. Half
+        an answer is not returned, because a truncated reply can still parse.
         """
         async with self._lock:
             await self._send_locked(payload)
 
             reply = bytearray()
-            quiet = 0
             polls = max(1, int(READ_TIMEOUT_SECONDS / READ_POLL_SECONDS))
 
             for _ in range(polls):
@@ -391,13 +408,9 @@ class SignController:
                         "reading from %s failed: %s" % (self._transport.description, err)
                     ) from err
 
-                if chunk:
-                    reply += chunk
-                    quiet = 0
-                elif reply:
-                    quiet += 1
-                    if quiet >= READ_QUIET_POLLS:
-                        break
+                reply += chunk
+                if _is_finished(reply):
+                    break
 
                 await self._sleep(READ_POLL_SECONDS)
 
@@ -405,6 +418,11 @@ class SignController:
                 raise TransportError(
                     "the sign at %s did not answer within %.1fs"
                     % (self._transport.description, READ_TIMEOUT_SECONDS)
+                )
+            if not _is_finished(reply):
+                raise TransportError(
+                    "the sign at %s began answering and had not finished after %.1fs: %r"
+                    % (self._transport.description, READ_TIMEOUT_SECONDS, bytes(reply))
                 )
 
             logger.debug("read %d byte(s) from %s", len(reply), self._transport.description)

@@ -122,6 +122,30 @@ library, and the names inside it may move without that being a breaking change.
   the key that was used. A key of nothing but spaces now shows as the empty box
   it is, beside the warning that says the key cannot be empty.
 
+### Fixed
+
+- **`GET /sign/information` could stop reading partway through the sign's
+  answer.** The service stopped as soon as the line had been quiet for 200ms,
+  and the sign can pause for longer than that in the middle of a reply: a
+  memory configuration read through a reader using the same rule came back cut
+  off partway through its second entry. What had arrived still parsed, so the
+  result was wrong rather than missing, and the rest of the answer was left on
+  the line to be read as the start of the next one.
+
+  A reply is now read until the EOT that closes it, and one that has started
+  but not finished within three seconds is a 503 rather than half an answer.
+  The general information reply is short and has not been seen to pause, so
+  this is a fix for a trap rather than for a wrong answer anybody reported.
+
+- **A `ttl_seconds` now ends within about a second of when it says.** Expiries
+  are applied by a sweep, and the sweep ran every fifteen seconds, so a message
+  or alert stayed up for anything up to fifteen seconds past its deadline: a ten
+  second ttl was timed on a sign lasting eighteen and twenty two. The default
+  `registry_sweep_seconds` is now 1. A sweep that finds nothing due writes
+  nothing to the sign, so running it more often costs nothing on the line. A
+  config file that sets `registry_sweep_seconds` keeps its own value, so one
+  copied from the old example still says 15 and should be changed.
+
 ## [0.4.0] - 2026-09-10
 
 **This is the release that met the hardware.** Everything in it comes from
