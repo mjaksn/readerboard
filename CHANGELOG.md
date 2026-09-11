@@ -11,7 +11,17 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## Unreleased
+## [0.5.0] - 2026-09-11
+
+**This is the release that adds variables.** A variable is a value in a small file
+of its own on the sign, called from a message or an alert with `<var:name>`, and
+changing it neither blanks the sign nor restarts what calls it. Making room for
+them changes the sign's memory configuration, so **the first start after upgrading
+erases every message on the sign once**, and sources have to register theirs
+again. Setting `variable_count = 0` before upgrading avoids that, with variables
+switched off. A `ttl_seconds` also now ends within about a second of its deadline
+rather than up to fifteen seconds late. **Read the Changed section before
+upgrading.**
 
 ### Added
 
@@ -1255,6 +1265,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.5.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.3.0
 [0.2.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.2.0
