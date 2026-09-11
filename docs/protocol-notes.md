@@ -20,7 +20,8 @@ display seven pixels high.
 `scripts/protocol_spike.py` re-proves the wire formats end to end. It is destructive, and
 it refuses to run without `--confirm-erase`. `scripts/string_file_spike.py` does the same
 for STRING files, which a session on 2026-09-10 measured; see "STRING files, measured on
-the sign".
+the sign". `scripts/dots_spike.py` does it for SMALL DOTS PICTURE files, which have not
+been measured yet.
 
 ## Sources
 
@@ -778,7 +779,11 @@ of their own above, "STRING files, measured on the sign".
 up to 31 by 255 pixels that "can be used to create virtually any logo pattern on the
 display of the sign", stored as their own file type and inserted into a TEXT file. On a
 seven-high display that is a 7 by N bitmap, and it is the way to draw an arrow, a heart or
-a musical note now that the pictograph range has turned out to be absent.
+a musical note now that the pictograph range has turned out to be absent. Two things in
+Table 22 matter to how the service could send one: the document asks for "at least a 100
+millisecond delay" after the width, partway through the transmission, and says the sign
+"will go blank until the transmission is complete". `scripts/dots_spike.py` asks the sign
+about both, and about which of the nine pixel colours it draws.
 
 **Read General Information** (`F"`). See "Reading state back" above.
 
