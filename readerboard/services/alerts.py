@@ -13,13 +13,20 @@ than handing it back. See :meth:`SignController.clear_priority`.
 The release deadline is persisted. A service that restarted during an alert and
 forgot about it would leave the sign stuck showing that alert forever, with the
 rotation invisible behind it and no record of why.
+
+An alert can call variables, rendered through the registry's
+:meth:`MessageRegistry.rendering`, which holds the registry's lock until the
+priority file is written. Its lock is always taken before this service's own,
+and never held across :meth:`AlertService.release`, which takes it again.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 
 from readerboard.protocol import constants as c
@@ -30,6 +37,8 @@ from readerboard.sign.state import AlertState, ServiceState, StateStore
 
 logger = logging.getLogger(__name__)
 
+Rendering = Callable[[], AbstractAsyncContextManager[Callable[..., bytes]]]
+
 
 class AlertTooLong(ValueError):
     """The alert does not fit the sign's fixed size priority file."""
@@ -37,6 +46,12 @@ class AlertTooLong(ValueError):
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+@contextlib.asynccontextmanager
+async def _without_variables() -> AsyncIterator[Callable[..., bytes]]:
+    """Render with no variables at all, for a service no registry is attached to."""
+    yield render
 
 
 class AlertService:
@@ -50,23 +65,33 @@ class AlertService:
         *,
         now: Callable[[], datetime] = _utcnow,
         on_release: Callable[[], Awaitable[object]] | None = None,
+        rendering: Rendering = _without_variables,
     ) -> None:
         """Wire the alert service to the sign and to its restored state.
 
         ``on_release`` runs after the sign has been handed back. The registry
         uses it to apply a run sequence it held back while the alert was up; see
         ``MessageRegistry._apply_run_sequence`` for why it holds one back.
+
+        ``rendering`` is where an alert is rendered, and is the registry's
+        :meth:`MessageRegistry.rendering` in the service. Without one an alert
+        cannot call a variable, and one that tries is refused.
         """
         self._controller = controller
         self._store = store
         self._state = state
         self._now = now
         self._on_release = on_release
+        self._rendering = rendering
         self._lock = asyncio.Lock()
 
     def set_release_hook(self, hook: Callable[[], Awaitable[object]]) -> None:
         """Attach something to run after the sign is handed back."""
         self._on_release = hook
+
+    def set_rendering(self, rendering: Rendering) -> None:
+        """Render alerts through the registry, so that they can call variables."""
+        self._rendering = rendering
 
     @property
     def active(self) -> AlertState | None:
@@ -100,7 +125,17 @@ class AlertService:
             await self.release()
             return
 
-        if not self._still_fits(alert):
+        # Released outside the rendering, never inside it: releasing applies the
+        # run sequence the registry held back, which takes the registry's lock,
+        # and the rendering is holding it.
+        async with self._rendering() as render_message:
+            body = render_message(alert.message, strict=False)
+            fits = len(body) <= c.PRIORITY_FILE_CAPACITY
+            if fits:
+                logger.info("restoring the alert that was active before the restart")
+                await self._write(alert, body)
+
+        if not fits:
             # It fitted when it was accepted, and it does not now. Re-rendering
             # a stored alert is deliberately lenient, so a markup token this
             # version no longer knows comes back as its own literal text, which
@@ -121,10 +156,6 @@ class AlertService:
                 alert.message,
             )
             await self.release()
-            return
-
-        logger.info("restoring the alert that was active before the restart")
-        await self._write(alert)
 
     async def reassert(self) -> bool:
         """Write the active alert to the sign again, if there is one.
@@ -138,11 +169,12 @@ class AlertService:
 
         Returns whether there was an alert to re-assert.
         """
-        async with self._lock:
+        async with self._rendering() as render_message, self._lock:
             alert = self._state.alert
             if alert is None:
                 return False
-            if not self._still_fits(alert):
+            body = render_message(alert.message, strict=False)
+            if len(body) > c.PRIORITY_FILE_CAPACITY:
                 # See restore() for how a stored alert outgrows the file. This
                 # runs on a timer and on every reconnect, so raising here would
                 # be a warning every fifteen minutes for something nobody can
@@ -156,7 +188,7 @@ class AlertService:
             # Forced, because what is in doubt here is precisely whether the
             # sign still holds what the controller believes it does. Left to
             # suppression this would write nothing at all.
-            await self._write(alert, force=True)
+            await self._write(alert, body, force=True)
 
         return True
 
@@ -168,23 +200,27 @@ class AlertService:
         ttl_seconds: float | None = None,
     ) -> AlertState:
         """Take the sign over with an alert."""
-        body = render(message)
-        if len(body) > c.PRIORITY_FILE_CAPACITY:
-            raise AlertTooLong(
-                "the alert renders to %d bytes but the sign's priority file holds %d "
-                "and cannot be resized" % (len(body), c.PRIORITY_FILE_CAPACITY)
+        # The render, the write and recording the alert all happen inside the
+        # rendering. That is what lets the registry refuse to delete a variable
+        # the alert calls: it reads the recorded alert under the same lock, so
+        # it never sees one that is rendered but not yet recorded.
+        async with self._rendering() as render_message, self._lock:
+            body = render_message(message)
+            if len(body) > c.PRIORITY_FILE_CAPACITY:
+                raise AlertTooLong(
+                    "the alert renders to %d bytes but the sign's priority file holds %d "
+                    "and cannot be resized" % (len(body), c.PRIORITY_FILE_CAPACITY)
+                )
+
+            now = self._now()
+            alert = AlertState(
+                message=message,
+                mode=mode,
+                started_at=now,
+                expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
             )
 
-        now = self._now()
-        alert = AlertState(
-            message=message,
-            mode=mode,
-            started_at=now,
-            expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
-        )
-
-        async with self._lock:
-            await self._write(alert)
+            await self._write(alert, body)
             self._state.alert = alert
             self._store.save(self._state)
 
@@ -222,18 +258,7 @@ class AlertService:
         await self.release()
         return True
 
-    def _still_fits(self, alert: AlertState) -> bool:
-        """Whether a stored alert still fits the priority file when re-rendered.
-
-        Asked before writing back anything that was accepted by an earlier
-        version, because the lenient re-render below can be longer than the
-        strict one that was measured when the alert was raised.
-        """
-        return len(render(alert.message, strict=False)) <= c.PRIORITY_FILE_CAPACITY
-
-    async def _write(self, alert: AlertState, *, force: bool = False) -> None:
+    async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> None:
         await self._controller.write_priority(
-            render(alert.message, strict=False),
-            mode=MODE_BY_NAME[alert.mode].value,
-            force=force,
+            body, mode=MODE_BY_NAME[alert.mode].value, force=force
         )

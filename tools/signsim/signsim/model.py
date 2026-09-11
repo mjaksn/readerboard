@@ -29,6 +29,7 @@ from signsim.decode import (
     SetRunSequence,
     SetTime,
     SetTimeFormat,
+    WriteString,
     WriteText,
 )
 from signsim.spans import annotate, readable
@@ -95,6 +96,7 @@ class SignState:
     memory_config: dict[bytes, MemoryEntry] | None = None
     memory_order: list[bytes] = field(default_factory=list)
     files: dict[bytes, StoredFile] = field(default_factory=dict)
+    strings: dict[bytes, bytes] = field(default_factory=dict)
     run_sequence: list[bytes] = field(default_factory=list)
     run_sequence_mode: bytes = b""
     run_sequence_locked: bool = False
@@ -142,11 +144,36 @@ class SignState:
         entry = self.memory_config.get(label)
         return entry.capacity if entry is not None else None
 
+    def drawn(self, body: bytes) -> str:
+        """Read a message back with each STRING call showing the value it would draw.
+
+        A call reads as ``{a: 72}``, the label and what is in it, so both the
+        call and its effect are visible. A call to anything that is not a STRING
+        file draws nothing on the sign, measured, and reads here as nothing.
+        """
+        out: list[str] = []
+        for span in annotate(body):
+            if span.data[:1] == c.STRING_FILE_INSERT and len(span.data) == 2:
+                label = span.data[1:2]
+                value = self.strings.get(label, b"") if self._is_string_file(label) else b""
+                value = _as_a_string_draws(value)
+                out.append(
+                    "{%s: %s}" % (_show(label), readable(annotate(value)) if value else "nothing")
+                )
+            else:
+                out.append(readable([span]))
+        return "".join(out)
+
     def reset(self) -> None:
-        """Forget everything, as if the sign had just been switched on."""
+        """Forget everything, as a sign that has lost its memory would.
+
+        On this sign that is a long power cut. It keeps its files through a
+        short one, measured, and loses them after a day or more unplugged.
+        """
         self.memory_config = None
         self.memory_order = []
         self.files = {}
+        self.strings = {}
         self.run_sequence = []
         self.run_sequence_mode = b""
         self.run_sequence_locked = False
@@ -178,6 +205,8 @@ class SignState:
 
         if isinstance(command, WriteText):
             return self._write_text(command)
+        if isinstance(command, WriteString):
+            return self._write_string(command)
         if isinstance(command, SetMemoryConfig):
             return self._set_memory_config(command)
         if isinstance(command, ClearMemory):
@@ -209,10 +238,10 @@ class SignState:
     def _write_text(self, command: WriteText) -> list[Note]:
         """Store a message, or say why the sign would not have stored it."""
         label = command.label
-        notes: list[Note] = []
+        notes: list[Note] = self._check_calls(command.body)
 
         if label == c.FILE_PRIORITY:
-            return self._write_priority(command)
+            return notes + self._write_priority(command)
 
         if not self._writable(label):
             if self.memory_config is None:
@@ -322,6 +351,86 @@ class SignState:
 
         return notes
 
+    def _write_string(self, command: WriteString) -> list[Note]:
+        """Store a value, or say why the sign would not have stored it.
+
+        No note for an ordinary write, as for a TEXT file: a value changing is
+        what STRING files are for, and a note on every one would bury the writes
+        that went wrong.
+        """
+        label = command.label
+        if self.memory_config is None:
+            return [
+                Note(
+                    NoteLevel.VIOLATION,
+                    "STRING file %s was written before any memory configuration. The "
+                    "document says memory must be allocated for a STRING file before it "
+                    "is written, so the sign discards this." % _show(label),
+                )
+            ]
+
+        entry = self.memory_config.get(label)
+        if entry is None or entry.file_type != c.FILE_TYPE_STRING:
+            what = (
+                "is not in the sign's memory configuration"
+                if entry is None
+                else "is allocated as a %s file"
+                % decode.FILE_TYPE_NAMES.get(entry.file_type, "an unlisted type")
+            )
+            return [
+                Note(
+                    NoteLevel.VIOLATION,
+                    "File %s %s, and a Write STRING can only fill a STRING file. The "
+                    "sign discards this." % (_show(label), what),
+                )
+            ]
+
+        if len(command.data) > entry.capacity:
+            self.strings[label] = b""
+            return [
+                Note(
+                    NoteLevel.WARNING,
+                    "This value is %d bytes and STRING file %s holds %d. Measured on the "
+                    "sign, a STRING written past its size is emptied rather than cut "
+                    "short, so every call to it now shows nothing."
+                    % (len(command.data), _show(label), entry.capacity),
+                )
+            ]
+
+        self.strings[label] = command.data
+        return []
+
+    def _check_calls(self, body: bytes) -> list[Note]:
+        """Warn about each STRING call in a message that has no STRING file to draw.
+
+        Measured on the sign: a call to a label never allocated, or to one
+        allocated as a TEXT file, draws nothing at all, not even a space, so a
+        message calling one shows with a gap and no sign of why. Silent before
+        any memory configuration, when every write but two is refused anyway.
+        """
+        if self.memory_config is None:
+            return []
+        missing: list[bytes] = []
+        for span in annotate(body):
+            if span.data[:1] == c.STRING_FILE_INSERT and len(span.data) == 2:
+                label = span.data[1:2]
+                if not self._is_string_file(label) and label not in missing:
+                    missing.append(label)
+        if not missing:
+            return []
+        return [
+            Note(
+                NoteLevel.WARNING,
+                "This message calls %s, which %s not an allocated STRING file. The sign "
+                "draws nothing where %s called."
+                % (
+                    _show_labels(missing),
+                    "is" if len(missing) == 1 else "are",
+                    "it is" if len(missing) == 1 else "they are",
+                ),
+            )
+        ]
+
     def _write_priority(self, command: WriteText) -> list[Note]:
         """Take over the sign, or hand it back."""
         body = command.body
@@ -373,7 +482,7 @@ class SignState:
         to the run day table, and the PROG key. A memory configuration is not
         one of them, so an alert that is up stays up through a reconfiguration.
         """
-        erased = sorted(self.files)
+        erased = sorted(set(self.files) | set(self.strings))
         notes: list[Note] = []
 
         if erased:
@@ -414,6 +523,7 @@ class SignState:
         self.memory_config = table
         self.memory_order = order
         self.files = {}
+        self.strings = {}
 
         if order:
             notes.append(
@@ -441,10 +551,11 @@ class SignState:
 
     def _clear_memory(self) -> list[Note]:
         """Wipe the file table and the pool, leaving the priority file alone."""
-        had = len(self.files)
+        had = len(self.files) + len(self.strings)
         self.memory_config = None
         self.memory_order = []
         self.files = {}
+        self.strings = {}
         return [
             Note(
                 NoteLevel.WARNING,
@@ -559,6 +670,13 @@ class SignState:
         entry = self.memory_config.get(label)
         return entry is not None and entry.file_type == c.FILE_TYPE_TEXT
 
+    def _is_string_file(self, label: bytes) -> bool:
+        """Whether the configuration allocated this label as a STRING file."""
+        if self.memory_config is None:
+            return False
+        entry = self.memory_config.get(label)
+        return entry is not None and entry.file_type == c.FILE_TYPE_STRING
+
     def _wrong_type(self, label: bytes) -> str | None:
         """Name the type this label was allocated as, when it is not TEXT."""
         if self.memory_config is None:
@@ -567,6 +685,26 @@ class SignState:
         if entry is None or entry.file_type == c.FILE_TYPE_TEXT:
             return None
         return decode.FILE_TYPE_NAMES.get(entry.file_type, "an unlisted type")
+
+
+def _as_a_string_draws(value: bytes) -> bytes:
+    """Rewrite a STRING file's value as this sign draws it from inside a STRING.
+
+    Two codes that work in a TEXT file do not in a STRING, measured: a date
+    insert draws its selector as a literal character, so ``0BH 9`` shows ``9``,
+    and a call to another STRING draws the called label, so ``X 10H b X`` shows
+    ``XbX``. Everything else is drawn as it would be in a TEXT file.
+    """
+    out = bytearray()
+    for span in annotate(value):
+        if len(span.data) == 2 and span.data[:1] in _LITERAL_IN_A_STRING:
+            out += span.data[1:2]
+        else:
+            out += span.data
+    return bytes(out)
+
+
+_LITERAL_IN_A_STRING = (c.CURDATE_WEEKDAYY[:1], c.STRING_FILE_INSERT)
 
 
 def _show(label: bytes) -> str:

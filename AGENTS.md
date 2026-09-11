@@ -79,9 +79,10 @@ table is overwritten."
 
 So the service allocates its whole file pool once, records the applied plan in
 its state file, and reconfigures only when the plan itself changes. Changing
-`slot_count` or `slot_capacity` is therefore destructive on the next start. It
-is done deliberately, it is logged at WARNING, and it must never become
-something an ordinary message update can trigger.
+`slot_count`, `slot_capacity`, `variable_count` or `variable_capacity` is
+therefore destructive on the next start. It is done deliberately, it is logged
+at WARNING, and it must never become something an ordinary message or variable
+update can trigger.
 
 Note that the protocol has a second reset which is nothing to do with this one.
 `E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,
@@ -152,6 +153,29 @@ its own sign file, and the run sequence names the occupied files in order. The
 sign cycles them by itself, so a message appearing or disappearing costs one
 small write and nothing after that. This is the whole design: the host does not
 rotate anything.
+
+A **variable** is a value in a STRING file of its own, which a slot's message
+calls with `<var:name>`. Writing one rewrites only that STRING file, and the
+sign takes that without blanking or restarting the message calling it, so a
+value that changes every minute costs one short packet and no flicker. Three
+rules hold it together, and each has a reason that is easy to lose:
+
+- **A variable a message or the alert calls cannot be deleted.** The STRING
+  file's label is written into every caller as raw bytes, so handing that file
+  to the next variable would put the wrong value on the sign with nothing to say
+  so. `MessageRegistry.remove_variable` refuses with a 409 instead, and slots and
+  variables share one lock so that nothing can slip between the check and the
+  write. The alert service renders through `MessageRegistry.rendering`, which
+  holds that lock until the priority file is written and the alert recorded.
+  Take the registry's lock before the alert service's, and never hold it across
+  `AlertService.release`, which takes it again to apply a run sequence it held
+  back.
+- **Variables are written before messages** on a restore, a refresh and a
+  reboot, so no message is drawn calling a STRING not yet written.
+- **The size check is not optional.** The sign does not truncate a value that
+  overruns its file, it empties it. `docs/protocol-notes.md` has that and the
+  rest of what the sign was measured doing, under "STRING files, measured on
+  the sign".
 
 An **alert** is written to the sign's priority file, which by protocol
 suppresses every other file until a bare priority write releases it. An
@@ -240,7 +264,8 @@ integration. Nothing in the service knows it exists.
 
 It shows each transmission byte by byte, coloured by what each span is and
 annotated with the protocol's own meaning, and it keeps the sign's state: the
-file table, the contents of each file, the run sequence and the priority file.
+file table, the contents of each file and each STRING file, the run sequence
+and the priority file.
 The state is what makes it worth having over a packet log. It says when a write
 lands in a file no memory configuration allocated, when a message overruns its
 file, when the run sequence names a file that does not exist, and when a run
@@ -262,7 +287,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all sixteen endpoints, formats every
+it at a running service and it can call all twenty-one endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are

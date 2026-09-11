@@ -141,10 +141,13 @@ api_key = "%(api_key)s"
 # checkout's and on Windows resolves under C:\\var.
 state_path = ".local-sign-state.json"
 
-# Changing either of these reallocates the sign's memory on the next start, and
-# that ERASES every message on it. Eight messages of 256 bytes is the default.
+# Changing any of these reallocates the sign's memory on the next start, and
+# that ERASES every message on it. Eight messages of 256 bytes and eight
+# variables of 32 bytes is the default.
 #slot_count = 8
 #slot_capacity = 256
+#variable_count = 8
+#variable_capacity = 32
 
 # The sign's clock is set at startup, on this interval, and whenever the link
 # comes back. Unset means this machine's own local time.

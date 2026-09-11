@@ -260,10 +260,33 @@ class TestAppliedLayout:
         applied = AppliedLayout(slot_count=4, slot_capacity=256, labels=list("ABCD"))
         assert not applied.matches(4, 512)
 
+    def test_a_layout_recorded_before_variables_reads_as_having_none(self):
+        # The fields are defaulted, so an older state file validates, and it
+        # still matches a configuration asking for no variables: no erase.
+        applied = AppliedLayout.model_validate(
+            {"slot_count": 4, "slot_capacity": 256, "labels": list("ABCD")}
+        )
+        assert applied.variable_count == 0
+        assert applied.matches(4, 256, 0, 32)
+        assert not applied.matches(4, 256, 8, 32)
+
+    def test_a_different_variable_count_does_not_match(self):
+        applied = Layout(4, 256, 8, 32).as_applied()
+        assert not applied.matches(4, 256, 9, 32)
+
+    def test_a_different_variable_capacity_does_not_match(self):
+        applied = Layout(4, 256, 8, 32).as_applied()
+        assert not applied.matches(4, 256, 8, 64)
+
+    def test_with_no_variables_their_capacity_does_not_matter(self):
+        # Changing a size nothing is allocated at must not cost an erase.
+        applied = Layout(4, 256, 0, 32).as_applied()
+        assert applied.matches(4, 256, 0, 64)
+
 
 class TestLayout:
     def test_the_pool_starts_at_a(self):
-        assert Layout(3, 256).labels == (b"A", b"B", b"C")
+        assert Layout(3, 256).slots.labels == (b"A", b"B", b"C")
 
     def test_an_impossible_pool_is_rejected(self):
         with pytest.raises(ValueError, match="between 1 and 26"):
@@ -276,49 +299,95 @@ class TestLayout:
 
     def test_assigning_is_stable_for_the_same_key(self):
         layout = Layout(3, 256)
-        assert layout.assign("temperature") == b"A"
-        assert layout.assign("temperature") == b"A"
+        assert layout.slots.assign("temperature") == b"A"
+        assert layout.slots.assign("temperature") == b"A"
 
     def test_different_keys_get_different_files(self):
         layout = Layout(3, 256)
-        assert layout.assign("one") == b"A"
-        assert layout.assign("two") == b"B"
+        assert layout.slots.assign("one") == b"A"
+        assert layout.slots.assign("two") == b"B"
 
     def test_a_released_file_is_handed_out_again(self):
         layout = Layout(2, 256)
-        layout.assign("one")
-        layout.assign("two")
-        assert layout.release("one") == b"A"
-        assert layout.assign("three") == b"A"
+        layout.slots.assign("one")
+        layout.slots.assign("two")
+        assert layout.slots.release("one") == b"A"
+        assert layout.slots.assign("three") == b"A"
 
     def test_releasing_something_that_was_never_assigned_is_harmless(self):
-        assert Layout(2, 256).release("nobody") is None
+        assert Layout(2, 256).slots.release("nobody") is None
 
     def test_a_full_pool_refuses_rather_than_dropping_a_message(self):
         layout = Layout(2, 256)
-        layout.assign("one")
-        layout.assign("two")
+        layout.slots.assign("one")
+        layout.slots.assign("two")
         with pytest.raises(LayoutFull, match="all 2 message slots"):
-            layout.assign("three")
+            layout.slots.assign("three")
 
     def test_free_count_tracks_assignments(self):
         layout = Layout(3, 256)
-        assert layout.free_count == 3
-        layout.assign("one")
-        assert layout.free_count == 2
+        assert layout.slots.free_count == 3
+        layout.slots.assign("one")
+        assert layout.slots.free_count == 2
 
     def test_restoring_an_assignment_from_the_state_file(self):
         layout = Layout(3, 256)
-        layout.restore("temperature", b"C")
-        assert layout.label_for("temperature") == b"C"
+        layout.slots.restore("temperature", b"C")
+        assert layout.slots.label_for("temperature") == b"C"
         # The restored file must not then be handed to somebody else.
-        assert layout.assign("other") == b"A"
+        assert layout.slots.assign("other") == b"A"
 
     def test_restoring_a_file_outside_a_shrunken_pool_is_refused(self):
         # slot_count was lowered between runs, so file D no longer exists.
         layout = Layout(3, 256)
         with pytest.raises(ValueError, match="outside the pool"):
-            layout.restore("temperature", b"D")
+            layout.slots.restore("temperature", b"D")
+
+
+class TestVariablePool:
+    def test_there_are_no_variables_unless_asked_for(self):
+        layout = Layout(3, 256)
+        assert layout.variables.labels == ()
+        assert [entry.label for entry in layout.allocations()] == [b"A", b"B", b"C"]
+
+    def test_the_pool_starts_at_lowercase_a(self):
+        assert Layout(3, 256, 4, 32).variables.labels == (b"a", b"b", b"c", b"d")
+
+    def test_string_files_follow_the_text_files_in_the_configuration(self):
+        allocations = Layout(2, 256, 2, 32).allocations()
+        assert [entry.encode() for entry in allocations] == [
+            b"AAU0100FFFF",
+            b"BAU0100FFFF",
+            b"aBL00200000",
+            b"bBL00200000",
+        ]
+
+    def test_the_two_pools_are_handed_out_separately(self):
+        layout = Layout(2, 256, 2, 32)
+        assert layout.slots.assign("temp") == b"A"
+        assert layout.variables.assign("temp") == b"a"
+        assert layout.slots.free_count == 1
+        assert layout.variables.free_count == 1
+
+    def test_a_full_variable_pool_says_so_in_its_own_words(self):
+        layout = Layout(2, 256, 1, 32)
+        layout.variables.assign("one")
+        with pytest.raises(LayoutFull, match="all 1 variables are in use"):
+            layout.variables.assign("two")
+
+    def test_with_no_variables_every_assignment_is_refused(self):
+        with pytest.raises(LayoutFull):
+            Layout(2, 256).variables.assign("temp")
+
+    @pytest.mark.parametrize("count", [-1, 27])
+    def test_an_impossible_variable_count_is_rejected(self, count):
+        with pytest.raises(ValueError, match="between 0 and 26"):
+            Layout(2, 256, count, 32)
+
+    @pytest.mark.parametrize("capacity", [0, 126])
+    def test_a_variable_capacity_the_sign_cannot_hold_is_rejected(self, capacity):
+        with pytest.raises(ValueError, match="between 1 and 125"):
+            Layout(2, 256, 2, capacity)
 
 
 class TestNeedsReconfiguration:
@@ -333,3 +402,11 @@ class TestNeedsReconfiguration:
         applied = Layout(4, 256).as_applied()
         assert Layout(5, 256).needs_reconfiguration(applied)
         assert Layout(4, 512).needs_reconfiguration(applied)
+
+    def test_adding_variables_does(self):
+        applied = Layout(4, 256).as_applied()
+        assert Layout(4, 256, 8, 32).needs_reconfiguration(applied)
+
+    def test_an_unchanged_pool_with_variables_does_not(self):
+        layout = Layout(4, 256, 8, 32)
+        assert not layout.needs_reconfiguration(layout.as_applied())

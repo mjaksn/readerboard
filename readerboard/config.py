@@ -98,6 +98,24 @@ class Settings(BaseSettings):
         le=4096,
         description="bytes allocated to each message, after markup has been rendered",
     )
+    variable_count: int = Field(
+        default=8,
+        ge=0,
+        le=26,
+        description=(
+            "how many variables the sign can hold, each a small file of its own that a "
+            "message calls with <var:name>. 0 turns variables off"
+        ),
+    )
+    variable_capacity: int = Field(
+        default=32,
+        ge=1,
+        le=125,
+        description=(
+            "bytes allocated to each variable's value, after markup has been rendered. "
+            "The sign allows no more than 125"
+        ),
+    )
 
     # == behaviour =========================================================
 
@@ -105,9 +123,9 @@ class Settings(BaseSettings):
         default=1.0,
         gt=0,
         description=(
-            "how often to look for messages and alerts whose ttl has passed. An expiry "
-            "lands up to this much after its deadline, so it is kept short: a sweep that "
-            "finds nothing due writes nothing to the sign"
+            "how often to look for messages, alerts and variables whose ttl has passed. "
+            "An expiry lands up to this much after its deadline, so it is kept short: a "
+            "sweep that finds nothing due writes nothing to the sign"
         ),
     )
     refresh_interval_seconds: float = Field(
@@ -182,13 +200,22 @@ class Settings(BaseSettings):
     def _check_pool_fits(self) -> Settings:
         from readerboard.protocol.constants import FILE_OVERHEAD_BYTES
 
-        claimed = self.slot_count * (self.slot_capacity + FILE_OVERHEAD_BYTES)
+        slots = self.slot_count * (self.slot_capacity + FILE_OVERHEAD_BYTES)
+        variables = self.variable_count * (self.variable_capacity + FILE_OVERHEAD_BYTES)
+        claimed = slots + variables
         if claimed > SIGN_MEMORY_BUDGET:
             raise ValueError(
-                "slot_count %d at slot_capacity %d claims %d bytes of the sign's "
-                "memory pool, more than the %d this service is willing to take. "
-                "Lower one of them."
-                % (self.slot_count, self.slot_capacity, claimed, SIGN_MEMORY_BUDGET)
+                "slot_count %d at slot_capacity %d and variable_count %d at "
+                "variable_capacity %d claim %d bytes of the sign's memory pool, more "
+                "than the %d this service is willing to take. Lower one of them."
+                % (
+                    self.slot_count,
+                    self.slot_capacity,
+                    self.variable_count,
+                    self.variable_capacity,
+                    claimed,
+                    SIGN_MEMORY_BUDGET,
+                )
             )
         if self.backoff_max < self.backoff_initial:
             raise ValueError("backoff_max must not be smaller than backoff_initial")

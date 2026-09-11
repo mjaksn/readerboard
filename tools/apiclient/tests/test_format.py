@@ -147,7 +147,7 @@ def test_a_plain_detail_error_shows_the_detail():
     result, text = rendered_text("get_message", 404, json.dumps({"detail": "no slot 'x'"}))
     assert result.ok is False
     assert "no slot 'x'" in text
-    assert "no slot by that name" in result.headline
+    assert "no slot or variable by that name" in result.headline
 
 
 def test_a_404_also_offers_the_reading_that_the_route_is_missing():
@@ -286,7 +286,7 @@ def test_a_real_success_still_says_so():
 
 def test_a_four_hundred_keeps_the_meaning_it_had():
     result, _text = rendered_text("get_message", 404, json.dumps({"detail": "nope"}))
-    assert "no slot by that name" in result.headline
+    assert "no slot or variable by that name" in result.headline
 
 
 def test_the_rendered_html_takes_its_ink_from_the_theme():
@@ -394,3 +394,63 @@ class TestSecondsUntil:
         assert seconds_until(offset.replace("+00:00", "Z")) == pytest.approx(
             seconds_until(offset), abs=2
         )
+
+
+# ===========================================================================
+# Variables
+# ===========================================================================
+
+VARIABLE = {
+    "name": "temp",
+    "label": "a",
+    "value": "72",
+    "stale_value": "--",
+    "stale": False,
+    "source": "thermometer",
+    "expires_at": None,
+    "updated_at": "2026-09-10T07:00:00+00:00",
+    "called_by": ["weather", "porch"],
+    "called_by_alert": False,
+}
+
+
+def test_a_variable_lists_the_messages_calling_it():
+    _result, text = rendered_text("get_variable", 200, json.dumps(VARIABLE))
+    assert "called by: weather, porch" in text
+    assert "goes stale: never" in text
+
+
+def test_a_variable_the_alert_calls_says_so():
+    # Deleting it is refused while the alert calls it, so a reader looking for
+    # why has to be able to see the alert here.
+    called = {**VARIABLE, "called_by": [], "called_by_alert": True}
+    _result, text = rendered_text("get_variable", 200, json.dumps(called))
+    assert "called by: the alert" in text
+
+
+def test_a_variable_nothing_calls_says_so_rather_than_leaving_a_blank():
+    _result, text = rendered_text("get_variable", 200, json.dumps({**VARIABLE, "called_by": []}))
+    assert "called by: nothing" in text
+
+
+def test_a_stale_variable_does_not_claim_it_is_about_to_go_stale():
+    stale = {**VARIABLE, "stale": True, "expires_at": None}
+    _result, text = rendered_text("get_variable", 200, json.dumps(stale))
+    assert "stale: yes" in text
+    assert "goes stale: already has" in text
+
+
+def test_the_variable_list_is_a_table_of_them():
+    _result, text = rendered_text("list_variables", 200, json.dumps([VARIABLE]))
+    assert "temp | a | 72 | no | weather, porch | thermometer | never" in text
+
+
+def test_no_variables_says_how_one_is_called():
+    _result, text = rendered_text("list_variables", 200, "[]")
+    assert "<var:name>" in text
+
+
+def test_health_reports_the_variables():
+    body = {"variables_used": 2, "variables_total": 8, "link": {}}
+    _result, text = rendered_text("health", 200, json.dumps(body))
+    assert "variables used: 2 of 8" in text

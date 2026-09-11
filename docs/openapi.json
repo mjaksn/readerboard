@@ -12,7 +12,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
+            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It can call variables with <var:name>, as a message can. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -167,6 +167,15 @@
             "title": "Status",
             "type": "string"
           },
+          "variables_total": {
+            "description": "0 when variables are switched off",
+            "title": "Variables Total",
+            "type": "integer"
+          },
+          "variables_used": {
+            "title": "Variables Used",
+            "type": "integer"
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -178,6 +187,8 @@
           "link",
           "slots_used",
           "slots_total",
+          "variables_used",
+          "variables_total",
           "sign_in_sync",
           "alert_active",
           "clock_last_synced_at"
@@ -252,7 +263,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the message, including markup tokens such as <red> and <degree>. It cannot be empty: an empty message holds a slot open around nothing, and the sign cycles to a file with no text in it. Use DELETE to give the slot back",
+            "description": "the message, including markup tokens such as <red> and <degree>, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign cycles to a file with no text in it. Use DELETE to give the slot back",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -484,6 +495,139 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VariableRequest": {
+        "additionalProperties": false,
+        "description": "A value for a variable, which the messages calling it show.",
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "who wrote this, recorded so the variable list is readable",
+            "title": "Source"
+          },
+          "stale_value": {
+            "default": "",
+            "description": "what to show once ttl_seconds has passed, such as --. Empty shows nothing. Checked against the variable's size now, not when it is needed",
+            "maxLength": 1024,
+            "title": "Stale Value",
+            "type": "string"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "show stale_value in its place this many seconds from now unless a fresh value arrives first. The variable itself stays, since messages call it. Omit to keep the value until replaced",
+            "title": "Ttl Seconds"
+          },
+          "value": {
+            "description": "the value, with the same markup a message takes except <week_day> and <var:name>, which the sign draws as a literal character from inside a variable. Formatting set here carries on into the message after the call: a value of <red>DOWN turns the rest of the message red too. May be empty, which shows nothing where the variable is called",
+            "maxLength": 1024,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "VariableRequest",
+        "type": "object"
+      },
+      "VariableResponse": {
+        "description": "A variable.",
+        "properties": {
+          "called_by": {
+            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do, nor while called_by_alert is true",
+            "items": {
+              "type": "string"
+            },
+            "title": "Called By",
+            "type": "array"
+          },
+          "called_by_alert": {
+            "description": "true while the alert holding the sign calls this variable. It cannot be deleted until the alert is released or replaced with one that does not",
+            "title": "Called By Alert",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "when the value goes stale, or null if it never will or already has, which stale tells apart",
+            "title": "Expires At"
+          },
+          "label": {
+            "description": "the sign file this variable occupies, a through z",
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "stale": {
+            "description": "true once ttl_seconds has passed, when the sign shows stale_value instead",
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "stale_value": {
+            "title": "Stale Value",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "label",
+          "value",
+          "stale_value",
+          "stale",
+          "source",
+          "expires_at",
+          "updated_at",
+          "called_by",
+          "called_by_alert"
+        ],
+        "title": "VariableResponse",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -496,7 +640,7 @@
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage too long for its slot or markup the sign cannot render, 401 for a\nmissing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when\nevery message slot is already in use, 503 when the sign is unreachable, stops\npartway through an answer or answers with something the service cannot read,\nor no API key is configured at all, 500 for something the service has no code\nfor, and 422 for a body that is not the shape the endpoint declares, which\nincludes a display mode the sign does not have.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nA **variable** is a value a slot's message or an alert calls with `<var:name>`.\nChanging it rewrites only the variable, so the sign shows the new value without\nblanking or restarting what calls it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render or a call\nto a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404\nfor a slot or variable that does not exist, 409 when every slot or every\nvariable is already in use or a variable something still calls is deleted, 503\nwhen the sign is unreachable, stops partway through an answer or answers with\nsomething the service cannot read, or no API key is configured at all, 500 for\nsomething the service has no code for, and 422 for a body that is not the shape\nthe endpoint declares, which includes a display mode the sign does not have.\n",
     "title": "readerboard",
     "version": "0.4.0"
   },
@@ -550,7 +694,7 @@
         ]
       },
       "post": {
-        "description": "Take the whole sign over until the alert is released.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.",
+        "description": "Take the whole sign over until the alert is released.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.\n\nAn alert can call variables with `<var:name>`, and a change to one shows on\nthe alert without restarting it, as it does in a message. A variable the\nalert calls cannot be deleted until the alert is released or replaced, and a\ncall to a variable that does not exist is a 400.",
         "operationId": "post_alert_alerts_post",
         "requestBody": {
           "content": {
@@ -649,7 +793,7 @@
     },
     "/enumerations/markup-tokens": {
       "get": {
-        "description": "List every token that can be written inline in a message.",
+        "description": "List every token that can be written inline in a message, and the variable call.",
         "operationId": "markup_tokens_enumerations_markup_tokens_get",
         "responses": {
           "200": {
@@ -668,6 +812,32 @@
           }
         },
         "summary": "Markup tokens a message may contain",
+        "tags": [
+          "Enumerations"
+        ]
+      }
+    },
+    "/enumerations/value-tokens": {
+      "get": {
+        "description": "List the tokens a variable's value may contain.\n\nThe message tokens, less `<week_day>`, which the sign draws as a literal\ncharacter from inside a variable. A value cannot call another variable\neither, for the same reason.",
+        "operationId": "value_tokens_enumerations_value_tokens_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TokenInfo"
+                  },
+                  "title": "Response Value Tokens Enumerations Value Tokens Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Markup tokens a variable's value may contain",
         "tags": [
           "Enumerations"
         ]
@@ -1000,6 +1170,176 @@
         "summary": "Set the sign's clock now",
         "tags": [
           "Sign"
+        ]
+      }
+    },
+    "/variables": {
+      "get": {
+        "description": "Return every variable, by name, with what calls each one.",
+        "operationId": "list_variables_variables_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VariableResponse"
+                  },
+                  "title": "Response List Variables Variables Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List the variables messages can call",
+        "tags": [
+          "Variables"
+        ]
+      }
+    },
+    "/variables/{name}": {
+      "delete": {
+        "description": "Delete a variable and free the sign file it held.\n\n409 while any message or the alert still calls it, naming what does. Its\nfile is written into each of those messages, so deleting it would leave them\ncalling a file the next variable could be given, and showing that variable's\nvalue.",
+        "operationId": "delete_variable_variables__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "the variable's name, one to 32 lowercase letters, digits and underscores. A message calls it as <var:name>",
+              "pattern": "^[a-z0-9_]{1,32}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Delete a variable",
+        "tags": [
+          "Variables"
+        ]
+      },
+      "get": {
+        "description": "Return one variable by name.",
+        "operationId": "get_variable_variables__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "the variable's name, one to 32 lowercase letters, digits and underscores. A message calls it as <var:name>",
+              "pattern": "^[a-z0-9_]{1,32}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariableResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read one variable",
+        "tags": [
+          "Variables"
+        ]
+      },
+      "put": {
+        "description": "Set a variable's value, creating the variable if it does not exist yet.\n\nA message calls a variable with `<var:name>`, and every message calling it\nshows the new value the next time the sign draws it. Only the variable's own\nsmall file is written, so unlike a change to a message this does not blank\nthe display or restart the message: a scrolling message picks the new value\nup on its next pass. That makes a variable the way to show something that\nchanges often, such as a temperature or a count.\n\nFormatting in the value carries on after the call, so a value of `<red>DOWN`\nturns the rest of the message red as well. To keep a changing number from\nshifting the text around it, put `<fixed_width>` in the message before the\ncall and send values of the same length.\n\n409 when every variable is in use, and 400 when variables are switched off or\nthe value does not fit. A value that does not fit is refused rather than cut\nshort, because the sign does not cut it short either: it empties it.",
+        "operationId": "put_variable_variables__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "description": "the variable's name, one to 32 lowercase letters, digits and underscores. A message calls it as <var:name>",
+              "pattern": "^[a-z0-9_]{1,32}$",
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VariableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VariableResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Create or change a variable",
+        "tags": [
+          "Variables"
         ]
       }
     }

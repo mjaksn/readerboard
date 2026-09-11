@@ -120,6 +120,8 @@ COMMAND_CODES = [
         '"E" (45H) = Write SPECIAL FUNCTION command, Table 15 page 21',
     ),
     (c.COMMAND_READ_SPECIAL, b"F", '"F" (46H) = Read SPECIAL FUNCTION command, section 6.2'),
+    (c.COMMAND_WRITE_STRING, b"G", '"G" (47H) = Write STRING file, Table 18 page 36'),
+    (c.COMMAND_READ_STRING, b"H", '"H" (48H) = Read STRING file, Table 19 page 37'),
 ]
 
 
@@ -219,6 +221,16 @@ def test_each_configured_file_costs_eleven_bytes_of_overhead():
     memory in the pool."
     """
     assert c.FILE_OVERHEAD_BYTES == 11
+
+
+def test_a_string_file_holds_at_most_125_bytes():
+    """Section 6.3, page 36: "the size of a STRING file is limited to 125 bytes"."""
+    assert c.STRING_FILE_CAPACITY == 125
+
+
+def test_a_string_file_is_scheduled_with_four_zeros():
+    """Table 15: 'For a STRING file, use "0000" as place holders'."""
+    assert c.STRING_SCHEDULE == b"0000"
 
 
 def test_the_priority_file_holds_125_bytes():
@@ -440,6 +452,7 @@ CONTROL_CODES = [
     (c.NEW_PAGE, b"\x0c", "0CH New page, start of next display page"),
     (c.WIDE_CHARS_OFF, b"\x11", "11H Disable wide characters"),
     (c.WIDE_CHARS_ON, b"\x12", "12H Enable wide characters"),
+    (c.STRING_FILE_INSERT, b"\x10", "10H Call STRING file, must be followed by a STRING File Label"),
     (c.CURTIME_INSERT, b"\x13", "13H Call Time, time of day will be called up"),
     (c.SPEED_1, b"\x15", "15H Speed 1 (slowest)"),
     (c.SPEED_2, b"\x16", "16H Speed 2"),
@@ -762,6 +775,26 @@ def test_the_pool_is_a_through_z():
     assert c.TEXT_FILE_LABELS[0] == b"A"
     assert c.TEXT_FILE_LABELS[-1] == b"Z"
     assert len(c.TEXT_FILE_LABELS) == 26
+
+
+def test_the_string_pool_is_lowercase_a_through_z():
+    """Separate files from A to Z, which the sign showed rather than the document.
+
+    The document allows any label from 20H to 7EH and says nothing about case.
+    A STRING "a" beside a TEXT "A" was measured on the sign on 2026-09-10, each
+    left intact by writes to the other.
+    """
+    assert c.STRING_FILE_LABELS[0] == b"a"
+    assert c.STRING_FILE_LABELS[-1] == b"z"
+    assert len(c.STRING_FILE_LABELS) == 26
+    assert set(c.STRING_FILE_LABELS).isdisjoint(c.TEXT_FILE_LABELS)
+    assert set(c.STRING_FILE_LABELS).isdisjoint(c.RESERVED_FILE_LABELS)
+
+
+def test_the_two_labels_a_string_file_cannot_have():
+    """Appendix A: File Label "0" (30H) and "?" (3FH) can not be used as STRING file labels."""
+    assert c.STRING_FILE_FORBIDDEN_LABELS == (b"0", b"?")
+    assert set(c.STRING_FILE_LABELS).isdisjoint(c.STRING_FILE_FORBIDDEN_LABELS)
 
 
 # ===========================================================================

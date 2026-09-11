@@ -80,6 +80,41 @@ class TestSuppression:
         assert transport.write_count == 2
 
 
+class TestStringFiles:
+    async def test_a_value_reaches_the_transport_as_a_full_packet(self):
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+
+        assert await controller.write_string_file(b"a", b"72") is True
+        assert transport.last_packet == frames.packet(b"Ga72")
+
+    async def test_an_unchanged_value_is_not_sent_again(self):
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+
+        await controller.write_string_file(b"a", b"72")
+        assert await controller.write_string_file(b"a", b"72") is False
+        assert await controller.write_string_file(b"a", b"73") is True
+        assert transport.write_count == 2
+
+    async def test_a_string_and_a_text_file_are_suppressed_apart(self):
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+
+        await controller.write_text_file(b"A", b"72")
+        assert await controller.write_string_file(b"a", b"72") is True
+
+    async def test_forgetting_the_sign_forgets_values_too(self):
+        # A refresh after a power cycle has to rewrite the values as well as the
+        # messages that call them.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+
+        await controller.write_string_file(b"a", b"72")
+        controller.forget_sign_contents()
+        assert await controller.write_string_file(b"a", b"72") is True
+
+
 class TestMemoryConfiguration:
     async def test_it_is_written_and_forgets_what_the_sign_held(self):
         transport = FakeTransport()

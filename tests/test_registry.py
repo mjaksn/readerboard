@@ -198,8 +198,8 @@ class TestRestart:
         restored, layout = self.rebuild(store, transport, clock)
         await restored.restore()
 
-        assert layout.label_for("one") == b"A"
-        assert layout.label_for("two") == b"B"
+        assert layout.slots.label_for("one") == b"A"
+        assert layout.slots.label_for("two") == b"B"
         # A new slot must not be handed a file that is already spoken for.
         assert (await add(restored, "three")).label == "C"
 
@@ -245,7 +245,7 @@ class TestRestart:
         assert "no message" in caplog.text
         # And it stays gone, with its file handed back to the pool.
         assert store.load().slots.keys() == {"doorbell"}
-        assert layout.label_for("blank") is None
+        assert layout.slots.label_for("blank") is None
 
     async def test_a_slot_outside_a_shrunken_pool_is_dropped(
         self, registry, store, transport, clock, caplog
@@ -390,8 +390,8 @@ class TestReboot:
 
         await registry.reboot()
 
-        assert layout.label_for("one") == b"A"
-        assert layout.label_for("two") == b"B"
+        assert layout.slots.label_for("one") == b"A"
+        assert layout.slots.label_for("two") == b"B"
 
     async def test_a_reboot_that_cannot_reach_the_sign_raises(self, registry, transport):
         await add(registry, "one")

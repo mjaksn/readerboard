@@ -1,8 +1,9 @@
 """The API.
 
-Status codes mean what they say here: 400 for a message the sign cannot render,
-401 for a missing key, 404 for a slot that does not exist, 409 when the pool is
-full, and 503 when the sign is unreachable. Which exception means which lives in
+Status codes mean what they say here: 400 for a message or value the sign cannot
+render, 401 for a missing key, 404 for a slot or variable that does not exist,
+409 when a pool is full or a variable still in use is deleted, and 503 when the
+sign is unreachable. Which exception means which lives in
 ``readerboard.api.errors``, and these routes read no part of that table
 themselves: they let the exception through and the handler registered from it
 turns the failure into a status code and a ``detail`` body.
@@ -28,8 +29,12 @@ from readerboard.api.models import (
     SlotKey,
     SlotResponse,
     TokenInfo,
+    VariableName,
+    VariableRequest,
+    VariableResponse,
 )
 from readerboard.protocol import frames
+from readerboard.protocol.markup import VALUE_TOKENS
 from readerboard.protocol.replies import parse_general_information
 from readerboard.protocol.tokens import (
     CONTROL_COMMANDS,
@@ -38,10 +43,13 @@ from readerboard.protocol.tokens import (
     Token,
 )
 from readerboard.services import commands
+from readerboard.services.registry import MessageRegistry
+from readerboard.sign.state import VariableState
 
 router = APIRouter()
 
 messages = APIRouter(prefix="/messages", tags=["Messages"])
+variables = APIRouter(prefix="/variables", tags=["Variables"])
 alerts_routes = APIRouter(prefix="/alerts", tags=["Alerts"])
 sign_routes = APIRouter(prefix="/sign", tags=["Sign"])
 enumerations = APIRouter(prefix="/enumerations", tags=["Enumerations"])
@@ -109,6 +117,82 @@ async def clear_messages(registry: RegistryDep) -> Response:
 
 
 # ===========================================================================
+# Variables
+# ===========================================================================
+
+
+@variables.get("", summary="List the variables messages can call")
+async def list_variables(registry: RegistryDep) -> list[VariableResponse]:
+    """Return every variable, by name, with what calls each one."""
+    return [_variable_response(registry, variable) for variable in registry.list_variables()]
+
+
+@variables.get("/{name}", summary="Read one variable")
+async def get_variable(name: VariableName, registry: RegistryDep) -> VariableResponse:
+    """Return one variable by name."""
+    return _variable_response(registry, registry.get_variable(name))
+
+
+@variables.put("/{name}", summary="Create or change a variable", dependencies=[RequireApiKey])
+async def put_variable(
+    name: VariableName, body: VariableRequest, registry: RegistryDep
+) -> VariableResponse:
+    """Set a variable's value, creating the variable if it does not exist yet.
+
+    A message calls a variable with `<var:name>`, and every message calling it
+    shows the new value the next time the sign draws it. Only the variable's own
+    small file is written, so unlike a change to a message this does not blank
+    the display or restart the message: a scrolling message picks the new value
+    up on its next pass. That makes a variable the way to show something that
+    changes often, such as a temperature or a count.
+
+    Formatting in the value carries on after the call, so a value of `<red>DOWN`
+    turns the rest of the message red as well. To keep a changing number from
+    shifting the text around it, put `<fixed_width>` in the message before the
+    call and send values of the same length.
+
+    409 when every variable is in use, and 400 when variables are switched off or
+    the value does not fit. A value that does not fit is refused rather than cut
+    short, because the sign does not cut it short either: it empties it.
+    """
+    variable = await registry.put_variable(
+        name,
+        body.value,
+        ttl_seconds=body.ttl_seconds,
+        stale_value=body.stale_value,
+        source=body.source,
+    )
+    return _variable_response(registry, variable)
+
+
+@variables.delete(
+    "/{name}",
+    summary="Delete a variable",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[RequireApiKey],
+)
+async def delete_variable(name: VariableName, registry: RegistryDep) -> Response:
+    """Delete a variable and free the sign file it held.
+
+    409 while any message or the alert still calls it, naming what does. Its
+    file is written into each of those messages, so deleting it would leave them
+    calling a file the next variable could be given, and showing that variable's
+    value.
+    """
+    await registry.remove_variable(name)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _variable_response(registry: MessageRegistry, variable: VariableState) -> VariableResponse:
+    """Describe a variable along with everything that calls it."""
+    return VariableResponse.of(
+        variable,
+        registry.callers(variable.name),
+        called_by_alert=registry.alert_calls(variable.name),
+    )
+
+
+# ===========================================================================
 # Alerts
 # ===========================================================================
 
@@ -127,6 +211,11 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     This uses the sign's priority file, which suppresses every other message. If
     a ttl is given, the sign is released automatically and the rotation resumes
     by itself.
+
+    An alert can call variables with `<var:name>`, and a change to one shows on
+    the alert without restarting it, as it does in a message. A variable the
+    alert calls cannot be deleted until the alert is released or replaced, and a
+    call to a variable that does not exist is a 400.
     """
     alert = await alerts.raise_alert(
         body.message,
@@ -265,10 +354,32 @@ def _as_info(tokens: tuple[Token, ...]) -> list[TokenInfo]:
     return [TokenInfo(name=token.text, description=token.description) for token in tokens]
 
 
+# Not a token, since it carries a name, but it is written inline like one and a
+# caller looking for what a message can say should find it here.
+VARIABLE_CALL = TokenInfo(
+    name="<var:name>",
+    description=(
+        "Show a variable's value here, with name replaced by the variable's name. The "
+        "variable has to exist first, and formatting set in its value carries on after it"
+    ),
+)
+
+
 @enumerations.get("/markup-tokens", summary="Markup tokens a message may contain")
 async def markup_tokens() -> list[TokenInfo]:
-    """List every token that can be written inline in a message."""
-    return _as_info(MARKUP_TOKENS)
+    """List every token that can be written inline in a message, and the variable call."""
+    return [*_as_info(MARKUP_TOKENS), VARIABLE_CALL]
+
+
+@enumerations.get("/value-tokens", summary="Markup tokens a variable's value may contain")
+async def value_tokens() -> list[TokenInfo]:
+    """List the tokens a variable's value may contain.
+
+    The message tokens, less `<week_day>`, which the sign draws as a literal
+    character from inside a variable. A value cannot call another variable
+    either, for the same reason.
+    """
+    return _as_info(VALUE_TOKENS)
 
 
 @enumerations.get("/display-modes", summary="Ways the sign can present a message")
@@ -284,6 +395,7 @@ async def control_commands() -> list[TokenInfo]:
 
 
 router.include_router(messages)
+router.include_router(variables)
 router.include_router(alerts_routes)
 router.include_router(sign_routes)
 router.include_router(enumerations)

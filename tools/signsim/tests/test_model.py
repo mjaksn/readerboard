@@ -325,3 +325,91 @@ class TestReconfiguringLeavesThePriorityFileAlone:
         send(sign, frames.write_text_file(c.FILE_PRIORITY, b"SMOKE ALARM"))
         send(sign, frames.clear_memory())
         assert sign.priority == b"SMOKE ALARM"
+
+
+class TestStringFiles:
+    """Measured on the sign on 2026-09-10, not read from the document."""
+
+    def configured(self, sign):
+        configure(sign, frames.FileAllocation(b"A", 64), frames.FileAllocation.string(b"a", 8))
+        return sign
+
+    def test_a_value_is_stored(self, sign):
+        self.configured(sign)
+        notes = send(sign, frames.write_string_file(b"a", b"72"))
+        assert notes == []
+        assert sign.strings[b"a"] == b"72"
+
+    def test_a_message_reads_back_with_the_value_it_draws(self, sign):
+        self.configured(sign)
+        send(sign, frames.write_string_file(b"a", b"72"))
+        send(sign, frames.write_text_file(b"A", b"T=\x10aF"))
+        assert sign.drawn(sign.files[b"A"].body) == "T={a: 72}F"
+
+    def test_a_changed_value_changes_what_the_message_draws(self, sign):
+        self.configured(sign)
+        send(sign, frames.write_text_file(b"A", b"T=\x10aF"))
+        send(sign, frames.write_string_file(b"a", b"72"))
+        send(sign, frames.write_string_file(b"a", b"73"))
+        assert sign.drawn(sign.files[b"A"].body) == "T={a: 73}F"
+
+    @pytest.mark.parametrize(
+        "value, shown",
+        [
+            # The sign drew the day of the week's selector, a 9, not the day.
+            (b"X\x0b9X", "X9X"),
+            # And a call to another STRING as the called label, not its value.
+            (b"X\x10bX", "XbX"),
+        ],
+    )
+    def test_what_a_string_cannot_do_reads_as_what_the_sign_drew(self, sign, value, shown):
+        self.configured(sign)
+        send(sign, frames.write_string_file(b"a", value))
+        send(sign, frames.write_text_file(b"A", b"\x10a"))
+        assert sign.drawn(sign.files[b"A"].body) == "{a: %s}" % shown
+
+    def test_a_value_past_its_size_empties_the_string(self, sign):
+        # Not truncated, and not refused either: the previous value goes too.
+        self.configured(sign)
+        send(sign, frames.write_string_file(b"a", b"72"))
+        notes = send(sign, frames.write_string_file(b"a", b"0123456789"))
+        assert any(note.level is NoteLevel.WARNING for note in notes)
+        assert "emptied rather than cut short" in texts(notes)
+        assert sign.strings[b"a"] == b""
+
+    def test_a_string_written_before_any_configuration_is_refused(self, sign):
+        notes = send(sign, frames.write_string_file(b"a", b"72"))
+        assert any(note.level is NoteLevel.VIOLATION for note in notes)
+        assert sign.strings == {}
+
+    def test_a_string_write_to_a_text_file_is_refused(self, sign):
+        self.configured(sign)
+        send(sign, frames.write_text_file(b"A", b"KEEP"))
+        notes = send(sign, frames.write_string_file(b"A", b"72"))
+        assert "allocated as a TEXT file" in texts(notes)
+        assert sign.files[b"A"].body == b"KEEP"
+
+    def test_a_string_write_to_nothing_is_refused(self, sign):
+        self.configured(sign)
+        notes = send(sign, frames.write_string_file(b"b", b"72"))
+        assert "not in the sign's memory configuration" in texts(notes)
+
+    @pytest.mark.parametrize("label", [b"b", b"A"], ids=["unallocated", "a TEXT file"])
+    def test_a_call_to_anything_but_a_string_file_draws_nothing(self, sign, label):
+        self.configured(sign)
+        notes = send(sign, frames.write_text_file(b"A", b"[\x10" + label + b"]"))
+        assert "draws nothing" in texts(notes)
+        assert sign.drawn(sign.files[b"A"].body) == "[{%s: nothing}]" % label.decode()
+
+    def test_an_alert_calling_a_string_draws_its_value(self, sign):
+        self.configured(sign)
+        send(sign, frames.write_string_file(b"a", b"50"))
+        send(sign, frames.write_text_file(c.FILE_PRIORITY, b"ALERT \x10a"))
+        assert sign.drawn(sign.priority) == "ALERT {a: 50}"
+
+    def test_a_memory_configuration_erases_the_values_too(self, sign):
+        self.configured(sign)
+        send(sign, frames.write_string_file(b"a", b"72"))
+        notes = configure(sign, frames.FileAllocation(b"A", 64))
+        assert sign.strings == {}
+        assert "a" in texts(notes)

@@ -11,8 +11,10 @@ An HTTP service that drives a BetaBrite Classic sign, either through a serial ca
 through an Ethernet to RS-232 adapter.
 
 Several sources can share the sign at once. Each registers a named **slot**, and the sign
-rotates through the registered slots by itself. An **alert** takes the whole display over
-until it is released, after which the rotation resumes.
+rotates through the registered slots by itself. A **variable** is a value that messages
+call by name, such as a temperature, and changing it does not blank the sign or restart
+the message showing it. An **alert** takes the whole display over until it is released,
+after which the rotation resumes.
 
 ## What it does
 
@@ -20,6 +22,10 @@ until it is released, after which the rotation resumes.
   automation owns `doorbell`, without either knowing about the other.
 - **The sign does the rotating.** Each message lives in its own sign file and the sign
   cycles them on its own, so rotation costs no serial traffic at all.
+- **Live values without a blink.** A message such as `Outside <var:temp><degree>F` calls
+  the variable `temp`, and a new value is one small write that the sign shows the next
+  time it draws the message, with no blank and no restart. One variable can appear in
+  any number of messages, and a value that stops arriving can be made to go stale.
 - **Alerts.** Take the display over, optionally with a deadline, then hand it back.
 - **It keeps the sign's clock right**, at startup, hourly, and whenever the link comes
   back. That last trigger is the one that matters: a sign returning from a power cut
@@ -226,6 +232,21 @@ curl -X PUT http://localhost:5001/messages/doorbell \
      -d '{"message": "<amber>Someone at the door", "ttl_seconds": 300}'
 ```
 
+Show a live value. Create the variable first, then a message that calls it:
+
+```
+curl -X PUT http://localhost:5001/variables/temp \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"value": "72", "ttl_seconds": 1800, "stale_value": "--"}'
+
+curl -X PUT http://localhost:5001/messages/weather \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"message": "Outside <var:temp><degree>F", "display_mode": "ROTATE"}'
+```
+
+From then on only the variable needs writing, and the message picks each new value up
+on its next pass across the sign.
+
 Take the sign over for thirty seconds:
 
 ```
@@ -252,8 +273,8 @@ Silence it with `{"command": "SPEAKER", "parameter": "OFF"}`, and turn it back o
 lives on the sign and survives a restart, so it is also the first thing to check if
 `SOUND` ever seems to do nothing.
 
-The full API is at `/docs`. Every markup token, display mode and control
-command is listed by the `/enumerations` reads there, which answer at
+The full API is at `/docs`. Every markup token, value token, display mode and
+control command is listed by the `/enumerations` reads there, which answer at
 request time rather than being frozen into the description.
 
 ### Writing messages
@@ -266,6 +287,59 @@ Text is encoded against the sign's own character table rather than as UTF-8, so 
 displays correctly. A character the sign cannot render is rejected with a 400, as is an
 unknown token: a write is told what the sign would have made of it rather than being
 shown something it did not ask for.
+
+### Live values: variables
+
+A variable lives in a small file of its own on the sign, and a message or an alert
+calls it with `<var:name>`. Writing a new value rewrites that file and nothing else,
+which the sign takes without blanking, so a message showing a temperature or a count can
+change every minute and never restart. In a scrolling mode the new value appears on the
+message's next pass. An alert carrying a live wind speed works the same way, and keeps
+the sign while the number changes.
+
+A few things are worth knowing, all of them measured on the sign:
+
+- **Create the variable before a message calls it.** A message or an alert naming a
+  variable that does not exist is refused with a 400, and a variable that a message or
+  the alert still calls cannot be deleted: that is a 409 naming what calls it.
+- **Formatting in a value carries on after it.** A value of `<red>DOWN` turns the rest
+  of the message red as well, and so does a character set or a speed. If the text after
+  the call matters, set it again in the message after the call.
+- **A value takes the message markup, less two tokens.** `<week_day>` draws as a literal
+  `9` from inside a variable, and a variable cannot call another. `GET
+  /enumerations/value-tokens` lists what is allowed.
+- **Keep a changing number from pushing the text around it.** With the sign's usual
+  proportional spacing, `11` and `88` are different widths and the text after them moves.
+  Put `<fixed_width>` in the message before the call and send values of the same length.
+  Fixed width also left-justifies the line.
+- **A value that stops arriving can go stale.** Give a `ttl_seconds` and a `stale_value`
+  such as `--`, and once the time passes without a new value the sign shows the stale
+  value instead. The variable itself stays, since messages call it.
+- **A value that does not fit is refused.** Each holds `variable_capacity` bytes after
+  rendering, 32 by default. The sign does not cut an overlong value short, it empties it,
+  so the service refuses one rather than send it.
+
+A Home Assistant `rest_command` that keeps a sensor on the sign:
+
+```yaml
+rest_command:
+  sign_temperature:
+    url: http://readerboard.local:5001/variables/temp
+    method: put
+    headers:
+      X-API-Key: !secret readerboard_key
+    content_type: application/json
+    payload: '{"value": "{{ value }}", "ttl_seconds": 1800, "stale_value": "--"}'
+```
+
+Call it from an automation triggered by the sensor, with the reading as `value`:
+
+```yaml
+actions:
+  - action: rest_command.sign_temperature
+    data:
+      value: "{{ states('sensor.outside_temperature') | round(0) | int }}"
+```
 
 ### Recovering a sign that has stopped responding
 
@@ -317,9 +391,11 @@ telnet serial protocol, `/dev/ttyUSB0` or `COM3` for a cable plugged straight in
 and the port, and pyserial's answer to one that has a slash names neither the setting
 nor the value.
 
-Two settings reallocate the sign's memory when changed, and **that erases every message
-on it**: `slot_count` and `slot_capacity`. The service will do it, and say so loudly in
-the log, but they are not settings to fiddle with.
+Four settings reallocate the sign's memory when changed, and **that erases every message
+on it**: `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity`. The
+service will do it, and say so loudly in the log, but they are not settings to fiddle
+with. With `variable_count` at 0, `variable_capacity` allocates nothing, so changing it
+alone reallocates nothing either.
 
 ## Security
 

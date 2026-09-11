@@ -59,6 +59,8 @@ class TestHealth:
         assert body["link"]["connected"] is True
         assert body["slots_total"] == 3
         assert body["slots_used"] == 0
+        assert body["variables_total"] == 8
+        assert body["variables_used"] == 0
         assert body["sign_in_sync"] is True
         assert body["alert_active"] is False
 
@@ -135,6 +137,8 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
             ("/messages/{key}", "put"),
             ("/messages/{key}", "delete"),
             ("/messages", "delete"),
+            ("/variables/{name}", "put"),
+            ("/variables/{name}", "delete"),
             ("/alerts", "post"),
             ("/alerts", "delete"),
             ("/sign/sync-clock", "post"),
@@ -153,6 +157,8 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
         for path, method in [
             ("/health", "get"),
             ("/messages", "get"),
+            ("/variables", "get"),
+            ("/variables/{name}", "get"),
             ("/alerts", "get"),
             ("/enumerations/display-modes", "get"),
         ]:
@@ -624,6 +630,7 @@ class TestEnumerations:
         "path",
         [
             "/enumerations/markup-tokens",
+            "/enumerations/value-tokens",
             "/enumerations/display-modes",
             "/enumerations/control-commands",
         ],
@@ -662,7 +669,125 @@ class TestEnumerations:
             "<fixed_width>",
             "<time>",
             "<week_day>",
+            "<var:name>",
         } <= names
+
+    def test_a_value_is_offered_every_message_token_but_the_day_of_week(self, client):
+        # The sign draws <week_day> as a literal 9 from inside a variable.
+        message = {entry["name"] for entry in client.get("/enumerations/markup-tokens").json()}
+        value = {entry["name"] for entry in client.get("/enumerations/value-tokens").json()}
+        assert message - value == {"<week_day>", "<var:name>"}
+        assert value < message
+
+
+class TestVariables:
+    def put_variable(self, client, name="temp", **body):
+        body.setdefault("value", "72")
+        return client.put("/variables/%s" % name, json=body, headers=HEADERS)
+
+    def test_creating_one_answers_with_it(self, client):
+        response = self.put_variable(client, value="72", source="thermometer")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "temp"
+        assert body["label"] == "a"
+        assert body["value"] == "72"
+        assert body["stale"] is False
+        assert body["called_by"] == []
+        assert body["called_by_alert"] is False
+        assert body["source"] == "thermometer"
+
+    def test_it_goes_on_the_sign_as_a_string_write(self, client, sign):
+        self.put_variable(client, value="72")
+        assert sign.last_packet == frames.packet(b"Ga72")
+
+    def test_a_write_needs_the_key(self, client):
+        assert client.put("/variables/temp", json={"value": "72"}).status_code == 401
+
+    def test_it_can_be_read_back_and_listed(self, client):
+        self.put_variable(client, "wind", value="5")
+        self.put_variable(client, "temp", value="72")
+
+        assert client.get("/variables/temp").json()["value"] == "72"
+        assert [one["name"] for one in client.get("/variables").json()] == ["temp", "wind"]
+
+    def test_the_callers_are_reported(self, client):
+        self.put_variable(client)
+        client.put("/messages/weather", json={"message": "T=<var:temp>"}, headers=HEADERS)
+
+        assert client.get("/variables/temp").json()["called_by"] == ["weather"]
+
+    def test_a_message_calling_one_that_does_not_exist_is_400(self, client):
+        response = client.put(
+            "/messages/weather", json={"message": "T=<var:temp>"}, headers=HEADERS
+        )
+        assert response.status_code == 400
+        assert "no variable named 'temp'" in response.json()["detail"]
+
+    def test_deleting_one_a_message_calls_is_409_and_names_it(self, client):
+        self.put_variable(client)
+        client.put("/messages/weather", json={"message": "T=<var:temp>"}, headers=HEADERS)
+
+        response = client.delete("/variables/temp", headers=HEADERS)
+
+        assert response.status_code == 409
+        assert "'weather'" in response.json()["detail"]
+
+    def test_deleting_one_nothing_calls_is_204(self, client):
+        self.put_variable(client)
+        assert client.delete("/variables/temp", headers=HEADERS).status_code == 204
+        assert client.get("/variables/temp").status_code == 404
+
+    def test_an_unknown_one_is_404(self, client):
+        assert client.get("/variables/nobody").status_code == 404
+
+    @pytest.mark.parametrize("name", ["Temp", "a-b", "x" * 33])
+    def test_a_name_no_message_could_call_is_refused(self, client, name):
+        assert self.put_variable(client, name).status_code == 422
+
+    def test_a_value_too_long_is_400(self, client):
+        response = self.put_variable(client, value="X" * 33)
+        assert response.status_code == 400
+        assert "empties it" in response.json()["detail"]
+
+    def test_the_day_of_week_in_a_value_is_400(self, client):
+        assert self.put_variable(client, value="<week_day>").status_code == 400
+
+    def test_an_unreachable_sign_is_503_and_leaves_nothing_behind(self, client, sign):
+        sign.fail_with = "cable unplugged"
+        assert self.put_variable(client).status_code == 503
+        sign.fail_with = None
+        assert client.get("/variables").json() == []
+
+    def test_health_counts_them(self, client):
+        self.put_variable(client)
+        assert client.get("/health").json()["variables_used"] == 1
+
+    def test_an_alert_can_call_one(self, client):
+        self.put_variable(client)
+        response = client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
+        assert response.status_code == 200
+        body = client.get("/variables/temp").json()
+        assert body["called_by"] == []
+        assert body["called_by_alert"] is True
+
+    def test_an_alert_calling_a_variable_that_does_not_exist_is_400(self, client):
+        response = client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
+        assert response.status_code == 400
+        assert "no variable named 'temp'" in response.json()["detail"]
+
+    def test_one_the_alert_calls_cannot_be_deleted_until_it_is_released(self, client):
+        self.put_variable(client)
+        client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
+
+        response = client.delete("/variables/temp", headers=HEADERS)
+        assert response.status_code == 409
+        assert "the alert holding the sign" in response.json()["detail"]
+
+        client.delete("/alerts", headers=HEADERS)
+        assert client.delete("/variables/temp", headers=HEADERS).status_code == 204
+        assert client.get("/variables").json() == []
 
 
 class TestUnreachableSign:

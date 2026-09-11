@@ -15,6 +15,54 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **Variables: values that change without blanking the sign.** A variable is a value
+  in a small file of its own on the sign, and a message calls it with `<var:name>`,
+  as in `Outside <var:temp><degree>F`. Writing a new value rewrites only that file,
+  which the sign takes without blanking or restarting the message calling it; a
+  scrolling message shows the new value on its next pass. One variable can be
+  called from any number of messages, and from an alert, which keeps the sign
+  while the value inside it changes.
+
+  `PUT /variables/{name}` creates or changes one, `GET /variables` and
+  `GET /variables/{name}` read them back with the slots that call each and
+  `called_by_alert`, and `DELETE /variables/{name}` deletes one. A name is one to
+  32 lowercase letters, digits and underscores, so that every variable can be
+  called from a message. A message or an alert calling a variable that does not
+  exist is a 400. A variable that a message or the alert still calls cannot be
+  deleted: that is a 409 naming what calls it, because the sign's file for it is
+  written into each caller, and handing it to the next variable would put the
+  wrong value on the sign.
+
+  A value takes the message markup except `<week_day>` and `<var:name>`, which the
+  sign draws as a literal character from inside a variable.
+  `GET /enumerations/value-tokens` lists what is allowed, and
+  `GET /enumerations/markup-tokens` now lists `<var:name>` as well. Formatting set
+  in a value carries on into the message after the call. A value that does not fit
+  its file is refused: the sign would empty it rather than cut it short.
+
+  `ttl_seconds` and `stale_value` make a value go stale when it stops arriving: once
+  the time passes the sign shows the stale value, such as `--`, until a new one is
+  written. The variable itself stays, since messages call it.
+
+  Two settings size the pool, `variable_count` (default 8, 0 turns variables off)
+  and `variable_capacity` (default 32 bytes, at most 125), and both count against
+  the same memory budget as the slots. `GET /health` reports `variables_used` and
+  `variables_total`.
+
+  All of this rests on a session with the sign rather than on the protocol
+  document, which turned out to be wrong about what a STRING file can hold.
+  `scripts/string_file_spike.py` is that session, and `docs/protocol-notes.md`
+  records what it found under "STRING files, measured on the sign".
+- **The sign simulator models STRING files.** It decodes a Write STRING, keeps each
+  value, and shows every STRING file in the Files section. A message calling one
+  reads with the value in place, as `{a: 72}`. It notes a value written past its
+  file, which the sign empties, a call to a STRING file that is not there, which the
+  sign draws as nothing, and a write to a label not allocated as a STRING file.
+- **The client can call the variable endpoints**, with **Load keys** listing the
+  variables and **Load From Sign** filling the value, the stale value and the time
+  left before it goes stale. A value's **Insert token** offers the value tokens
+  rather than the message tokens.
+
 - **The client can load a stored message back into the form to edit it.**
   Register or replace a message now carries a **Load From Sign** button under the
   message caption. It calls `GET /messages/{key}` for the key in the box above
@@ -40,6 +88,17 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Changed
 
+- **The first start after upgrading erases the sign once.** The new default of eight
+  variables changes the memory configuration, and writing a memory configuration
+  erases every message on the sign, as changing `slot_count` always has. The
+  service does it and says so at WARNING, and sources have to register their
+  messages again. Setting `variable_count` to 0 before upgrading keeps the old
+  configuration and avoids the erase, with variables switched off until it is
+  raised.
+- **A tag with a colon in it is now read as a tag.** `<var:name>` needs the colon,
+  so a strict write of something like `<12:30>` is now refused as an unknown markup
+  token rather than as an unterminated tag. It is refused either way, and a message
+  restored from disk renders exactly as before.
 - **Loading the slot keys in the client now clears a key that is not among
   them.** The key box keeps what was typed if the sign turned out to have that
   slot, and is emptied if it did not. The list is the answer to "what is

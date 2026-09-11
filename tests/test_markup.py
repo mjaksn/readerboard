@@ -3,7 +3,13 @@
 import pytest
 
 from readerboard.protocol import constants as c
-from readerboard.protocol.markup import THIN_SPACE, MarkupError, render
+from readerboard.protocol.markup import (
+    THIN_SPACE,
+    MarkupError,
+    references,
+    render,
+    render_value,
+)
 from readerboard.protocol.tokens import DISPLAY_MODES, MARKUP_TOKENS
 
 
@@ -244,3 +250,115 @@ class TestTheCharactersReadOffThePrintedTable:
 
 def test_newline_becomes_a_carriage_return():
     assert render("a\nb") == b"a" + c.CR + b"b"
+
+
+class TestVariableCalls:
+    """<var:name> becomes 10H and the label of the STRING file the name lives in."""
+
+    def test_a_call_becomes_the_call_string_code_and_the_label(self):
+        built = render("T=<var:temp>F", variables={"temp": b"a"})
+        assert built == b"T=" + c.STRING_FILE_INSERT + b"a" + b"F"
+
+    def test_two_calls_to_one_variable_call_it_twice(self):
+        built = render("<var:n> and <var:n>", variables={"n": b"b"})
+        assert built == b"\x10b and \x10b"
+
+    def test_a_call_sits_among_tokens(self):
+        built = render("<fixed_width><var:temp><degree>", variables={"temp": b"a"})
+        assert built == c.FIXED_WIDTH_ON + b"\x10a" + c.XC_DEGREES
+
+    def test_an_unknown_name_is_refused_when_strict(self):
+        with pytest.raises(MarkupError, match="no variable named 'temp'"):
+            render("<var:temp>", variables={})
+
+    def test_no_map_at_all_is_a_different_refusal(self):
+        # None means nothing here can call a variable, which is not the same as
+        # a variable that does not exist yet, and the caller is told which.
+        with pytest.raises(MarkupError, match="cannot be used here"):
+            render("<var:temp>")
+
+    @pytest.mark.parametrize("name", ["Temp", "x" * 33, "a:b"])
+    def test_a_name_outside_the_grammar_is_refused(self, name):
+        with pytest.raises(MarkupError, match="not a variable name"):
+            render("<var:%s>" % name, variables={name: b"a"})
+
+    def test_an_empty_name_is_refused(self):
+        with pytest.raises(MarkupError, match="not a variable name"):
+            render("<var:>", variables={})
+
+    def test_leniently_an_unknown_name_renders_nothing(self):
+        # Not the literal tag, which is what an unknown token would get. The sign
+        # draws a call to a missing STRING as nothing at all, so a restored
+        # message whose variable has gone reads the way the sign would show it.
+        assert render("[<var:gone>]", strict=False, variables={}) == b"[]"
+
+    def test_leniently_no_map_renders_nothing(self):
+        assert render("[<var:temp>]", strict=False) == b"[]"
+
+    def test_a_colon_in_an_unknown_tag_is_still_an_unknown_tag(self):
+        with pytest.raises(MarkupError, match="unknown markup token"):
+            render("<12:30>")
+        assert render("<12:30>", strict=False) == b"<12:30>"
+
+
+class TestReferences:
+    def test_names_come_back_once_each_in_order(self):
+        assert references("<var:b> <var:a> <var:b>") == ["b", "a"]
+
+    def test_a_message_with_no_calls_references_nothing(self):
+        assert references("<red>plain < text>") == []
+
+    def test_an_invalid_name_is_still_reported(self):
+        assert references("<var:Temp>") == ["Temp"]
+
+    def test_references_and_render_agree_on_what_a_tag_is(self):
+        # "<var:a b>" is not a tag, because a space ends one, so neither
+        # function may treat it as a call.
+        assert references("<var:a b>") == []
+        assert render("<var:a b>", strict=False) == b"<var:a b>"
+
+
+class TestValues:
+    """A value is the message language less what the sign cannot draw in a STRING."""
+
+    def test_plain_text(self):
+        assert render_value("72") == b"72"
+
+    def test_formatting_is_allowed(self):
+        assert render_value("<red>DOWN") == c.TEXT_COLOR_RED + b"DOWN"
+
+    def test_what_the_document_leaves_out_but_the_sign_draws_is_allowed(self):
+        # Rainbow, flash, the 1DH attributes and the extended characters are
+        # all missing from Table 18 and all drew correctly inside a STRING.
+        built = render_value("<rainbow1><flash_on><bold_on>72<degree>°")
+        assert built == (
+            c.TEXT_COLOR_RAINBOW1
+            + c.CHAR_FLASH_ON
+            + c.CHAR_ATTRIB_WIDE_ON
+            + b"72"
+            + c.XC_DEGREES
+            + c.DEGREES
+        )
+
+    def test_the_day_of_week_is_refused(self):
+        # Measured: the sign drops 0BH inside a STRING and draws the selector,
+        # so this would show a 9.
+        with pytest.raises(MarkupError, match="literal character"):
+            render_value("<week_day>")
+
+    def test_every_date_insert_the_markup_offers_is_refused(self):
+        for token in MARKUP_TOKENS:
+            if token.value.startswith(b"\x0b"):
+                with pytest.raises(MarkupError):
+                    render_value(token.text)
+
+    def test_a_value_cannot_call_another_variable(self):
+        # Measured: the sign draws the call as the label's letter.
+        with pytest.raises(MarkupError, match="cannot call another variable"):
+            render_value("<var:other>")
+
+    def test_leniently_the_refused_ones_render_nothing(self):
+        assert render_value("a<week_day>b<var:x>c", strict=False) == b"abc"
+
+    def test_the_time_is_allowed(self):
+        assert render_value("<time>") == c.CURTIME_INSERT

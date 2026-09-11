@@ -1,4 +1,4 @@
-"""The set of messages currently sharing the sign.
+"""The set of messages currently sharing the sign, and the variables they call.
 
 A slot is a named place on the sign that a source owns. Home Assistant owns
 ``temperature``, a doorbell automation might own ``doorbell``, and each one
@@ -10,23 +10,38 @@ Each slot lives in its own sign file, and the run sequence names the occupied
 files in order. That is the whole rotation mechanism: the sign cycles them by
 itself, so a slot appearing or disappearing costs one small write and nothing
 after that.
+
+A variable is a value in a STRING file of its own, which a slot's message calls
+with ``<var:name>``. Changing a variable rewrites only its STRING file, which
+does not blank the display or restart the message calling it, and one variable
+can be called from any number of messages. Slots and variables share one lock,
+because the rule that holds them together spans both: a variable cannot be
+deleted while a message calls it. Its STRING file's label is written into every
+calling message as raw bytes, so handing that label to another variable would
+make those messages show the wrong value, with nothing on the sign to say so.
+
+An alert can call variables too, and the same rule covers it. The alert service
+writes the priority file itself, so it renders through :meth:`rendering`, which
+holds this lock across the render and the write.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 
-from readerboard.protocol.markup import render
+from readerboard.protocol.markup import references, render, render_value
 from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout, LayoutFull
-from readerboard.sign.state import ServiceState, SlotState, StateStore
+from readerboard.sign.state import ServiceState, SlotState, StateStore, VariableState
 from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
+
 
 class RegistryError(Exception):
     """Something was wrong with a request to change the registry."""
@@ -40,12 +55,28 @@ class MessageTooLong(RegistryError):
     """The rendered message does not fit the sign file allocated to it."""
 
 
+class UnknownVariable(RegistryError):
+    """No variable by that name exists."""
+
+
+class VariableTooLong(RegistryError):
+    """The rendered value does not fit the STRING file allocated to it."""
+
+
+class VariableInUse(RegistryError):
+    """A variable cannot be deleted while a message or the alert calls it."""
+
+
+class VariablesDisabled(RegistryError):
+    """The variable pool is empty, so there is nothing to put a variable in."""
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
 class MessageRegistry:
-    """Owns the slots, the file pool, and the run sequence."""
+    """Owns the slots, the variables, both file pools, and the run sequence."""
 
     def __init__(
         self,
@@ -85,10 +116,41 @@ class MessageRegistry:
             raise UnknownSlot("no slot named %r is registered" % key)
         return slot
 
+    def list_variables(self) -> list[VariableState]:
+        """Every variable, by name."""
+        return sorted(self._state.variables.values(), key=lambda variable: variable.name)
+
+    def get_variable(self, name: str) -> VariableState:
+        """One variable by name."""
+        variable = self._state.variables.get(name)
+        if variable is None:
+            raise UnknownVariable("no variable named %r exists" % name)
+        return variable
+
+    def callers(self, name: str) -> list[str]:
+        """Return the keys of the slots whose messages call a variable, in rotation order."""
+        return [slot.key for slot in self.list_slots() if name in references(slot.message)]
+
+    def alert_calls(self, name: str) -> bool:
+        """Say whether the alert holding the sign calls a variable.
+
+        Read from the state both services share rather than from anything the
+        alert service reports, so there is nothing to fall out of step. The
+        alert is recorded under this registry's lock, in :meth:`rendering`, so
+        a check made under the same lock never sees an alert half raised.
+        """
+        alert = self._state.alert
+        return alert is not None and name in references(alert.message)
+
     @property
     def occupancy(self) -> tuple[int, int]:
         """How many slots are used, and how many there are in total."""
         return len(self._state.slots), self._layout.slot_count
+
+    @property
+    def variable_occupancy(self) -> tuple[int, int]:
+        """How many variables exist, and how many there is room for."""
+        return len(self._state.variables), self._layout.variable_count
 
     # == startup ============================================================
 
@@ -106,6 +168,7 @@ class MessageRegistry:
                 self._state.layout = self._layout.as_applied()
                 # Every file was just erased, so nothing survives from before.
                 self._state.slots = {}
+                self._state.variables = {}
 
             self._reattach_labels()
             # force, because the state file may say an alert was active but
@@ -114,14 +177,32 @@ class MessageRegistry:
             self._save()
 
     def _reattach_labels(self) -> None:
-        """Re-establish which slot owns which file, dropping the ones that cannot come back.
+        """Re-establish which slot and variable owns which file, dropping what cannot come back.
 
-        Two cannot: a slot whose file is outside the pool as it now stands, and
-        a slot with no message, which an earlier version accepted. The second
+        Two slots cannot: one whose file is outside the pool as it now stands,
+        and one with no message, which an earlier version accepted. The second
         would otherwise be rewritten and left in the run sequence on every
         start, holding a file open around nothing while the sign cycled to it
-        and showed nothing.
+        and showed nothing. A variable whose file is outside the pool cannot
+        come back either.
+
+        A slot calling a variable that did not come back stays. The call draws
+        nothing, which is what the sign itself draws for a call to a STRING that
+        is not there, and losing a whole message over one missing value would be
+        the harsher outcome. An alert calling one stays too, with a warning of
+        its own.
         """
+        for name, variable in list(self._state.variables.items()):
+            try:
+                self._layout.variables.restore(name, variable.label.encode("ascii"))
+            except ValueError:
+                logger.warning(
+                    "variable %r used file %s, which is outside the current pool; dropping it",
+                    name,
+                    variable.label,
+                )
+                del self._state.variables[name]
+
         for key, slot in list(self._state.slots.items()):
             if not slot.message:
                 logger.warning("slot %r has no message; dropping it", key)
@@ -129,7 +210,7 @@ class MessageRegistry:
                 continue
 
             try:
-                self._layout.restore(key, slot.label.encode("ascii"))
+                self._layout.slots.restore(key, slot.label.encode("ascii"))
             except ValueError:
                 logger.warning(
                     "slot %r used file %s, which is outside the current pool; dropping it",
@@ -137,8 +218,34 @@ class MessageRegistry:
                     slot.label,
                 )
                 del self._state.slots[key]
+                continue
+
+            for name in references(slot.message):
+                if name not in self._state.variables:
+                    logger.warning(
+                        "slot %r calls variable %r, which no longer exists; the call "
+                        "will show nothing until the variable is written again",
+                        key,
+                        name,
+                    )
+
+        # The alert outlives a reallocation, since the priority file is outside
+        # the pool, so it can be left calling a variable that did not come back.
+        alert = self._state.alert
+        for name in references(alert.message) if alert is not None else []:
+            if name not in self._state.variables:
+                logger.warning(
+                    "the alert calls variable %r, which no longer exists; the call will "
+                    "show nothing until the variable is written again",
+                    name,
+                )
 
     async def _rewrite_all(self, *, force: bool = False) -> None:
+        # Variables first, so that no message is ever drawn calling a STRING that
+        # is not written yet, then the messages, then the run sequence that
+        # starts playing them.
+        for variable in self.list_variables():
+            await self._write_variable(variable)
         for slot in self.list_slots():
             await self._write_slot(slot)
         await self._apply_run_sequence(force=force)
@@ -154,6 +261,9 @@ class MessageRegistry:
 
         Refreshing drops what the controller believes about the sign's contents
         and writes it all again. It runs on a timer, and on every reconnect.
+        Rewriting a TEXT file restarts the message in it, so every message
+        restarts once a refresh; variables spare the display a blank on every
+        change of value, not on this.
 
         This could become a read-back comparison that only writes on a real
         mismatch: the frame builders for those reads exist, and the sign has
@@ -166,7 +276,11 @@ class MessageRegistry:
             await self._rewrite_all()
             self._dirty = False
 
-        logger.debug("re-pushed %d slot(s) to the sign", len(self._state.slots))
+        logger.debug(
+            "re-pushed %d slot(s) and %d variable(s) to the sign",
+            len(self._state.slots),
+            len(self._state.variables),
+        )
 
     async def reboot(self) -> int:
         """Reset the sign to recover it, then restore the rotation from record.
@@ -177,7 +291,7 @@ class MessageRegistry:
         be power cycled by hand. It sends the same memory clear the one
         dangerous operation does, which erases every file on the sign and puts
         it through a reset, waits for that reset to finish, then re-pushes every
-        slot and the run sequence.
+        variable, every slot and the run sequence.
 
         The service's own record is left untouched, so the sign comes back
         showing what it should rather than blank. Returns how many slots were
@@ -200,7 +314,11 @@ class MessageRegistry:
             self._save()
 
         count = len(self._state.slots)
-        logger.warning("sign rebooted; %d slot(s) restored", count)
+        logger.warning(
+            "sign rebooted; %d slot(s) and %d variable(s) restored",
+            count,
+            len(self._state.variables),
+        )
         return count
 
     @property
@@ -208,7 +326,24 @@ class MessageRegistry:
         """Whether everything registered is believed to be on the sign."""
         return not self._dirty
 
-    # == changing ===========================================================
+    @contextlib.asynccontextmanager
+    async def rendering(self) -> AsyncIterator[Callable[..., bytes]]:
+        """Hold the variables still while a message calling them is rendered and written.
+
+        For the alert service, which writes the priority file itself. It gets
+        the renderer a slot's message goes through, so an alert is refused for
+        the same reasons and in the same words, and it keeps this lock until the
+        write is done: a variable deleted between the render and the write
+        would leave the alert calling a file the next variable could be given.
+
+        The renderer takes a message and ``strict``, as :func:`render` does.
+        Nothing that holds this may wait on anything that takes this lock, and
+        releasing an alert does, through the run sequence it may have held back.
+        """
+        async with self._lock:
+            yield self._render_message
+
+    # == changing slots =====================================================
 
     async def upsert(
         self,
@@ -221,20 +356,24 @@ class MessageRegistry:
         source: str | None = None,
     ) -> SlotState:
         """Register or replace a slot and put it on the sign."""
-        body = render(message)
-        if len(body) > self._layout.slot_capacity:
-            raise MessageTooLong(
-                "the message renders to %d bytes but each slot holds %d. Shorten it, or "
-                "raise slot_capacity and restart, which reallocates the sign and clears it."
-                % (len(body), self._layout.slot_capacity)
-            )
-
         mode_token = MODE_BY_NAME[mode]
 
         async with self._lock:
+            # Rendered under the lock, because a message that calls a variable
+            # renders to that variable's label, and a variable deleted between
+            # the render and the write would leave the message calling a file
+            # somebody else may be handed next.
+            body = self._render_message(message)
+            if len(body) > self._layout.slot_capacity:
+                raise MessageTooLong(
+                    "the message renders to %d bytes but each slot holds %d. Shorten it, or "
+                    "raise slot_capacity and restart, which reallocates the sign and clears it."
+                    % (len(body), self._layout.slot_capacity)
+                )
+
             existed = key in self._state.slots
             previous = self._state.slots.get(key)
-            label = self._layout.assign(key)  # raises LayoutFull when the pool is full
+            label = self._layout.slots.assign(key)  # raises LayoutFull when the pool is full
 
             now = self._now()
             slot = SlotState(
@@ -268,7 +407,7 @@ class MessageRegistry:
                     self._state.slots[key] = previous
                 else:
                     del self._state.slots[key]
-                    self._layout.release(key)
+                    self._layout.slots.release(key)
                 raise
 
             self._save()
@@ -289,7 +428,7 @@ class MessageRegistry:
             if slot is None:
                 raise UnknownSlot("no slot named %r is registered" % key)
 
-            self._layout.release(key)
+            self._layout.slots.release(key)
             try:
                 await self._apply_run_sequence()
                 await self._blank(slot)
@@ -306,7 +445,7 @@ class MessageRegistry:
             slots = list(self._state.slots.values())
             self._state.slots.clear()
             for slot in slots:
-                self._layout.release(slot.key)
+                self._layout.slots.release(slot.key)
 
             try:
                 await self._apply_run_sequence()
@@ -320,9 +459,16 @@ class MessageRegistry:
         return len(slots)
 
     async def sweep(self) -> list[str]:
-        """Drop slots whose TTL has passed. Returns the keys that went."""
+        """Drop slots whose TTL has passed, and let expired variables go stale.
+
+        Returns the keys of the slots that went. A variable is never dropped
+        here: messages call it, so it is given its stale value instead, which
+        :meth:`_expire_variables` explains.
+        """
         now = self._now()
         async with self._lock:
+            await self._expire_variables(now)
+
             expired = [
                 slot
                 for slot in self._state.slots.values()
@@ -333,7 +479,7 @@ class MessageRegistry:
 
             for slot in expired:
                 del self._state.slots[slot.key]
-                self._layout.release(slot.key)
+                self._layout.slots.release(slot.key)
 
             # Taking the labels out of the run sequence is what removes them
             # from the sign. The files themselves are left alone, because
@@ -351,18 +497,195 @@ class MessageRegistry:
         logger.info("slot(s) %s expired and left the rotation", ", ".join(keys))
         return keys
 
+    # == changing variables =================================================
+
+    async def put_variable(
+        self,
+        name: str,
+        value: str,
+        *,
+        ttl_seconds: float | None = None,
+        stale_value: str = "",
+        source: str | None = None,
+    ) -> VariableState:
+        """Create or change a variable and put its value on the sign.
+
+        Only the variable's own STRING file is written. Every message calling it
+        shows the new value the next time the sign draws it, without blanking or
+        restarting, which is the whole reason variables exist.
+        """
+        self._require_variables()
+        data = self._render_value(value, "value")
+        # Checked now rather than when the TTL runs out, since by then there is
+        # nobody to tell that it does not fit.
+        self._render_value(stale_value, "stale_value")
+
+        async with self._lock:
+            existed = name in self._state.variables
+            previous = self._state.variables.get(name)
+            label = self._layout.variables.assign(name)  # raises LayoutFull when full
+
+            now = self._now()
+            variable = VariableState(
+                name=name,
+                label=label.decode("ascii"),
+                value=value,
+                stale_value=stale_value,
+                source=source,
+                expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
+                updated_at=now,
+            )
+
+            self._state.variables[name] = variable
+            try:
+                await self._controller.write_string_file(label, data)
+            except Exception:
+                # As in upsert: a value that did not reach the sign must not be
+                # recorded as though it had.
+                if previous is not None:
+                    self._state.variables[name] = previous
+                else:
+                    del self._state.variables[name]
+                    self._layout.variables.release(name)
+                raise
+
+            self._save()
+
+        logger.info(
+            "variable %r %s in file %s%s",
+            name,
+            "updated" if existed else "created",
+            variable.label,
+            " from %s" % source if source else "",
+        )
+        return variable
+
+    async def remove_variable(self, name: str) -> None:
+        """Delete a variable, refusing while any message or the alert calls it."""
+        async with self._lock:
+            variable = self.get_variable(name)
+            callers = self.callers(name)
+            alert = self.alert_calls(name)
+            if callers or alert:
+                raise VariableInUse(_in_use(name, callers, alert=alert))
+
+            del self._state.variables[name]
+            self._layout.variables.release(name)
+            try:
+                # Emptied so that the next variable handed this file does not
+                # have its first value suppressed as already written, which is
+                # the same reason a released slot is blanked.
+                await self._controller.write_string_file(variable.label.encode("ascii"), b"")
+            except TransportError as err:
+                self._dirty = True
+                logger.warning("variable %r deleted but the sign is unreachable (%s)", name, err)
+            self._save()
+
+        logger.info("variable %r deleted, freeing file %s", name, variable.label)
+
+    async def _expire_variables(self, now: datetime) -> None:
+        """Show each variable whose TTL has passed as its stale value.
+
+        A variable fed by a sensor that has stopped reporting would otherwise
+        go on showing its last reading as though it were current, which is
+        worse than showing nothing. It is not deleted, because messages call
+        it; it shows ``stale_value`` until a fresh value is written. The caller
+        holds the lock.
+        """
+        expired = [
+            variable
+            for variable in self._state.variables.values()
+            if variable.expires_at is not None and variable.expires_at <= now
+        ]
+        if not expired:
+            return
+
+        for variable in expired:
+            variable.stale = True
+            variable.expires_at = None
+
+        try:
+            for variable in expired:
+                await self._write_variable(variable)
+        except TransportError as err:
+            self._dirty = True
+            logger.warning("variables went stale but the sign is unreachable (%s)", err)
+        self._save()
+
+        for variable in expired:
+            logger.info(
+                "variable %r%s went stale and now shows %r",
+                variable.name,
+                " from %s" % variable.source if variable.source else "",
+                variable.stale_value,
+            )
+
     # == internals ==========================================================
+
+    def _variable_labels(self) -> dict[str, bytes]:
+        """Which STRING file each variable lives in, for rendering the messages that call them."""
+        return {
+            name: variable.label.encode("ascii") for name, variable in self._state.variables.items()
+        }
+
+    def _require_variables(self) -> None:
+        if not self._layout.variable_count:
+            raise VariablesDisabled(
+                "variables are switched off, because variable_count is 0. Raise it and "
+                "restart, which reallocates the sign and clears it."
+            )
+
+    def _render_message(self, message: str, *, strict: bool = True) -> bytes:
+        """Render a message with the variables that exist right now.
+
+        Strictly for a message being accepted, and leniently for one accepted
+        earlier and being written again, where a call to a variable that has
+        since gone draws nothing, as the sign itself draws it.
+        """
+        if strict and references(message):
+            self._require_variables()
+        return render(message, strict=strict, variables=self._variable_labels())
+
+    def _render_value(self, value: str, field: str) -> bytes:
+        """Render a value strictly and make sure it fits its STRING file."""
+        data = render_value(value)
+        if len(data) > self._layout.variable_capacity:
+            raise VariableTooLong(
+                "the %s renders to %d bytes but each variable holds %d. The sign does not "
+                "cut a value short, it empties it, so shorten it, or raise "
+                "variable_capacity and restart, which reallocates the sign and clears it."
+                % (field, len(data), self._layout.variable_capacity)
+            )
+        return data
 
     async def _write_slot(self, slot: SlotState) -> None:
         # Content already accepted once is re-rendered leniently, so that a slot
         # restored from disk cannot fail to come back because the rules around
         # it tightened in the meantime.
-        body = render(slot.message, strict=False)
+        body = self._render_message(slot.message, strict=False)
         await self._controller.write_text_file(
             slot.label.encode("ascii"),
             body,
             mode=MODE_BY_NAME[slot.mode].value,
         )
+
+    async def _write_variable(self, variable: VariableState) -> None:
+        # Leniently, for the same reason as a slot. A lenient render can come
+        # out longer than the strict one it was accepted as, since a token this
+        # version no longer knows passes through as its own text, and the sign
+        # empties a value that overruns its file. Emptying it here says so in
+        # the log rather than leaving the sign to do it silently.
+        data = render_value(variable.shown, strict=False)
+        if len(data) > self._layout.variable_capacity:
+            logger.warning(
+                "variable %r no longer fits its file, which holds %d bytes; showing it "
+                "empty. The text was: %r",
+                variable.name,
+                self._layout.variable_capacity,
+                variable.shown,
+            )
+            data = b""
+        await self._controller.write_string_file(variable.label.encode("ascii"), data)
 
     async def _blank(self, slot: SlotState) -> None:
         """Empty a file that no longer holds a slot.
@@ -387,7 +710,8 @@ class MessageRegistry:
         So while an alert is up, the sequence is remembered and applied when the
         sign is handed back. Writing a slot's own TEXT file is not on the
         protocol's list and carries on as normal, so content stays current
-        behind the alert.
+        behind the alert. Nor is writing a variable's STRING file, and on this
+        sign that was measured leaving an alert in place.
 
         ``force`` is for startup, where the state file may say an alert was
         active but nothing has been re-asserted on the sign yet.
@@ -423,10 +747,41 @@ class MessageRegistry:
         self._store.save(self._state)
 
 
+def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
+    """Say what still calls a variable, and what to do about each."""
+    holders = []
+    remedies = []
+    if callers:
+        holders.append(
+            "%s %s"
+            % ("slot" if len(callers) == 1 else "slots", ", ".join(repr(key) for key in callers))
+        )
+        remedies.append(
+            "change or remove %s" % ("that message" if len(callers) == 1 else "those messages")
+        )
+    if alert:
+        holders.append("the alert holding the sign")
+        remedies.append("release or replace the alert")
+    return (
+        "variable %r is called by %s. First %s; deleting it now would leave %s calling a file "
+        "another variable could be given next."
+        % (
+            name,
+            " and ".join(holders),
+            " and ".join(remedies),
+            "it" if len(callers) + alert == 1 else "them",
+        )
+    )
+
+
 __all__ = [
     "LayoutFull",
     "MessageRegistry",
     "MessageTooLong",
     "RegistryError",
     "UnknownSlot",
+    "UnknownVariable",
+    "VariableInUse",
+    "VariableTooLong",
+    "VariablesDisabled",
 ]

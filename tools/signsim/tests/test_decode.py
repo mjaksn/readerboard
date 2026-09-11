@@ -16,7 +16,7 @@ import pytest
 
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
-from readerboard.protocol.markup import render
+from readerboard.protocol.markup import render, render_value
 from signsim import decode
 from signsim.framing import FrameScanner
 
@@ -62,6 +62,37 @@ class TestRoundTrip:
         assert all(not one.locked for one in command.entries)
         assert all(one.always_eligible for one in command.entries)
         assert result.complaints == ()
+
+    def test_a_memory_configuration_with_string_files(self):
+        allocations = [frames.FileAllocation(b"A", 256), frames.FileAllocation.string(b"a", 32)]
+        result = payload(frames.set_memory_config(allocations))
+        entry = result.command.entries[1]
+        assert entry.label == b"a"
+        assert entry.file_type == c.FILE_TYPE_STRING
+        assert entry.locked
+        assert entry.capacity == 32
+        assert result.complaints == ()
+
+    def test_a_string_write(self):
+        value = render_value("<red>72")
+        result = payload(frames.write_string_file(b"a", value))
+        command = result.command
+        assert isinstance(command, decode.WriteString)
+        assert command.label == b"a"
+        assert command.data == value
+        assert result.complaints == ()
+        assert command.summary == "Write STRING file a: <red>72"
+
+    def test_an_empty_string_write(self):
+        command = payload(frames.write_string_file(b"a", b"")).command
+        assert isinstance(command, decode.WriteString)
+        assert command.summary == "Empty STRING file a"
+
+    def test_a_message_calling_a_string_file(self):
+        body = render("T=<var:temp>F", variables={"temp": b"a"})
+        command = payload(frames.write_text_file(b"A", body)).command
+        assert command.body == body
+        assert "<insert string a>" in command.summary
 
     def test_clear_memory_is_not_a_memory_configuration(self):
         assert isinstance(payload(frames.clear_memory()).command, decode.ClearMemory)
@@ -114,13 +145,17 @@ class TestRoundTrip:
             frames.read_memory_pool_size,
             frames.read_run_sequence,
             frames.read_run_time_table,
+            lambda: frames.read_string_file(b"a"),
         ],
-        ids=["memory config", "pool size", "run sequence", "run time table"],
+        ids=["memory config", "pool size", "run sequence", "run time table", "string"],
     )
     def test_every_read_the_service_can_send(self, builder):
         result = payload(builder())
         assert isinstance(result.command, decode.ReadCommand)
         assert "sends nothing back" in result.command.summary
+
+    def test_a_string_read_names_the_string_file(self):
+        assert "STRING file a" in payload(frames.read_string_file(b"a")).command.summary
 
 
 class TestSpansCoverTheFrame:
@@ -138,6 +173,9 @@ class TestSpansCoverTheFrame:
             frames.set_time(14, 30),
             frames.clear_memory(),
             frames.read_run_time_table(),
+            frames.write_string_file(b"a", render_value("<green>OK")),
+            frames.write_string_file(b"a", b""),
+            frames.read_string_file(b"a"),
         ],
         ids=[
             "write",
@@ -149,6 +187,9 @@ class TestSpansCoverTheFrame:
             "time",
             "clear",
             "read",
+            "string",
+            "empty string",
+            "string read",
         ],
     )
     def test_every_byte_of_the_frame_belongs_to_exactly_one_span(self, built):
@@ -157,6 +198,27 @@ class TestSpansCoverTheFrame:
 
 
 class TestComplaints:
+    def test_a_string_value_over_the_documents_limit(self):
+        result = payload(c.COMMAND_WRITE_STRING + b"a" + b"X" * 126)
+        assert any("at most 125" in one for one in result.complaints)
+
+    def test_a_string_file_labelled_with_a_question_mark(self):
+        result = payload(c.COMMAND_WRITE_STRING + b"?72")
+        assert any("Appendix A" in one for one in result.complaints)
+
+    @pytest.mark.parametrize(
+        "data,expected",
+        [(c.CURDATE_WEEKDAYY, "date insert"), (c.STRING_FILE_INSERT + b"b", "cannot call another")],
+        ids=["date", "nested call"],
+    )
+    def test_what_the_sign_draws_wrongly_inside_a_string(self, data, expected):
+        result = payload(c.COMMAND_WRITE_STRING + b"a" + data)
+        assert any(expected in one for one in result.complaints)
+
+    def test_a_string_write_with_no_label(self):
+        result = payload(c.COMMAND_WRITE_STRING)
+        assert isinstance(result.command, decode.Unrecognised)
+
     def test_a_write_with_no_start_of_mode(self):
         result = payload(c.COMMAND_WRITE_TEXT + b"A" + b"HI")
         assert result.command.body == b"HI"

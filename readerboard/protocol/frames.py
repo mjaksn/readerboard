@@ -9,8 +9,9 @@ A complete transmission looks like this:
 
     WAKEUP  SOH  sign type  address  STX  payload  EOT
 
-The payload is one command. ``A`` writes a TEXT file and ``E`` writes a special
-function; the special function's own label follows immediately after the ``E``.
+The payload is one command. ``A`` writes a TEXT file, ``G`` writes a STRING file
+and ``E`` writes a special function; the special function's own label follows
+immediately after the ``E``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,8 @@ class FileAllocation:
 
     ``capacity`` is the file's size in bytes. ``locked`` decides whether the
     sign's own infrared keyboard may edit the file; leaving it unlocked is the
-    friendlier default for a sign hanging on a wall.
+    friendlier default for a sign hanging on a wall. A STRING file has no such
+    choice, and :meth:`string` builds one with the fields Table 15 requires.
     """
 
     label: bytes
@@ -38,6 +40,17 @@ class FileAllocation:
     file_type: bytes = c.FILE_TYPE_TEXT
     locked: bool = False
     schedule: bytes = c.TEXT_SCHEDULE_ALWAYS
+
+    @classmethod
+    def string(cls, label: bytes, capacity: int) -> FileAllocation:
+        """Describe a STRING file: locked, and scheduled with the four zeros Table 15 asks for."""
+        return cls(
+            label,
+            capacity,
+            file_type=c.FILE_TYPE_STRING,
+            locked=True,
+            schedule=c.STRING_SCHEDULE,
+        )
 
     def __post_init__(self) -> None:
         """Reject an allocation the sign could not accept."""
@@ -52,6 +65,20 @@ class FileAllocation:
             raise ProtocolError("file capacity must be between 1 and 65535, got %d" % self.capacity)
         if len(self.schedule) != 4:
             raise ProtocolError("a file schedule is exactly four bytes, got %r" % self.schedule)
+        if self.file_type == c.FILE_TYPE_STRING:
+            _check_string_label(self.label)
+            if not self.locked:
+                raise ProtocolError('a STRING file must be locked; Table 15: "L" must be selected')
+            if self.schedule != c.STRING_SCHEDULE:
+                raise ProtocolError(
+                    "a STRING file's schedule is the placeholder %r, got %r"
+                    % (c.STRING_SCHEDULE, self.schedule)
+                )
+            if self.capacity > c.STRING_FILE_CAPACITY:
+                raise ProtocolError(
+                    "a STRING file holds at most %d bytes, got %d"
+                    % (c.STRING_FILE_CAPACITY, self.capacity)
+                )
 
     def encode(self) -> bytes:
         """Render this entry as its eleven protocol characters."""
@@ -63,6 +90,14 @@ class FileAllocation:
             self.capacity,
             self.schedule,
         )
+
+
+def _check_string_label(label: bytes) -> None:
+    """Refuse a label Appendix A rules out for a STRING file."""
+    if len(label) != 1:
+        raise ProtocolError("a file label is exactly one byte, got %r" % label)
+    if label in c.STRING_FILE_FORBIDDEN_LABELS:
+        raise ProtocolError("%r cannot be a STRING file's label" % label.decode("ascii"))
 
 
 def packet(
@@ -103,6 +138,28 @@ def write_text_file(
             "this message needs %d" % (c.PRIORITY_FILE_CAPACITY, len(body))
         )
     return c.COMMAND_WRITE_TEXT + label + c.SOM + c.TEXT_POS_MIDDLE + mode + body
+
+
+def write_string_file(label: bytes, data: bytes) -> bytes:
+    """Build the payload that writes ``data`` into the STRING file ``label``.
+
+    Unlike a TEXT write, this does not blank the display: a TEXT file that calls
+    the STRING shows the new value the next time it is drawn, which in a
+    scrolling mode is the next pass. An empty ``data`` empties the STRING, and a
+    call to an empty STRING draws nothing at all.
+
+    ``data`` is checked against the document's 125 byte ceiling here, and has to
+    fit the STRING's own allocation as well, which only the caller knows. The
+    sign does not truncate a value that is too long. Measured on 2026-09-10, it
+    emptied the STRING instead, losing the previous value with it.
+    """
+    _check_string_label(label)
+    if len(data) > c.STRING_FILE_CAPACITY:
+        raise ProtocolError(
+            "a STRING file holds at most %d bytes; this value needs %d"
+            % (c.STRING_FILE_CAPACITY, len(data))
+        )
+    return c.COMMAND_WRITE_STRING + label + data
 
 
 def clear_priority_file() -> bytes:
@@ -306,6 +363,19 @@ def read_memory_pool_size() -> bytes:
 def read_run_sequence() -> bytes:
     """Ask the sign which files it is currently playing, and in what order."""
     return read_special(c.SF_SET_RUN_SEQUENCE)
+
+
+def read_string_file(label: bytes) -> bytes:
+    """Ask the sign what the STRING file ``label`` holds.
+
+    The sign answers with the write command ``G``, the label and the data, as
+    it does for special function reads. Nothing in the service sends this: the
+    display blanks briefly while the sign answers, and a label that was never
+    allocated answers with no data, which leaves nothing to tell it from an
+    empty STRING.
+    """
+    _check_string_label(label)
+    return c.COMMAND_READ_STRING + label
 
 
 def read_run_time_table() -> bytes:

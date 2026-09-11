@@ -110,25 +110,76 @@ def test_each_set_is_filled_by_exactly_one_endpoint():
 
 def test_the_markup_fields_are_the_ones_that_take_markup():
     markup = {
-        (operation.id, item.name)
+        (operation.id, item.name, item.markup)
         for operation in catalogue.OPERATIONS
         for item in operation.body
         if item.markup
     }
     assert markup == {
-        ("put_message", "message"),
-        ("post_alert", "message"),
+        ("put_message", "message", catalogue.MARKUP_TOKENS),
+        ("post_alert", "message", catalogue.MARKUP_TOKENS),
+        ("put_variable", "value", catalogue.VALUE_TOKENS),
     }
 
 
-def test_the_only_field_that_loads_from_the_sign_is_the_message_being_replaced():
+def test_every_markup_field_offers_a_set_something_can_load():
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if item.markup:
+                assert item.markup in catalogue.SET_ORDER, (operation.id, item.name)
+
+
+def test_every_key_loader_lists_the_resource_its_parameter_names():
+    """The Load keys button reads each listed item under the parameter's own name.
+
+    So the list operation has to answer with items carrying that field, and it
+    has to be a read: a loader wired to a write would change the thing it lists.
+    """
+    for operation in catalogue.OPERATIONS:
+        for item in operation.path_inputs:
+            if not item.keys_from:
+                continue
+            source = catalogue.BY_ID[item.keys_from]
+            assert source.method == "GET", item.keys_from
+            document = json.loads(OPENAPI.read_text(encoding="utf-8"))
+            schema = document["paths"][source.path]["get"]["responses"]["200"]["content"][
+                "application/json"
+            ]["schema"]
+            name = schema["items"]["$ref"].rsplit("/", 1)[-1]
+            assert item.name in document["components"]["schemas"][name]["properties"], (
+                operation.id,
+                item.name,
+            )
+
+
+def test_the_key_loaders_are_the_ones_for_messages_and_variables():
+    loaders = {
+        (operation.id, item.keys_from)
+        for operation in catalogue.OPERATIONS
+        for item in operation.path_inputs
+        if item.keys_from
+    }
+    assert loaders == {
+        ("get_message", "list_messages"),
+        ("put_message", "list_messages"),
+        ("delete_message", "list_messages"),
+        ("get_variable", "list_variables"),
+        ("put_variable", "list_variables"),
+        ("delete_variable", "list_variables"),
+    }
+
+
+def test_the_fields_that_load_from_the_sign_are_the_content_being_replaced():
     loaders = {
         (operation.id, item.name, item.fill_from)
         for operation in catalogue.OPERATIONS
         for item in operation.body
         if item.fill_from
     }
-    assert loaders == {("put_message", "message", "get_message")}
+    assert loaders == {
+        ("put_message", "message", "get_message"),
+        ("put_variable", "value", "get_variable"),
+    }
 
 
 def test_a_field_loads_from_an_operation_that_exists():
@@ -165,14 +216,17 @@ def test_a_field_loads_from_an_operation_taking_the_same_path_parameters():
             ], item.fill_from
 
 
-def test_the_only_duration_read_back_from_a_moment_is_the_message_deadline():
+def test_the_durations_read_back_from_a_moment_are_the_two_deadlines():
     durations = {
         (operation.id, item.name, item.seconds_until)
         for operation in catalogue.OPERATIONS
         for item in operation.body
         if item.seconds_until
     }
-    assert durations == {("put_message", "ttl_seconds", "expires_at")}
+    assert durations == {
+        ("put_message", "ttl_seconds", "expires_at"),
+        ("put_variable", "ttl_seconds", "expires_at"),
+    }
 
 
 def test_a_duration_field_is_a_number():

@@ -18,7 +18,9 @@ fixed-pitch buzzer, and twenty of the protocol's ways to draw text collapse into
 display seven pixels high.
 
 `scripts/protocol_spike.py` re-proves the wire formats end to end. It is destructive, and
-it refuses to run without `--confirm-erase`.
+it refuses to run without `--confirm-erase`. `scripts/string_file_spike.py` does the same
+for STRING files, which a session on 2026-09-10 measured; see "STRING files, measured on
+the sign".
 
 ## Sources
 
@@ -418,6 +420,86 @@ its way past would leave `SPEAKER OFF` unable to hold, so nothing but `SPEAKER` 
 this register. A sign found silent is a sign whose register is `FF`, and that is the first
 thing to check when `SOUND` appears to do nothing.
 
+## STRING files, measured on the sign
+
+A STRING file is a small file that a TEXT file calls inline with 10H followed by the
+STRING's label. It is written with `G` (47H) and read with `H` (48H). The document's case
+for it is the one this service has: "applications where a string of frequently changing
+data must be transmitted to, and displayed by, a sign", and "When writing STRING files to a
+message center, the display will not blank as it does when writing TEXT files. This is
+because the STRING file data is buffered and TEXT file internal Checksum does not change.
+Because the STRING file data is buffered, the size of a STRING file is limited to 125
+bytes."
+
+It has to be allocated in the memory configuration first, as type `B`, and Table 15 adds
+two rules for that entry: "For a STRING file, "L" must be selected", and "For a STRING
+file, use "0000" as place holders". Appendix A adds that "File Label "0" (30H) and "?"
+(3FH) can not be used as STRING file labels." Table 18 then lists what a STRING may hold:
+20H to 7FH and eleven control codes, with the note "Rainbow 1 and 2 colors do not work in
+STRING files".
+
+`scripts/string_file_spike.py` put all of that to the sign on 2026-09-10, beside a TEXT
+file calling each STRING. What it found:
+
+| Question | What the sign did |
+| --- | --- |
+| Are `a` to `z` files of their own, apart from `A` to `Z`? | Yes. STRING `a` beside TEXT `A` drew `UP:low`, and for the rest of the session neither disturbed the other. |
+| Does a STRING write blank the display? | No. Three TEXT rewrites blinked each time; six STRING writes changed the number with no blink. |
+| And in the middle of a ROTATE scroll? | No restart, jump or blank either. The new value is not drawn mid-pass: it appears on the next pass. |
+| Does a changing value move the text around it? | Yes, with proportional spacing, as Appendix D warns. With `<fixed_width>` in the TEXT file before the call the text stayed put, and the line was left justified rather than centred, which is what that token already says it does. |
+| A degree sign in the TEXT file after the call? | `72°F`, drawn correctly. |
+| The control codes Table 18 allows | All worked: colour, two colours in one value, half height, fixed width, the time, a new line and the speeds. |
+| The codes Table 18 leaves out | Most worked anyway: rainbow 1, colour mix, flash, bold (1DH), the degree sign in both its 08H 49H and A9H forms, É at 90H, and a new page. Two failed. The day of week (0BH 39H) drew a literal `9`, and a STRING calling another STRING drew the label as a letter, `XbX`. |
+| Does formatting set in a STRING stay in it? | No. A colour, the half height character set and a speed set inside a STRING all carried on into the TEXT file after the call. |
+| What does a call to nothing draw? | Nothing at all, not even a space, whether the STRING was allocated and never written, never allocated, or the label was a TEXT file's. |
+| A STRING written past its size | Emptied. Twenty-four bytes into a 16-byte STRING and 130 into a 125-byte one each left the call drawing nothing. Not truncated and not refused: the previous value was lost too. |
+| Can the priority file call a STRING? | Yes. An alert calling one drew it, a STRING write during the alert changed the number inside it, and the alert kept the sign throughout. The bare release brought the rotation back as usual. |
+| What does a read return? | What Table 20 says: `G`, the label, the data, ETX and a checksum, which summed correctly by hand (`027B` for `GaREAD ME`). The display blanked briefly mid-scroll and picked up from about where it was. A read of a label never allocated came back as `Gz` with no data. No empty STRING was read, but that reply has nowhere to say "not allocated", so presumably the two look the same. |
+| Does a STRING survive a power cycle? | A short one, yes, and so did the TEXT file calling it: `PC:42` came back. Not one to rely on, though. From experience with this sign, its memory lasts through about five minutes unplugged and is gone after a day or more, and the point between has not been pinned down. So the service goes on assuming a power cut can wipe the sign, which is what the periodic refresh repairs. |
+
+One sample was tried from each family of codes rather than every token: one character set
+of the three, one 1DH attribute of the two, two speeds of five, two of the extended
+character forms, rainbow 1 but not rainbow 2 or automatic colour, and none of `<block>`,
+`<half_space>` or `<no_hold_speed>`. The rule below is an inference by family from those.
+
+The spike looked for each STRING's entry in the `F$` memory configuration reply and found
+none, although the files plainly existed. The reply explains it, and the fault was the
+reader's, not the sign's:
+
+```
+<- 49 bytes: b'\x01000\x02E$AAU0100FFFFBAU00'
+```
+
+That stops five characters into the second entry, with no ETX, checksum or EOT after it.
+The spike stopped collecting once the line had been quiet for 200 ms, and the rest of a
+reply that long arrived later than that. So how the sign lists a STRING entry is still
+unmeasured, and the spike's reader now reads until the EOT that ends every reply.
+`SignController.read_special` stopped on the same 200 ms rule and now reads to the EOT
+too, as described under "Reading state back".
+
+And at speed 5 the person watching counted eight repetitions of a word sent five times,
+which is more likely a count lost at that speed than the sign repeating anything.
+
+What this settles for the service:
+
+- **Table 18's list is not this sign's list.** The document says rainbow does not work in a
+  STRING, and it does. What a STRING cannot hold is narrower than the document says: the
+  date inserts (0BH), and another STRING call. Every family of code the message markup
+  offers that was tried worked. The service's rule for a value is therefore the message
+  markup less those two, not the document's list.
+- **Formatting in a value leaks.** A value of `<red>DOWN` turns the rest of the message red
+  too. A TEXT file that cares what colour follows a call has to set it again after the
+  call.
+- **The size check is the service's job, and it is not optional.** An overrun does not cut
+  the value short, it destroys it.
+- **A dangling call is invisible.** A call whose STRING has gone draws nothing, not garbage,
+  and a freshly allocated STRING needs no blanking before it is used.
+- **Alerts can carry live values**, and a STRING write needs no deferral while an alert is
+  up. It is not on the list of things that cancel one, and on this sign it did not. That
+  rests on one alert calling one STRING, which is all the session tried.
+- **Reading a STRING back has no place in normal running.** It blanks the display, and it
+  cannot tell an unallocated label from an empty one.
+
 ## What the spike still has to confirm
 
 The wire format questions are closed. Four behavioural ones were open, and a session with
@@ -677,19 +759,8 @@ These are not exclusions. The document offers them, nothing says this sign lacks
 the service simply does not use them. They are recorded so that "we never thought of it"
 and "we thought about it" stay distinguishable.
 
-**STRING files** (`G` and `H`, called from a TEXT file with 10H). The document's stated
-purpose is this project's use case: "applications where a string of frequently changing
-data must be transmitted to, and displayed by, a sign. Applications include the storage of
-a number which changes often, such as a temperature, a quantity, or a timer." The property
-that matters is the next one: "When writing STRING files to a message center, the display
-will not blank as it does when writing TEXT files. This is because the STRING file data is
-buffered and TEXT file internal Checksum does not change."
-
-Every update this service makes rewrites a TEXT file and restarts the message. A STRING
-file would not. The cost is that memory must be allocated for them first, which is the one
-dangerous operation, once; a STRING file is capped at 125 bytes; and it accepts only a
-subset of the control codes, with a specific note that "Rainbow 1 and 2 colors do not work
-in STRING files".
+STRING files were on this list until they were measured on the sign. They have a section
+of their own above, "STRING files, measured on the sign".
 
 **SMALL DOTS PICTURE files** (`I` and `J`, called with 14H, or by name with 1FH). Bitmaps
 up to 31 by 255 pixels that "can be used to create virtually any logo pattern on the
@@ -742,10 +813,12 @@ feature. `constants.PROTOCOL_GENERATION` records this.
 **File labels.** Valid labels are any printable ASCII from 0x20 to 0x7E, and a run
 sequence holds up to 128 of them, so the real ceiling on how many messages can share the
 sign is the memory pool in bytes rather than a count of files. This service allocates `A`
-through `Z` anyway, because a label a person can read in a log line is worth more than
-the extra capacity. Two ranges are avoided outright: `0`, which is the priority file,
-and `1` through `5`, which become reserved target files if the sign's counter feature is
-ever switched on.
+through `Z` for TEXT files and `a` through `z` for STRING files anyway, because a label a
+person can read in a log line is worth more than the extra capacity. That the two cases
+are different files was measured, not read; see "STRING files, measured on the sign".
+Two ranges are avoided outright: `0`, which is the priority file, and `1` through `5`,
+which become reserved target files if the sign's counter feature is ever switched on.
+Appendix A rules `?` out for a STRING file as well.
 
 **Timing.** The inter-byte timeout for a standard packet is one second, and a nested
 packet needs at least 100 ms after its `STX`. This service sends no nested packets. The

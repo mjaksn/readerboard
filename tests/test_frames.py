@@ -109,6 +109,69 @@ class TestMemoryConfiguration:
         with pytest.raises(frames.ProtocolError, match="between 1 and 65535"):
             frames.FileAllocation(b"A", 0)
 
+    def test_the_documents_own_text_and_string_example(self):
+        # Table 34, "Using STRING files example: STEP 1", sends
+        # E$AAU0400FF001BL00200000: TEXT file A calling STRING file 1.
+        built = frames.set_memory_config(
+            [
+                frames.FileAllocation(b"A", 0x400, schedule=b"FF00"),
+                frames.FileAllocation.string(b"1", 0x20),
+            ]
+        )
+        assert built == b"E$AAU0400FF001BL00200000"
+
+    def test_a_string_file_is_locked_and_scheduled_with_zeros(self):
+        assert frames.FileAllocation.string(b"a", 32).encode() == b"aBL00200000"
+
+    def test_a_string_file_must_be_locked(self):
+        with pytest.raises(frames.ProtocolError, match="must be locked"):
+            frames.FileAllocation(
+                b"a", 32, file_type=c.FILE_TYPE_STRING, schedule=c.STRING_SCHEDULE
+            )
+
+    def test_a_string_file_must_carry_the_zero_schedule(self):
+        with pytest.raises(frames.ProtocolError, match="placeholder"):
+            frames.FileAllocation(b"a", 32, file_type=c.FILE_TYPE_STRING, locked=True)
+
+    def test_a_string_file_holds_at_most_125_bytes(self):
+        assert frames.FileAllocation.string(b"a", 125).capacity == 125
+        with pytest.raises(frames.ProtocolError, match="at most 125"):
+            frames.FileAllocation.string(b"a", 126)
+
+    def test_question_mark_cannot_label_a_string_file(self):
+        with pytest.raises(frames.ProtocolError, match="cannot be a STRING"):
+            frames.FileAllocation.string(b"?", 32)
+
+
+class TestStringFiles:
+    def test_writing_is_g_then_the_label_then_the_data(self):
+        assert frames.write_string_file(b"a", b"72") == b"Ga72"
+
+    def test_the_documents_counter_example(self):
+        # Table 36, "Using STRING files example: STEP 3", updates STRING 1 to
+        # read 364 by sending G1364.
+        assert frames.write_string_file(b"1", b"364") == b"G1364"
+
+    def test_an_empty_value_empties_the_string(self):
+        assert frames.write_string_file(b"a", b"") == b"Ga"
+
+    def test_a_value_of_exactly_125_bytes_is_allowed(self):
+        assert frames.write_string_file(b"a", b"X" * 125).endswith(b"X" * 125)
+
+    def test_a_value_over_125_bytes_is_rejected(self):
+        # The sign empties a STRING written past its size rather than cutting the
+        # value short, so this has to fail here.
+        with pytest.raises(frames.ProtocolError, match="at most 125"):
+            frames.write_string_file(b"a", b"X" * 126)
+
+    @pytest.mark.parametrize("label", [b"0", b"?"])
+    def test_the_two_forbidden_labels_are_rejected(self, label):
+        with pytest.raises(frames.ProtocolError, match="cannot be a STRING"):
+            frames.write_string_file(label, b"72")
+
+    def test_reading_is_h_then_the_label(self):
+        assert frames.read_string_file(b"a") == b"Ha"
+
 
 class TestRunSequence:
     def test_labels_appear_in_the_order_given(self):

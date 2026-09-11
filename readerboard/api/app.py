@@ -45,6 +45,10 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the registered slots by itself. An **alert** takes the
 whole display over until it is released, then the rotation resumes.
 
+A **variable** is a value a slot's message or an alert calls with `<var:name>`.
+Changing it rewrites only the variable, so the sign shows the new value without
+blanking or restarting what calls it.
+
 Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
 which reads the sign rather than the service: it puts a question on the wire and
 holds the sign until the answer comes back. The service's own reads and
@@ -53,13 +57,14 @@ holds the sign until the answer comes back. The service's own reads and
 
 A failure is reported by the status code, with the reason in a `detail` field:
 400 for a command the sign does not have, a parameter it will not accept, a
-message too long for its slot or markup the sign cannot render, 401 for a
-missing or wrong `X-API-Key`, 404 for a slot nothing has registered, 409 when
-every message slot is already in use, 503 when the sign is unreachable, stops
-partway through an answer or answers with something the service cannot read,
-or no API key is configured at all, 500 for something the service has no code
-for, and 422 for a body that is not the shape the endpoint declares, which
-includes a display mode the sign does not have.
+message or value too long for its file, markup the sign cannot render or a call
+to a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404
+for a slot or variable that does not exist, 409 when every slot or every
+variable is already in use or a variable something still calls is deleted, 503
+when the sign is unreachable, stops partway through an answer or answers with
+something the service cannot read, or no API key is configured at all, 500 for
+something the service has no code for, and 422 for a body that is not the shape
+the endpoint declares, which includes a display mode the sign does not have.
 """
 
 
@@ -99,7 +104,7 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
 
 
 async def _sweep_loop(app: FastAPI, interval: float) -> None:
-    """Expire slots and alerts whose deadlines have passed."""
+    """Expire slots and alerts, and turn variables stale, once their deadlines pass."""
     registry: MessageRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 
@@ -137,7 +142,12 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         )
         store = StateStore(settings.state_path)
         state = store.load()
-        layout = Layout(settings.slot_count, settings.slot_capacity)
+        layout = Layout(
+            settings.slot_count,
+            settings.slot_capacity,
+            settings.variable_count,
+            settings.variable_capacity,
+        )
         alerts = AlertService(controller, store, state)
         registry = MessageRegistry(
             controller, layout, store, state, alert_active=lambda: alerts.active is not None
@@ -145,6 +155,9 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # An alert holding the sign makes the registry hold back run sequence
         # writes; releasing it is what lets them through.
         alerts.set_release_hook(registry.flush_deferred)
+        # And an alert calling a variable is rendered by the registry, under its
+        # lock, so the variable cannot be deleted while the alert calls it.
+        alerts.set_rendering(registry.rendering)
         clock = ClockService(
             controller,
             interval_seconds=settings.clock_sync_interval_seconds,
@@ -240,6 +253,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         clock = get_clock(request)
 
         used, total = registry.occupancy
+        variables_used, variables_total = registry.variable_occupancy
         return HealthResponse(
             status="ok" if controller.is_connected else "degraded",
             version=__version__,
@@ -253,6 +267,8 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             ),
             slots_used=used,
             slots_total=total,
+            variables_used=variables_used,
+            variables_total=variables_total,
             sign_in_sync=registry.in_sync,
             alert_active=alerts.active is not None,
             clock_last_synced_at=clock.last_sync_at,
