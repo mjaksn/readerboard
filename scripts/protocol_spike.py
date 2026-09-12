@@ -130,6 +130,9 @@ def step_2_memory(link: serial.Serial, settle: float) -> None:
     print("\nStep 2: set the memory configuration (this erases the sign)")
     allocations = [frames.FileAllocation(label, SLOT_CAPACITY) for label in POOL]
     print("  claiming %d bytes of the memory pool" % frames.memory_claimed(allocations))
+    print("  Watch the display now, before this goes out. The blank is brief: a run")
+    print("  on 2026-09-11 missed it and recorded the wrong answer, and it took two")
+    print("  more attempts to see it.")
     send(link, frames.set_memory_config(allocations), label="allocate A, B, C", settle=settle)
     ask("Did the sign go blank, and did any old message disappear? [y/n]")
 

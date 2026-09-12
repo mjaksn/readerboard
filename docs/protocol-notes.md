@@ -121,6 +121,15 @@ reset to sit through. It used to be skipped when `inter_packet_delay` was zero, 
 conflated how fast this end may talk with how long the sign is deaf; a real sign paced as
 fast as the line allows takes just as long to come back.
 
+### The erase is visible, and quick, measured on the sign
+
+On 2026-09-11 the spike's step 2, a memory configuration write with no clear before it, was
+watched three times over. The display does blank. It is brief, brief enough that the first
+run through recorded no blank at all and the answer had to be corrected after two more
+attempts. None of that is reassuring and none of it should be read that way: a memory
+configuration write is destructive whether or not anybody catches the moment it happens.
+The warning in AGENTS.md under "The one dangerous operation" stands exactly as written.
+
 ### The start and stop times
 
 Appendix B encodes times in ten minute steps, `00` for midnight through to the small
