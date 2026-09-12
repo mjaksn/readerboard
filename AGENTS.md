@@ -68,8 +68,11 @@ And being told to, which needs no reason.
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
-under `readerboard/protocol/`. It also lists the five questions the document
-cannot answer, all of which two sessions with the sign have now settled.
+under `readerboard/protocol/`. It also lists the ten questions the document
+cannot answer, all of which three sessions with the sign have now settled. Two
+of those answers were wrong the first time and were caught on a repeat run, and
+both were about something brief on the display; the record of how is kept beside
+each answer, because it is the part that generalises.
 
 ## The one dangerous operation
 
@@ -156,9 +159,10 @@ design: the host does not rotate anything.
 
 A slot can also be **hidden**, which is `PUT /messages/{key}/active` and
 `MessageRegistry.set_active`. The run sequence names the active slots and
-nothing else, so hiding one is a sequence write and costs the messages still
-showing nothing: a sequence written while the rotation was on screen was
-measured leaving it running, with no blank and no restart. A hidden slot keeps
+nothing else, so hiding one is a single sequence write. That write does disturb
+the display, measured on 2026-09-12, but far less than rewriting a TEXT file:
+short enough to be imperceptible when anything else on screen is changing, and
+easy to miss even on static content. A hidden slot keeps
 its file, its order, its text and its name, so showing it again needs no copy of
 the message.
 

@@ -19,18 +19,25 @@ library, and the names inside it may move without that being a breaking change.
   with `{"active": false}` takes a message off the display and leaves it
   registered, keeping its slot, its file, its place in the order and its text, so
   `{"active": true}` shows it again and needs no copy of what it said. The run
-  sequence names the active slots and nothing else, which is the whole mechanism,
-  and the messages still showing carry on without a blank or a restart. A hidden
-  slot still counts against `slot_count`, since it is still holding a file.
+  sequence names the active slots and nothing else, which is the whole mechanism.
+  A hidden slot still counts against `slot_count`, since it is still holding a
+  file.
 
   Switching one either way is a single run sequence write while any other message
-  is playing. The hidden file keeps its text, so there is nothing to send back
-  when it is shown again, and the sign was measured taking a sequence write with
-  the rotation on screen without a blink. The exception is the last message on
-  the sign: hiding that one empties its file as well, because a sign whose run
-  sequence names nothing freezes on whatever it was drawing and holds it, so the
-  display would otherwise never clear. Coming back from there costs the text and
-  the sequence both.
+  is playing, and the hidden file keeps its text so there is nothing to send back
+  when it is shown again. That write is not invisible: it disturbs the display
+  briefly, measured on 2026-09-12. What makes it worth having is the comparison.
+  Rewriting a message's TEXT file restarts it with a blank you notice from across
+  the room; a sequence write is short enough to be imperceptible when anything
+  else on screen is changing, and easy to miss even on static content. So taking
+  a message off the display and putting it back is much cheaper than sending it
+  again.
+
+  The exception is the last message on the sign: hiding that one empties its file
+  as well, because a sign whose run sequence names nothing freezes on whatever it
+  was drawing and holds it, so the display would otherwise never clear. Emptying
+  that file does clear it, measured on the same day. Coming back from there costs
+  the text and the sequence both.
 
   `active` is also a field on `PUT /messages/{key}`, where it is optional and
   three-valued. Left out, it leaves the message showing or hidden exactly as it
@@ -684,10 +691,18 @@ Removed section before upgrading.**
 
   `PUT /messages/{key}` takes the same floor, for a different reason. An empty
   message there is not the release sequence, it is a slot held open around
-  nothing: the sign cycles to a file with no text in it and the pool is a slot
+  nothing: the sign gives a file with no text in it no turn of its own but does
+  hold the message before it several seconds longer, and the pool is a slot
   smaller for it. `DELETE /messages/{key}` is how a slot is given back, and it
   always was. A service upgraded with one already in its state file drops it on
   the next start and hands the file back to the pool.
+
+  **[Corrected 2026-09-12]** The paragraph above said the sign "cycles to a file
+  with no text in it". That was never measured and it is wrong, and it is
+  reworded here rather than left to mislead. What the sign actually does is
+  above; `docs/protocol-notes.md`, question 7, has the measurement and the two
+  wrong answers that preceded it. Nothing about the release changed: an empty
+  message was refused in 0.4.0 and is refused now, for the same reason.
 
 - **A control command parameter of digits the sign never meant is now a 400.**
   `SET_TIME` and `SET_DAY_OF_WEEK` guarded their parameter with `str.isdigit`

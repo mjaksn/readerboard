@@ -229,8 +229,9 @@ class TestMessages:
 
     def test_an_empty_message_is_rejected(self, client):
         # It is not how a slot is given back, and accepted it would hold one
-        # open around nothing: the sign cycles to a file with no text in it and
-        # the pool is a slot smaller for it. DELETE is the way.
+        # open around nothing: the sign gives an empty file no turn of its own
+        # but drags on the message before it, and the pool is a slot smaller
+        # for it. DELETE is the way.
         response = client.put("/messages/one", json={"message": ""}, headers=HEADERS)
         assert response.status_code == 422
         assert client.get("/messages").json() == []

@@ -231,8 +231,8 @@ OPERATIONS: tuple[Operation, ...] = (
         formatter="slot",
         note=(
             "A hidden message keeps its slot, its file, its text and its place in the "
-            "order, so showing it again needs no copy of what it said. The messages "
-            "still showing carry on without a blank or a restart."
+            "order, so showing it again needs no copy of what it said. It costs one run "
+            "sequence write, which disturbs the display far less than rewriting a message."
         ),
     ),
     Operation(
