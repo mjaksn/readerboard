@@ -256,8 +256,8 @@ def _start_service(args: argparse.Namespace, address: str) -> subprocess.Popen[s
             "READERBOARD_PORT": str(args.api_port),
             "READERBOARD_LOG_LEVEL": args.log_level,
             "READERBOARD_CLOCK_SYNC_ENABLED": "true" if args.clock_sync else "false",
-            # There is no serial line to be gentle with, so waiting half a second
-            # between packets only makes the log arrive slowly.
+            # There is no serial line to be gentle with, so waiting a quarter of a
+            # second between packets only makes the log arrive slowly.
             "READERBOARD_INTER_PACKET_DELAY": "0",
             # And no sign, so nothing goes deaf: the simulator has no power-up
             # diagnostics to run and no speaker to switch its port off for.

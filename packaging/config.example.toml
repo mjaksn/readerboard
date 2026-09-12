@@ -123,8 +123,9 @@ api_key = ""
 # configurations in .vscode/launch.json and .idea/runConfigurations/ set
 # READERBOARD_OPEN_DOCS rather than editing this, and that includes the ones
 # that run against a real sign, which read the ignored config.local.toml: a
-# copy of this file holding a generated key and little else, since those
-# configurations carry the sign's address themselves.
+# short file of its own that scripts/run_against_a_sign.py writes with a
+# generated key, and with the sign's address for the configurations that do not
+# pass one themselves.
 open_docs = false
 
 # == state and logging =======================================================

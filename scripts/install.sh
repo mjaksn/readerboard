@@ -193,8 +193,9 @@ cat <<NEXT
     2. Check it found the sign:
          curl -s http://localhost:$PORT/health
 
-    3. Give every client the X-API-Key header shown above. Writes without it
-       are refused.
+    3. Give every client the X-API-Key header. The key is in $CONFIG_FILE, and
+       is printed above when this run generated it. Writes without it are
+       refused.
 
     4. Nothing else needs to set the sign's clock. This service does it at
        startup, hourly, and whenever the link to the sign comes back.
