@@ -156,9 +156,10 @@ design: the host does not rotate anything.
 
 A slot can also be **hidden**, which is `PUT /messages/{key}/active` and
 `MessageRegistry.set_active`. The run sequence names the active slots and
-nothing else, so hiding one is a sequence write and costs the messages still
-showing nothing: a sequence written while the rotation was on screen was
-measured leaving it running, with no blank and no restart. A hidden slot keeps
+nothing else, so hiding one is a single sequence write. That write does disturb
+the display, measured on 2026-09-12, but far less than rewriting a TEXT file:
+short enough to be imperceptible when anything else on screen is changing, and
+easy to miss even on static content. A hidden slot keeps
 its file, its order, its text and its name, so showing it again needs no copy of
 the message.
 

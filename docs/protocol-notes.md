@@ -521,9 +521,22 @@ came out of the fifth, and the service already behaves as though it knows.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
-2. **Does rewriting only the run sequence disturb the display?** Answered no. A run
-   sequence written while the rotation was on screen left it running, with no blank and no
-   restart. So a slot expiring by TTL, which rewrites the sequence, costs nothing visible.
+2. **Does rewriting only the run sequence disturb the display?** Answered **yes, but
+   barely**, on 2026-09-12. It was recorded as "no" on 2026-09-09, and that was wrong for
+   the same reason the memory configuration blank was: the disturbance is short enough to
+   be missed. It took several runs to be sure of it.
+
+   The size of it is the whole point. A run sequence write disturbs the display for
+   noticeably less time than a TEXT file write does. Where it coincides with anything else
+   changing on screen, the rotation moving to the next file, flashing text, a message
+   turning its page, it is effectively imperceptible. Even on completely static content it
+   is easy to miss unless you are watching for it. The operator's own comparison: a TEXT
+   write is a disturbance that grabs your attention from across the room, and a sequence
+   write is one you are likely to miss unless you are staring at the sign.
+
+   So a slot expiring by TTL, or being hidden or shown, is not free, and nothing here
+   should say it is. It is cheap enough that hiding a message is much the better way to
+   take it off the display, which is what the `active` flag is for.
 3. **Does a run sequence write cancel a running priority message?** Answered no, on
    2026-09-11. With ALERT holding the whole display, the run sequence was rewritten from
    A B C to A B, a real change rather than a no-op, and the alert stayed up. The service

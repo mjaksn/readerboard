@@ -480,10 +480,11 @@ class MessageRegistry:
 
         Its file keeps its text, so switching it back on is one run sequence
         write and nothing else: the controller still holds those exact bytes
-        for that file and declines to write them again. A run sequence written
-        while the rotation was on screen was measured leaving it running with
-        no blank and no restart, so a slot joins or leaves the rotation without
-        disturbing the messages around it.
+        for that file and declines to write them again. That write does disturb
+        the display, measured on 2026-09-12, but far less than rewriting a TEXT
+        file does: short enough to be imperceptible when anything else on screen
+        is changing, and easy to miss even on static content. Writing the text
+        as well would double the cost for nothing.
 
         The exception is the last one. A sign handed a run sequence naming
         nothing freezes on the message it was drawing and holds it indefinitely,
@@ -834,8 +835,9 @@ class MessageRegistry:
         draws what the run sequence names and nothing else, so the bytes sit
         there unseen, and switching the slot back on is then one run sequence
         write and no more: the controller still holds those exact bytes for
-        that file and declines to write them again. That is the write the spike
-        measured leaving the rotation running with no blank and no restart.
+        that file and declines to write them again. That write is not free, but
+        it was measured on 2026-09-12 disturbing the display far less than a
+        TEXT write does, briefly enough to be missed unless watched for.
 
         Emptying it instead would cost a second write to put the text back, and
         rewriting a TEXT file restarts the message in it, which is a visible

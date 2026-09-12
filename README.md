@@ -242,8 +242,10 @@ curl -X PUT http://localhost:5001/messages/doorbell/active \
 ```
 
 A hidden message keeps its slot, its place in the order and its text, so showing it again
-takes `{"active": true}` and no copy of what it said. The messages still showing carry on
-without a blink.
+takes `{"active": true}` and no copy of what it said. Hiding or showing one is a single run
+sequence write. That does disturb the display briefly, but far less than rewriting a
+message does: enough less that it is easy to miss unless you are watching for it on a
+static screen.
 
 `active` is a field on the message endpoint too, where leaving it out is the point: a
 source re-sending the same content every few minutes says nothing about it and so cannot

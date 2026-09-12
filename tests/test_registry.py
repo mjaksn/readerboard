@@ -212,9 +212,10 @@ class TestActive:
     async def test_hiding_one_with_others_playing_costs_one_sequence_write(
         self, registry, transport
     ):
-        # The measurement this is built on: a sequence write leaves the rotation
-        # running, and rewriting a TEXT file restarts the message in it. So
-        # hiding is the sequence and nothing else, or it blinks for nothing.
+        # The measurement this is built on: a sequence write disturbs the
+        # display far less than rewriting a TEXT file, which restarts the
+        # message in it. So hiding is the sequence and nothing else, or it
+        # pays the larger disturbance for nothing.
         await add(registry, "one", "HELLO")
         await add(registry, "two")
         transport.clear()

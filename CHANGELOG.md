@@ -19,18 +19,25 @@ library, and the names inside it may move without that being a breaking change.
   with `{"active": false}` takes a message off the display and leaves it
   registered, keeping its slot, its file, its place in the order and its text, so
   `{"active": true}` shows it again and needs no copy of what it said. The run
-  sequence names the active slots and nothing else, which is the whole mechanism,
-  and the messages still showing carry on without a blank or a restart. A hidden
-  slot still counts against `slot_count`, since it is still holding a file.
+  sequence names the active slots and nothing else, which is the whole mechanism.
+  A hidden slot still counts against `slot_count`, since it is still holding a
+  file.
 
   Switching one either way is a single run sequence write while any other message
-  is playing. The hidden file keeps its text, so there is nothing to send back
-  when it is shown again, and the sign was measured taking a sequence write with
-  the rotation on screen without a blink. The exception is the last message on
-  the sign: hiding that one empties its file as well, because a sign whose run
-  sequence names nothing freezes on whatever it was drawing and holds it, so the
-  display would otherwise never clear. Coming back from there costs the text and
-  the sequence both.
+  is playing, and the hidden file keeps its text so there is nothing to send back
+  when it is shown again. That write is not invisible: it disturbs the display
+  briefly, measured on 2026-09-12. What makes it worth having is the comparison.
+  Rewriting a message's TEXT file restarts it with a blank you notice from across
+  the room; a sequence write is short enough to be imperceptible when anything
+  else on screen is changing, and easy to miss even on static content. So taking
+  a message off the display and putting it back is much cheaper than sending it
+  again.
+
+  The exception is the last message on the sign: hiding that one empties its file
+  as well, because a sign whose run sequence names nothing freezes on whatever it
+  was drawing and holds it, so the display would otherwise never clear. Emptying
+  that file does clear it, measured on the same day. Coming back from there costs
+  the text and the sequence both.
 
   `active` is also a field on `PUT /messages/{key}`, where it is optional and
   three-valued. Left out, it leaves the message showing or hidden exactly as it

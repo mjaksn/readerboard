@@ -13,7 +13,9 @@ and caught on a repeat.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
-   does exactly that, every time.
+   does exactly that, every time. It does, briefly, and much less than a TEXT
+   file write does; it was recorded as not disturbing it at all until somebody
+   watched several runs.
 3. Does a run sequence write cancel a running priority message? The document
    says a write to the run time or run day table does, and is silent about the
    run sequence. The alert survived, which is why the service now sends these
@@ -163,10 +165,15 @@ def step_3_rotation(link: serial.Serial, settle: float) -> None:
     ask("Does it cycle ONE, TWO, THREE by itself? [y/n]")
     ask("Is the rotation seamless, with no blanking between messages? [y/n]")
 
-    print("\n  Now only the run sequence changes, which is what a slot expiring does.")
+    print("\n  Now only the run sequence changes, which is what a slot expiring or")
+    print("  being hidden does. It does disturb the display, but briefly: much less")
+    print("  than the blank a TEXT file write causes, and short enough to vanish into")
+    print("  any other change on screen. It was recorded as causing none at all until")
+    print("  somebody watched several runs, so watch a static moment and watch closely.")
     send(link, frames.set_run_sequence([b"A", b"C"]), label="run sequence A C", settle=settle)
     ask("Has TWO dropped out, leaving ONE and THREE? [y/n]")
-    ask("Did changing only the run sequence blank or restart the display? [y/n]")
+    ask("How much did the display flinch? [none/brief/full restart/other]")
+    ask("Was it smaller than the blank a TEXT file write causes? [y/n]")
 
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
 
