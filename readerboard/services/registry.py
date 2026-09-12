@@ -6,10 +6,10 @@ writes to its own slot without knowing or caring about the others. Writing to a
 slot that already exists replaces it rather than adding another, so a source
 that re-sends every five minutes does not accumulate anything.
 
-Each slot lives in its own sign file, and the run sequence names the occupied
-files in order. That is the whole rotation mechanism: the sign cycles them by
-itself, so a slot appearing or disappearing costs one small write and nothing
-after that.
+Each slot lives in its own sign file, and the run sequence names the files of
+the slots that are showing, in order. That is the whole rotation mechanism: the
+sign cycles them by itself, so a slot appearing or disappearing costs one small
+write and nothing after that.
 
 A variable is a value in a STRING file of its own, which a slot's message calls
 with ``<var:name>``. Changing a variable rewrites only its STRING file, which

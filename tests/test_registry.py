@@ -227,8 +227,8 @@ class TestActive:
         assert payloads_starting(transport, b"B") == []
 
     async def test_hiding_one_leaves_its_text_on_the_sign(self, registry, transport):
-        # Nothing cycles to it, so the bytes sit there unseen. That is what
-        # makes showing it again free.
+        # Nothing cycles to it, so the bytes sit there unseen. That is what keeps
+        # showing it again down to one sequence write.
         await add(registry, "one", "HELLO")
         await add(registry, "two")
         transport.clear()

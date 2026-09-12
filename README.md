@@ -12,10 +12,11 @@ through an Ethernet to RS-232 adapter.
 
 Several sources can share the sign at once. Each registers a named **slot**, and the sign
 rotates through the slots that are showing by itself. A slot can be hidden without being
-given up, so a message can be taken off the display and put back without being sent again. A
-**variable** is a value that messages call by name, such as a temperature, and changing it
-does not blank the sign or restart the message showing it. An **alert** takes the whole
-display over until it is released, after which the rotation resumes.
+given up, so a message can be taken off the display and put back without being sent again,
+unless it was the last one showing. A **variable** is a value that messages call by name,
+such as a temperature, and changing it does not blank the sign or restart the message
+showing it. An **alert** takes the whole display over until it is released, after which
+the rotation resumes.
 
 ## What it does
 
@@ -39,8 +40,10 @@ display over until it is released, after which the rotation resumes.
   flicker.
 - **It survives restarts and outages.** The registered messages are persisted and
   pushed to the sign again whenever the link returns, so a restart or a power cut leaves
-  the rotation intact. A write that arrives while the sign is unreachable is refused with
-  a 503 rather than silently held, so the caller learns it did not land.
+  the rotation intact. A message or a variable write that arrives while the sign is
+  unreachable is refused with a 503 rather than silently held, so the caller learns it did
+  not land. Deleting or hiding a message, or deleting a variable, is accepted and carried
+  out when the link returns.
 - **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
   render is a 400, each with the reason in the body. Nothing here reports a failure
   under a 200.
@@ -245,7 +248,9 @@ A hidden message keeps its slot, its place in the order and its text, so showing
 takes `{"active": true}` and no copy of what it said. Hiding or showing one is a single run
 sequence write. That does disturb the display briefly, but far less than rewriting a
 message does: enough less that it is easy to miss unless you are watching for it on a
-static screen.
+static screen. The exception is the last message showing: its file is emptied as it goes,
+because a sign whose run sequence names nothing freezes on what it was drawing, so
+putting that one back costs the text as well as the sequence.
 
 `active` is a field on the message endpoint too, where leaving it out is the point: a
 source re-sending the same content every few minutes says nothing about it and so cannot
