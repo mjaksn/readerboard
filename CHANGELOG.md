@@ -691,10 +691,18 @@ Removed section before upgrading.**
 
   `PUT /messages/{key}` takes the same floor, for a different reason. An empty
   message there is not the release sequence, it is a slot held open around
-  nothing: the sign cycles to a file with no text in it and the pool is a slot
+  nothing: the sign gives a file with no text in it no turn of its own but does
+  hold the message before it several seconds longer, and the pool is a slot
   smaller for it. `DELETE /messages/{key}` is how a slot is given back, and it
   always was. A service upgraded with one already in its state file drops it on
   the next start and hands the file back to the pool.
+
+  **[Corrected 2026-09-12]** The paragraph above said the sign "cycles to a file
+  with no text in it". That was never measured and it is wrong, and it is
+  reworded here rather than left to mislead. What the sign actually does is
+  above; `docs/protocol-notes.md`, question 7, has the measurement and the two
+  wrong answers that preceded it. Nothing about the release changed: an empty
+  message was refused in 0.4.0 and is refused now, for the same reason.
 
 - **A control command parameter of digits the sign never meant is now a 400.**
   `SET_TIME` and `SET_DAY_OF_WEEK` guarded their parameter with `str.isdigit`
