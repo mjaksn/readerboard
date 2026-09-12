@@ -69,7 +69,7 @@ And being told to, which needs no reason.
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
 under `readerboard/protocol/`. It also lists the five questions the document
-cannot answer, three of which a session with the sign has since settled.
+cannot answer, all of which two sessions with the sign have now settled.
 
 ## The one dangerous operation
 
