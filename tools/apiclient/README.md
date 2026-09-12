@@ -69,8 +69,9 @@ keeping the spaces as though they had gone somewhere. Case is left alone:
 replace a message carries a **Load From Sign** button under the message caption.
 It calls `GET /messages/{key}` for whatever key is in the box above and fills the
 form from the answer: the message text with its markup intact, the display mode,
-the order and the source. Editing a message that is already up is then reading it
-first rather than retyping it from the slot table.
+the order, the source, whether the message is showing and whether its deadline
+deletes it. Editing a message that is already up is then reading it first rather
+than retyping it from the slot table.
 
 A key with nothing stored under it answers 404, which is shown like any other
 failure and changes no field, so a half-written message survives a mistyped key.

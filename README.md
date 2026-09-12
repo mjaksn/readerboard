@@ -417,10 +417,10 @@ from the service's own record, so the display still comes back to what it was.
 curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'
 ```
 
-Reach for it only when a soft reset was not enough. The sign is blank for about ten
-seconds while it resets. Neither is a way to clear messages: `DELETE /messages` does
-that without resetting anything. The client fronts the reboot with a warning-coloured
-confirmation for the same reason.
+Reach for it only when a soft reset was not enough. The sign is blank for twelve seconds
+or more while it resets, longer with a lot of messages to put back. Neither is a way to
+clear messages: `DELETE /messages` does that without resetting anything. The client
+fronts the reboot with a warning-coloured confirmation for the same reason.
 
 ## Configuration
 

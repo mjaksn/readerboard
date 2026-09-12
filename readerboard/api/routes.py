@@ -379,7 +379,8 @@ async def reboot_sign(registry: RegistryDep, alerts: AlertsDep) -> Response:
     from a stray bit and that cannot be fixed by power cycling it by hand. Do
     not use it to clear the sign: `DELETE /messages` takes every message off
     without resetting anything, and this puts them all straight back. Expect a
-    blank display for roughly ten seconds before the rotation returns.
+    blank display for twelve seconds or more before the rotation returns,
+    longer with a lot of messages to put back.
 
     503 if the sign cannot be reached, since a sign that is not answering cannot
     be rebooted.

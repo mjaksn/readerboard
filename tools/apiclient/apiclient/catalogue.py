@@ -419,14 +419,14 @@ OPERATIONS: tuple[Operation, ...] = (
         needs_key=True,
         formatter="empty",
         confirm=(
-            "Rebooting resets the sign and blanks it for about ten seconds "
+            "Rebooting resets the sign and blanks it for twelve seconds or more "
             "before the messages come back. Use it only to recover a sign that "
             "has stopped responding, not to clear messages. Send it?"
         ),
         note=(
             "A recovery tool. It resets a wedged sign and restores the display "
-            "from the service's record; the sign goes blank for about ten "
-            "seconds first."
+            "from the service's record; the sign goes blank for twelve seconds "
+            "or more first."
         ),
     ),
     # == Enumerations =====================================================
