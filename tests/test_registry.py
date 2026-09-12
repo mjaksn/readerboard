@@ -100,6 +100,33 @@ class TestOrdering:
         await add(registry, "aardvark")
         assert [slot.key for slot in registry.list_slots()] == ["aardvark", "zebra"]
 
+    async def test_reordering_a_slot_rewrites_the_run_sequence(self, registry, transport):
+        # The order field is what decides the sequence, so moving a slot within
+        # it has to reach the sign. It used to be left until the next refresh,
+        # with the sign playing the old order and the API reporting the new one.
+        await add(registry, "first", order=10)
+        await add(registry, "second", order=20)
+        transport.clear()
+
+        await add(registry, "first", order=30)
+
+        assert [slot.key for slot in registry.list_slots()] == ["second", "first"]
+        assert run_sequences(transport)[-1].endswith(b"BA" + b"\x04")
+
+    async def test_reordering_a_hidden_slot_changes_nothing_on_the_sign(
+        self, registry, transport
+    ):
+        # It is not named either way, so the sequence it would produce is the
+        # one already there and the controller declines to send it again.
+        await add(registry, "shown")
+        await add(registry, "hidden", order=20)
+        await registry.set_active("hidden", False)
+        transport.clear()
+
+        await add(registry, "hidden", order=-5)
+
+        assert run_sequences(transport) == []
+
     async def test_updating_content_does_not_rewrite_the_run_sequence(
         self, registry, transport
     ):
@@ -608,6 +635,53 @@ async def test_the_state_file_is_written_on_every_change(registry, store):
     await add(registry, "temperature")
     assert store.path.exists()
     assert "temperature" in store.path.read_text(encoding="utf-8")
+
+
+class TestAHalfAppliedWrite:
+    """A write that lands and then fails partway leaves the sign ahead of us.
+
+    These paths send twice: the run sequence and then the file, or the other way
+    round. If the first lands and the second raises, rolling the record back does
+    not roll the sign back, so the two disagree. The registry marks itself dirty
+    so that /health says so and the next refresh repairs it, rather than
+    reporting a sign that is in sync when it is not.
+    """
+
+    class FailsAfter(FakeTransport):
+        """A transport that takes ``budget`` more writes and then stops for good.
+
+        Set ``budget`` immediately before the call under test, so that setting
+        the registry up does not spend it.
+        """
+
+        budget = 1_000_000
+
+        def write(self, data: bytes) -> None:
+            if self.budget <= 0:
+                self.fail_with = "cable unplugged"
+            self.budget -= 1
+            super().write(data)
+
+    async def test_the_registry_says_it_is_out_of_step(self, layout, store, state, clock):
+        transport = self.FailsAfter()
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        registry = MessageRegistry(controller, layout, store, state, now=clock)
+        await registry.restore()
+        await add(registry, "one", "ONE")
+        await add(registry, "two", "TWO")
+        assert registry.in_sync
+
+        # Hiding through upsert writes the run sequence first and the file
+        # second, so with one write left the sequence lands and the file does
+        # not. The sign is then playing a rotation without "one" in it while
+        # the restored record still says it is showing.
+        transport.budget = 1
+        with pytest.raises(TransportError):
+            await add(registry, "one", "GONE", active=False)
+
+        assert registry.get("one").active is True
+        assert registry.get("one").message == "ONE"
+        assert not registry.in_sync
 
 
 class TestWritingWhileTheSignIsUnreachable:

@@ -402,9 +402,16 @@ class MessageRegistry:
             )
 
             self._state.slots[key] = slot
-            # Whether the sign should be cycling to this file has changed, so
-            # the sequence has to be rewritten and not only the file.
-            membership_changed = previous is None or previous.active != slot.active
+            # What the run sequence should say has changed, so it has to be
+            # rewritten and not only the file. Two things decide that: whether
+            # the slot is named at all, and where. ``list_slots`` sorts by
+            # ``order`` before the key, so reordering an existing slot changes
+            # the sequence without changing which slots are in it.
+            sequence_changed = (
+                previous is None
+                or previous.active != slot.active
+                or previous.order != slot.order
+            )
             try:
                 if previous is not None and previous.active and not slot.active:
                     # Going off the display, so stop the sign cycling to the
@@ -425,7 +432,7 @@ class MessageRegistry:
                         )
                     else:
                         await self._hide(slot)
-                    if membership_changed:
+                    if sequence_changed:
                         await self._apply_run_sequence()
             except Exception:
                 # The write did not land, so the slot is not on the sign, and
@@ -436,6 +443,15 @@ class MessageRegistry:
                 # message is theirs to retry when the link is back, and a failed
                 # update leaves the previous one in place. The slots already on
                 # the sign are re-pushed on reconnect regardless of this.
+                #
+                # The record going back does not put the sign back. These paths
+                # can write twice, so the first can land and the second raise,
+                # leaving the sign holding a sequence or a file the restored
+                # record does not describe. Marking the registry dirty is what
+                # makes ``GET /health`` report that and the next refresh repair
+                # it. It costs a needless refresh when nothing landed at all,
+                # which is the harmless way round.
+                self._dirty = True
                 if previous is not None:
                     self._state.slots[key] = previous
                 else:
