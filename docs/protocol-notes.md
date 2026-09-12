@@ -24,7 +24,8 @@ display seven pixels high.
 `scripts/protocol_spike.py` re-proves the wire formats end to end. It is destructive, and
 it refuses to run without `--confirm-erase`. `scripts/string_file_spike.py` does the same
 for STRING files, which a session on 2026-09-10 measured; see "STRING files, measured on
-the sign".
+the sign". `scripts/dots_spike.py` does it for SMALL DOTS PICTURE files, which a session on
+2026-09-11 measured; see "SMALL DOTS PICTURE files, measured on the sign".
 
 ## Sources
 
@@ -483,18 +484,12 @@ character forms, rainbow 1 but not rainbow 2 or automatic colour, and none of `<
 `<half_space>` or `<no_hold_speed>`. The rule below is an inference by family from those.
 
 The spike looked for each STRING's entry in the `F$` memory configuration reply and found
-none, although the files plainly existed. The reply explains it, and the fault was the
-reader's, not the sign's:
-
-```
-<- 49 bytes: b'\x01000\x02E$AAU0100FFFFBAU00'
-```
-
-That stops five characters into the second entry, with no ETX, checksum or EOT after it.
-This was first put down to the sign pausing mid-reply for longer than the spike's 200 ms
-quiet rule, and that was wrong. The reader took one byte a poll, for the reason given under
-"Reading state back", and ran out of time with the reply half collected. So how the sign
-lists a STRING entry is still unmeasured.
+none, although the files plainly existed. The fault was the reader's, not the sign's: the
+reply it collected stopped partway through the second entry, with no ETX, checksum or EOT
+after it. This was first put down to the sign pausing mid-reply for longer than the
+spike's 200 ms quiet rule, and that was wrong. The reader took one byte a poll, for the
+reason given under "Reading state back", and ran out of time with the reply half
+collected. So how the sign lists a STRING entry is still unmeasured.
 
 And at speed 5 the person watching counted eight repetitions of a word sent five times,
 which is more likely a count lost at that speed than the sign repeating anything.
@@ -518,6 +513,63 @@ What this settles for the service:
   one alert calling one STRING, which is all the session tried.
 - **Reading a STRING back has no place in normal running.** It blanks the display, and it
   cannot tell an unallocated label from an empty one.
+
+## SMALL DOTS PICTURE files, measured on the sign
+
+A SMALL DOTS PICTURE is a bitmap in a file of its own, allocated in the memory
+configuration as type `D`, written with `I` (49H), read with `J` (4AH), and drawn inline
+by a TEXT file calling it with 14H followed by its label. The allocation's size is not a
+byte count: "the first two bytes = # pixel rows and the last two bytes = the # of pixel
+columns in the picture", and where a TEXT file has its schedule a picture has a colour
+status, "1000 = monochrome, 2000 = 3-color, 4000 = 8-color". A write carries the height
+and width in two hex digits each, then one row per line, each ended with a carriage
+return, one digit a pixel. Table 22 gives nine of those digits: off, red, green, amber,
+dim red, dim green, brown, orange and yellow.
+
+`scripts/dots_spike.py` put that to the sign on 2026-09-11, through the Ethernet adapter at
+9600 baud. In summary:
+
+- **Pictures draw**, alone, inline between words, in HOLD and scrolling in ROTATE, and
+  from the priority file. A picture keeps its own colours whatever the text around it
+  is set to.
+- **The colour status matters, and only 8-colour gives the full palette.** A 3-colour
+  picture draws three colours and maps the rest onto them, consistent with the pixel code
+  taken modulo 4. A monochrome one draws the same as a 3-colour one, not one colour.
+- **The display is 80 to 89 dots wide and seven high.** A wider picture is cut at the
+  right in HOLD and scrolls through whole in ROTATE. A taller one shows its top seven rows.
+- **A picture draws at the width it was written**, not the width allocated. One narrower
+  than its allocation is not padded; one wider draws, but damaged.
+- **The pause Table 22 asks for after the width is not needed.** A picture sent in one
+  transmission drew correctly.
+- **Rewriting a picture blanks the display**, as the document says, and restarts a ROTATE
+  scroll from the beginning.
+- **A call to a missing picture draws nothing**, whether it was never written or never
+  allocated.
+- **Reading a picture back blanks the display** for under a second, with stray dots lit
+  while it does. The reply echoes the write command, the label, the height and the
+  width, then the rows.
+
+Three questions are left open. The session's memory configuration read and picture read
+were both cut short by the reader, which took one byte a poll over `socket://` until that
+was fixed, so how the memory configuration lists a picture and what the rest of a read
+reply holds are still unmeasured. And a picture between two runs of text too long for the
+display flashed on and off in HOLD while the text shifted; most likely HOLD showing the line
+in parts, which a rerun with a shorter line would confirm.
+
+What this settles for the service, if it ever sends pictures:
+
+- **Allocate them as 8-colour.** Nothing else draws Table 22's full palette, and a
+  3-colour picture silently maps half the codes onto the other half.
+- **A picture is at most seven rows and, to stay still in HOLD, at most 80 columns.** A
+  taller one loses its lower rows without a word.
+- **A write must fit its allocation.** An overrun is not refused and not clipped; it draws
+  wrong.
+- **A picture can go in one transmission.** The pause Table 22 asks for is not needed, so
+  the controller's ordinary write path would serve.
+- **A picture is not a live value.** Rewriting one blanks the display and restarts a
+  scroll, like rewriting a TEXT file and unlike a STRING. A picture that changes often
+  would flicker.
+- **A dangling call is invisible**, as it is for a STRING, and alerts can carry a picture.
 
 ## What the spike has settled
 
@@ -955,7 +1007,10 @@ of their own above, "STRING files, measured on the sign".
 up to 31 by 255 pixels that "can be used to create virtually any logo pattern on the
 display of the sign", stored as their own file type and inserted into a TEXT file. On a
 seven-high display that is a 7 by N bitmap, and it is the way to draw an arrow, a heart or
-a musical note now that the pictograph range has turned out to be absent.
+a musical note now that the pictograph range has turned out to be absent. The sign has
+since been asked, and "SMALL DOTS PICTURE files, measured on the sign" has what it said:
+they draw, the pause Table 22 asks for is not needed, and a rewrite blanks the display as
+the document warns, so a picture suits an icon and not a changing value.
 
 **Read General Information** (`F"`). See "Reading state back" above.
 
