@@ -23,6 +23,15 @@ library, and the names inside it may move without that being a breaking change.
   and the messages still showing carry on without a blank or a restart. A hidden
   slot still counts against `slot_count`, since it is still holding a file.
 
+  Switching one either way is a single run sequence write while any other message
+  is playing. The hidden file keeps its text, so there is nothing to send back
+  when it is shown again, and the sign was measured taking a sequence write with
+  the rotation on screen without a blink. The exception is the last message on
+  the sign: hiding that one empties its file as well, because a sign whose run
+  sequence names nothing freezes on whatever it was drawing and holds it, so the
+  display would otherwise never clear. Coming back from there costs the text and
+  the sequence both.
+
   Hiding deliberately does not move through `PUT /messages/{key}`, which leaves
   `active` as it found it. Whether a message is showing is not part of the
   message, and a source re-sending the same content every few minutes would

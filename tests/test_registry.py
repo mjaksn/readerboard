@@ -145,9 +145,12 @@ class TestActive:
     """Switching a message off keeps it registered and takes it off the display.
 
     The run sequence names the active slots and nothing else, so hiding one is a
-    sequence write. Its file is emptied as well, which is not tidiness: a sign
-    handed a sequence naming nothing was measured freezing on the message it was
-    drawing and holding it there. See docs/protocol-notes.md.
+    sequence write and nothing more: the file keeps its text, and switching it
+    back on is another sequence write, with the controller declining to send
+    bytes the file already holds. The exception is hiding the last one, where
+    the file is emptied as well, because a sign handed a sequence naming nothing
+    was measured freezing on the message it was drawing and holding it there.
+    See docs/protocol-notes.md.
     """
 
     async def test_hiding_one_takes_it_out_of_the_run_sequence(self, registry, transport):
@@ -170,25 +173,32 @@ class TestActive:
         # It still holds its slot, so the pool is no emptier for hiding it.
         assert registry.occupancy == (1, 3)
 
-    async def test_hiding_one_empties_its_file(self, registry, transport):
+    async def test_hiding_one_with_others_playing_costs_one_sequence_write(
+        self, registry, transport
+    ):
+        # The measurement this is built on: a sequence write leaves the rotation
+        # running, and rewriting a TEXT file restarts the message in it. So
+        # hiding is the sequence and nothing else, or it blinks for nothing.
         await add(registry, "one", "HELLO")
-        transport.clear()
-
-        await registry.set_active("one", False)
-
-        assert frames.packet(frames.write_text_file(b"A", b"")) in transport.packets
-
-    async def test_hiding_one_leaves_the_others_alone(self, registry, transport):
-        # Rewriting another slot's file would restart it on the sign, which is
-        # the whole thing this is supposed to avoid.
-        await add(registry, "one")
         await add(registry, "two")
         transport.clear()
 
         await registry.set_active("one", False)
 
-        assert frames.packet(frames.write_text_file(b"B", b"")) not in transport.packets
-        assert len(payloads_starting(transport, b"A")) == 1
+        assert len(run_sequences(transport)) == 1
+        assert payloads_starting(transport, b"A") == []
+        assert payloads_starting(transport, b"B") == []
+
+    async def test_hiding_one_leaves_its_text_on_the_sign(self, registry, transport):
+        # Nothing cycles to it, so the bytes sit there unseen. That is what
+        # makes showing it again free.
+        await add(registry, "one", "HELLO")
+        await add(registry, "two")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert frames.packet(frames.write_text_file(b"A", b"")) not in transport.packets
 
     async def test_hiding_the_last_one_leaves_the_sequence_naming_nothing(
         self, registry, transport
@@ -199,15 +209,41 @@ class TestActive:
 
         assert run_sequences(transport)[-1].endswith(b"E.SU" + b"\x04")
 
-    async def test_showing_it_again_writes_the_message_back(self, registry, transport):
+    async def test_showing_it_again_costs_one_sequence_write(self, registry, transport):
+        # The whole point. Its file still holds those bytes, so the write is
+        # suppressed and the sign is told only to start playing it again.
+        await add(registry, "one", "HELLO")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert payloads_starting(transport, b"A") == []
+        assert len(run_sequences(transport)) == 1
+        assert run_sequences(transport)[-1].endswith(b"AB" + b"\x04")
+
+    async def test_hiding_the_last_one_empties_its_file(self, registry, transport):
+        # With nothing left in the sequence the sign freezes on what it was
+        # drawing, so here the blank is what clears the display.
+        await add(registry, "one", "HELLO")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert frames.packet(frames.write_text_file(b"A", b"")) in transport.packets
+
+    async def test_showing_the_last_one_again_writes_the_message_back(
+        self, registry, transport
+    ):
+        # Coming back from an empty rotation costs both writes, since the file
+        # was emptied to break the freeze.
         await add(registry, "one", "HELLO")
         await registry.set_active("one", False)
         transport.clear()
 
         await registry.set_active("one", True)
 
-        # The file was emptied when it was hidden, so it has to be written again
-        # before the sequence names it.
         assert payloads_starting(transport, b"A")
         assert run_sequences(transport)[-1].endswith(b"A" + b"\x04")
 
@@ -234,16 +270,25 @@ class TestActive:
         assert registry.get("one").active is False
         assert registry.get("one").message == "TWO"
 
-    async def test_a_hidden_slot_is_not_written_to_the_sign(self, registry, transport):
+    async def test_a_hidden_slots_new_message_still_reaches_its_file(
+        self, registry, transport
+    ):
+        # Written into a file nothing cycles to, so it shows nothing now and
+        # switching it back on stays one sequence write.
         await add(registry, "one", "ONE")
+        await add(registry, "two")
         await registry.set_active("one", False)
         transport.clear()
 
         await add(registry, "one", "TWO")
 
-        # Recorded, but not drawn: its file stays empty until it is shown again.
-        assert payloads_starting(transport, b"A") == []
+        assert payloads_starting(transport, b"A")
         assert registry.get("one").message == "TWO"
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert payloads_starting(transport, b"A") == []
 
     async def test_a_hidden_slot_comes_back_hidden_after_a_restart(
         self, registry, store, transport, clock

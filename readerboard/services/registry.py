@@ -247,12 +247,14 @@ class MessageRegistry:
         for variable in self.list_variables():
             await self._write_variable(variable)
         for slot in self.list_slots():
-            # An inactive slot's file is kept blank rather than holding its
-            # message, which :meth:`set_active` explains.
+            # A hidden slot's file is written too, so that the sign and the
+            # suppression cache both carry its text and switching it back on
+            # stays one write. :meth:`_hide` has the whole of it, including
+            # when that turns into a blank instead.
             if slot.active:
                 await self._write_slot(slot)
             else:
-                await self._blank(slot)
+                await self._hide(slot)
         await self._apply_run_sequence(force=force)
 
     async def refresh(self) -> None:
@@ -404,12 +406,15 @@ class MessageRegistry:
 
             self._state.slots[key] = slot
             try:
-                # An inactive slot's file stays empty until it is switched on,
-                # so a new message for one is recorded and not written.
+                # A hidden slot's new text goes to the sign as well, into a
+                # file nothing is cycling to. That is what keeps switching it
+                # back on down to one write; :meth:`_hide` has the reasoning.
                 if slot.active:
                     await self._controller.write_text_file(
                         label, body, mode=mode_token.value
                     )
+                else:
+                    await self._hide(slot)
                 if not existed:
                     await self._apply_run_sequence()
             except Exception:
@@ -446,17 +451,19 @@ class MessageRegistry:
         It is left out of the run sequence, and that is the whole of what makes
         it inactive: the sign cycles what the sequence names and nothing else.
 
-        Its file is emptied too, and that part is not tidiness. A sign handed a
-        run sequence naming nothing freezes on the message it was drawing and
-        holds it there indefinitely, measured on 2026-09-11 and recorded in
-        docs/protocol-notes.md. Deactivating the last active slot without
-        emptying its file would leave that message on the display for good. The
-        cost is one write when it is switched back on, which is a message about
-        to be drawn afresh anyway.
+        Its file keeps its text, so switching it back on is one run sequence
+        write and nothing else: the controller still holds those exact bytes
+        for that file and declines to write them again. A run sequence written
+        while the rotation was on screen was measured leaving it running with
+        no blank and no restart, so a slot joins or leaves the rotation without
+        disturbing the messages around it.
 
-        Nothing else on the sign is disturbed either way. A run sequence written
-        while the rotation was on screen was measured leaving it running, with
-        no blank and no restart, so the other messages carry on untouched.
+        The exception is the last one. A sign handed a run sequence naming
+        nothing freezes on the message it was drawing and holds it indefinitely,
+        measured on 2026-09-11 and recorded in docs/protocol-notes.md, so when
+        no slot is left playing the file is emptied to break that. Switching one
+        back on from there costs the text and the sequence, two writes, which is
+        the price of coming back from a display that is holding nothing.
         """
         async with self._lock:
             slot = self._state.slots.get(key)
@@ -479,7 +486,7 @@ class MessageRegistry:
             else:
                 try:
                     await self._apply_run_sequence()
-                    await self._blank(slot)
+                    await self._hide(slot)
                 except TransportError as err:
                     # Taking something off is like removing it: the intent
                     # stands and the next refresh carries it out.
@@ -570,12 +577,14 @@ class MessageRegistry:
             # Taking the labels out of the run sequence is what removes them
             # from the sign. A dropped slot's file stays allocated, because
             # reallocating to reclaim it would erase everything else; it is
-            # emptied instead. So is a deactivated one, since a sequence naming
-            # nothing leaves the sign frozen on its last message.
+            # emptied instead. A deactivated one keeps its text, since it keeps
+            # its slot and may be switched back on.
             try:
                 await self._apply_run_sequence()
-                for slot in expired:
+                for slot in dropped:
                     await self._blank(slot)
+                for slot in deactivated:
+                    await self._hide(slot)
             except TransportError as err:
                 self._dirty = True
                 logger.warning("slots expired but the sign is unreachable (%s)", err)
@@ -782,6 +791,40 @@ class MessageRegistry:
             data = b""
         await self._controller.write_string_file(variable.label.encode("ascii"), data)
 
+    def _anything_playing(self) -> bool:
+        """Whether the run sequence names anything at all.
+
+        This is the question the freeze turns on, and it is asked of the state
+        as it stands now, so a caller that has just switched the last slot off
+        gets False.
+        """
+        return any(slot.active for slot in self._state.slots.values())
+
+    async def _hide(self, slot: SlotState) -> None:
+        """Settle the file of a slot that is registered but not playing.
+
+        Its text is left where it is while anything else is playing. The sign
+        draws what the run sequence names and nothing else, so the bytes sit
+        there unseen, and switching the slot back on is then one run sequence
+        write and no more: the controller still holds those exact bytes for
+        that file and declines to write them again. That is the write the spike
+        measured leaving the rotation running with no blank and no restart.
+
+        Emptying it instead would cost a second write to put the text back, and
+        rewriting a TEXT file restarts the message in it, which is a visible
+        blink for nothing. The service did empty it until 2026-09-12, when
+        toggling a slot on a real sign was watched doing exactly that.
+
+        The file is emptied only when nothing is playing at all. A sign handed a
+        run sequence naming nothing freezes on the message it was drawing and
+        holds it indefinitely, so with the rotation empty the file has to go
+        blank or that message stays on the display for good.
+        """
+        if self._anything_playing():
+            await self._write_slot(slot)
+        else:
+            await self._blank(slot)
+
     async def _blank(self, slot: SlotState) -> None:
         """Empty a file that no longer holds a slot.
 
@@ -795,6 +838,10 @@ class MessageRegistry:
         It matters a second time when the file is handed to a different slot
         later, since a stale body would otherwise be what the suppression cache
         compares against.
+
+        A slot that is merely hidden keeps its file, so it goes through
+        :meth:`_hide` instead, which comes back here only when the rotation is
+        empty and the freeze is the thing to break.
         """
         await self._controller.write_text_file(slot.label.encode("ascii"), b"")
 
