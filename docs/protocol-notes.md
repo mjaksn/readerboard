@@ -842,8 +842,8 @@ changing colours anyway.
 This is the fifth thing the document has got wrong about this hardware, and the
 first where it was wrong by omission rather than by promising too much. The other
 four all over-promised: double height, the wide character set, the programmable
-tone's frequency byte, and the four text positions. An empty row turns out to be
-a stronger reason to look than a row that says no.
+tone's frequency byte, and the twenty-four pictographs. An empty row turns out to
+be a stronger reason to look than a row that says no.
 
 `tests/test_constant_values.py::test_the_mode_the_document_calls_reserved` pins
 the byte, and says in its docstring that it is the one value in that file with no
@@ -974,10 +974,10 @@ The tone command carries two footnotes that the implementation does not honour.
 > **4** Wait a minimum of 3 seconds before transmitting more data to the sign.
 
 `SOUND` did not settle. A soft reset was the only command that asked for a wait, so after
-a tone the next write went out once `inter_packet_delay` had passed, which defaults to half
-a second. A write inside that window reached a sign whose serial port was off and was lost,
-and the controller's suppression cache then believed it had succeeded, so nothing retried
-it until the next periodic re-push.
+a tone the next write went out once `inter_packet_delay` had passed, which defaulted to
+half a second at the time and is 0.25s now. A write inside that window reached a sign whose
+serial port was off and was lost, and the controller's suppression cache then believed it
+had succeeded, so nothing retried it until the next periodic re-push.
 
 This is fixed. `SOUND` now asks for `SOUND_SETTLE_SECONDS`, three, and the controller holds
 the sign's lock across the send and the wait, so another writer queues rather than writing
