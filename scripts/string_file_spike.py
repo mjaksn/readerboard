@@ -6,7 +6,7 @@ followed by the STRING's label. The document says writing one does not blank the
 display, which is the whole attraction: a temperature or a count could change
 without the message around it restarting. The service is about to build on that,
 and on several other things the document says about STRING files, and the
-document has been wrong about this hardware four times already. So this asks the
+document has been wrong about this hardware five times already. So this asks the
 sign first.
 
 WHAT IT SETTLES

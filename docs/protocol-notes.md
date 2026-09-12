@@ -885,8 +885,9 @@ Table 66's thirteen special modes are all offered but one: `C` (43H) CYCLE COLOR
 footnote reads "COLOR CYCLE will only work on AlphaEclipse 3600 signs". All seven of Table
 67's special graphics are offered.
 
-The display position field has six values. The four the service offers are `20H` Middle,
-`22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0 only.
+The display position field has six values. The four the service once offered were `20H`
+Middle, `22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0
+only.
 
 None of the four is offered any more. The note closing that list reads: "On one-line
 signs, the Display Position is irrelevant", a Betabrite is one line, and the sign

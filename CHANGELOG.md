@@ -372,11 +372,18 @@ Removed section before upgrading.**
   the sign, which resets it, waits for it to restart, then re-pushes every
   message and the run sequence from the service's own record, so the sign comes
   back showing what it was rather than blank; any active alert is re-asserted
-  too. It is disruptive, blanking the sign for about ten seconds, and it is a
-  recovery tool rather than a way to clear messages, which `DELETE /messages`
+  too. It is disruptive, blanking the sign for twelve seconds or more, and it is
+  a recovery tool rather than a way to clear messages, which `DELETE /messages`
   still does without a reset. It is refused with a 503 when the sign cannot be
   reached, since a sign that is not answering cannot be rebooted. The client
   lists it and fronts it with a warning-coloured confirmation.
+
+  **[Corrected 2026-09-12]** The paragraph above said "about ten seconds". The
+  figure is twelve at the very least: `MessageRegistry.reboot` waits 2 seconds
+  after the clear and 10 after the configuration, both with the sign's lock
+  held, and then re-pushes every file paced by `inter_packet_delay`. Nothing
+  about the release changed; only the number, which was an estimate rather than
+  a measurement and understated it.
 
 - **A way to run against a real sign from a checkout, with the client beside
   it, and the sign's address where it can be edited.**
