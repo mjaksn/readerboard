@@ -512,12 +512,15 @@ What this settles for the service:
 
 ## What the spike still has to confirm
 
-The wire format questions are closed. Five behavioural ones are settled: a session on
-2026-09-09 answered three of the four open then, and a second on 2026-09-11 answered the
-fourth along with a fifth added in between. What each turned out to be is recorded here
-rather than deleted, because the next person will want to know it was answered on hardware
-and not merely assumed. Two more were opened on 2026-09-12 and are **not answered**; both
-came out of the fifth, and the service already behaves as though it knows.
+The wire format questions are closed. Seven behavioural ones are settled: a session on
+2026-09-09 answered three of the four open then, a second on 2026-09-11 answered the fourth
+along with a fifth added in between, and a third on 2026-09-12 answered two that came out of
+the fifth. What each turned out to be is recorded here rather than deleted, because the next
+person will want to know it was answered on hardware and not merely assumed.
+
+Three more were opened on 2026-09-12 and are **not answered**. All three ask what the sign
+does with a file that has nothing in it, and the change described under them rests on the
+answers.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
@@ -580,9 +583,38 @@ came out of the fifth, and the service already behaves as though it knows.
    One session, one observation. The distinction it rests on is between a turn that is
    skipped and a turn that is blank, and a short enough blank would look like a skip.
 
-Step 5 of `scripts/protocol_spike.py` puts both to the sign, in that order: it names one
-file so the freeze lands somewhere known, empties that file underneath the freeze, and then
-names it again beside two full ones.
+8. **What does a file the sign allocated and nothing ever wrote draw?** Open. Every file
+   this service names in a run sequence has been written first, so that state has never
+   reached the display and nobody knows what it looks like. It would reach the display
+   under the change below, from the moment the pool was allocated, and a file that draws
+   anything of its own would mean blanking the whole pool once after every reconfiguration.
+9. **What does the sign do when every file the sequence names is empty?** Open, and it is
+   not question 5: the sign is still being told to play files, they just have nothing in
+   them. Blank or frozen decides whether the rule in `MessageRegistry._hide` about emptying
+   the last visible file survives the change. The same step asks the other half, which
+   nobody had thought to doubt: **does a file the sign is skipping start playing when it is
+   written, with the sequence left alone?** The change rests entirely on that being yes.
+10. **What does a sequence of mostly empty files cost?** Open. Question 7 says such a file
+    is passed over; this asks what passing over the whole rest of the pool on every turn
+    does to a sign holding one message, which is seven files at the default `slot_count`
+    and twenty-five at the largest the service allows. If each skip costs the sign a beat,
+    a single held message gains a hitch it does not have today, which is the opposite of
+    what the change is for.
+
+Those three are open because of a change being weighed. If an empty file really is passed
+over, the run sequence could name every file in the pool all the time, and be rewritten only
+when a message is hidden or the running order of the visible ones changes. Creating a
+message would then be one TEXT file write rather than a TEXT file write with a sequence
+write landing on top of it, and it is that combination, rather than either write on its own,
+that reads as a stutter rather than as a single interruption.
+
+Step 5 of `scripts/protocol_spike.py` puts questions 6 and 7 to the sign, in that order: it
+names one file so the freeze lands somewhere known, empties that file underneath the freeze,
+and then names it again beside two full ones. Steps 9, 10 and 11 put the three open ones,
+which is why step 2 now allocates eight files rather than three: the last three steps need
+files that nothing has written, and enough of them to leave a sequence mostly empty.
+`--pool` raises that to the 26 the service allows, which is what to run if the answer to
+question 10 looks marginal at eight.
 
 The same session turned up another thing that was not on this list, because nobody thought
 to doubt it: a memory configuration does not display unless a bare `E$` clear precedes it.

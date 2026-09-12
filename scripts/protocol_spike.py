@@ -4,12 +4,12 @@
 The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
-RS-232 adapter. Seven things have been genuinely open, and this script is how
-each was put to the sign. All seven are settled now, across sessions on
-2026-09-09, 2026-09-11 and 2026-09-12, and their answers are in
-docs/protocol-notes.md. Running it again re-confirms them on the sign in front
-of you, which is worth doing: one answer has already been recorded wrongly once
-and caught on a repeat.
+RS-232 adapter. Ten things have been genuinely open, and this script is how each
+was put to the sign. The first seven are settled, across sessions on 2026-09-09,
+2026-09-11 and 2026-09-12, and their answers are in docs/protocol-notes.md.
+Running it again re-confirms them on the sign in front of you, which is worth
+doing: one answer has already been recorded wrongly once and caught on a repeat.
+The last three are open, and steps 9 to 11 are where they are asked.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
@@ -32,13 +32,36 @@ and caught on a repeat.
 7. What does an empty file do when the sequence names it beside full ones? The
    sign passes over it, with no blank turn of its own, the same treatment the
    document gives a label with no file at all.
+8. What does the sign draw for a file the memory configuration allocated and
+   nothing has ever written? Open. Nothing has ever named one in a run sequence,
+   because the service writes a file before it names it.
+9. What does it do when every file the sequence names is empty? Open, and it is
+   not question 5: the sign is still being told to play files, they just have
+   nothing in them. And does a file the sign is skipping start playing when it
+   is written, with the sequence left alone?
+10. What does a sequence of mostly empty files cost? Open. Question 7 says such
+    a file is passed over; this asks what passing over the whole rest of the
+    pool on every turn does to a sign holding one message.
+
+The last three are here because of a change being weighed. If an empty file
+really is passed over, the run sequence could name every file in the pool all
+the time and be rewritten only when a message is hidden or the running order
+changes. Creating a message would then be one TEXT file write rather than a
+TEXT file write with a sequence write landing on top of it, and that combination
+is what reads as a stutter rather than as one interruption. Whether it works
+rests on these three, and on the second half of question 9, which nobody had
+thought to doubt: the whole idea assumes the sign notices a file filling up
+underneath a sequence that already names it.
 
 It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.
 
 This script is destructive. Step 2 writes a memory configuration, and that
 erases every message on the sign. It therefore refuses to run without
---confirm-erase.
+--confirm-erase. It allocates eight files by default, the service's own
+slot_count, because the last three steps need files that nothing has written;
+steps 3 to 8 use A, B and C exactly as they always have. --pool changes how
+many are allocated, up to the 26 the service allows.
 
 Run it with the sign in front of you. It pauses to ask what you saw, then prints
 a summary to paste into docs/protocol-notes.md.
@@ -64,11 +87,20 @@ from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.protocol.markup import render
 
+# The three files every settled step uses, and which must stay the front of the
+# allocated pool: steps 9 to 11 take everything after them as the files nothing
+# has written.
 POOL = [b"A", b"B", b"C"]
+POOL_SIZE_DEFAULT = 8
 SLOT_CAPACITY = 256
 READ_LIMIT_BYTES = 4096
 
 observations: list[tuple[str, str]] = []
+
+
+def labels_as_text(labels: list[bytes]) -> str:
+    """Render file labels for a printed line or a question."""
+    return " ".join(label.decode("ascii") for label in labels)
 
 
 def note(question: str, answer: str) -> None:
@@ -137,15 +169,25 @@ def step_1_transport(url: str, baud: int, settle: float) -> serial.Serial:
     return link
 
 
-def step_2_memory(link: serial.Serial, settle: float) -> None:
+def step_2_memory(link: serial.Serial, settle: float, pool: list[bytes]) -> None:
     """Allocate the file pool, and confirm that doing so erases the sign."""
     print("\nStep 2: set the memory configuration (this erases the sign)")
-    allocations = [frames.FileAllocation(label, SLOT_CAPACITY) for label in POOL]
+    allocations = [frames.FileAllocation(label, SLOT_CAPACITY) for label in pool]
+    print("  allocating %s" % labels_as_text(pool))
     print("  claiming %d bytes of the memory pool" % frames.memory_claimed(allocations))
+    print("  Steps 3 to 8 use A, B and C and nothing else. Everything after them is")
+    print("  allocated and then left alone, which is exactly what steps 9 to 11 need:")
+    print("  files this run has never written, and enough of them to leave a sequence")
+    print("  mostly empty.")
     print("  Watch the display now, before this goes out. The blank is brief: a run")
     print("  on 2026-09-11 missed it and recorded the wrong answer, and it took two")
     print("  more attempts to see it.")
-    send(link, frames.set_memory_config(allocations), label="allocate A, B, C", settle=settle)
+    send(
+        link,
+        frames.set_memory_config(allocations),
+        label="allocate %d files" % len(pool),
+        settle=settle,
+    )
     ask("Did the sign go blank, and did any old message disappear? [y/n]")
 
 
@@ -350,6 +392,173 @@ def step_8_timing(link: serial.Serial, settle: float) -> None:
     )
 
 
+def step_9_unwritten_files(link: serial.Serial, settle: float, spare: list[bytes]) -> None:
+    """Ask what a file the sign allocated and nothing ever wrote draws."""
+    print("\nStep 9: files the sign allocated and nothing has ever written")
+    print("  %s were allocated in step 2 and nothing has touched them since." % labels_as_text(spare))
+    print("  The sign was erased before that configuration landed, so they are as")
+    print("  empty as a file can be: allocated, never written, not even blanked.")
+    print("  Nothing has ever named a file in that state in a run sequence, because")
+    print("  the service writes a file before it names it. A sequence that always")
+    print("  named the whole pool would name them from the moment the pool existed,")
+    print("  so what they draw decides whether such a sequence has to blank the pool")
+    print("  once after every reconfiguration.")
+
+    print("\n  First they are named on their own. Blank and frozen both mean they draw")
+    print("  nothing, which is what step 4 got from a sequence naming nothing at all.")
+    print("  Anything readable on the sign means they hold something of their own, and")
+    print("  the pool would have to be blanked before it could safely be named.")
+    send(
+        link,
+        frames.set_run_sequence(spare),
+        label="run sequence, %d unwritten" % len(spare),
+        settle=settle,
+    )
+    print("\n  Watch for half a minute. Nothing more is being sent.")
+    ask(
+        "With only never-written files named, what is on the sign? "
+        "[blank/frozen on ONE, TWO or THREE/text of some kind/other]"
+    )
+
+    print("\n  Now one of them is named between two files that do have text. Step 5")
+    print("  found a file written empty is passed over; this asks whether one that")
+    print("  was never written is passed over too. TWO and THREE cycling straight")
+    print("  past it is one answer. A turn of its own is the other, and that is the")
+    print("  one that would put a gap in every rotation the service ever runs.")
+    send(
+        link,
+        frames.set_run_sequence([b"B", spare[0], b"C"]),
+        label="run sequence B %s C" % spare[0].decode(),
+        settle=settle,
+    )
+    print("\n  Watch several full cycles rather than one.")
+    ask(
+        "What does %s's turn look like? [skipped/blank turn/text of some kind/other]"
+        % spare[0].decode()
+    )
+
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+    ask("Has the ONE, TWO, THREE rotation come back? [y/n]")
+
+
+def step_10_files_that_empty_and_fill(link: serial.Serial, settle: float) -> None:
+    """Ask what an all-empty sequence shows, and whether a file filling up starts playing."""
+    print("\nStep 10: a sequence whose files empty out and fill up again")
+    print("  The sequence names A, B and C for the whole of this step and is never")
+    print("  rewritten. Only the contents of the files change.")
+
+    print("\n  First, all three are emptied. This is not step 4's empty sequence,")
+    print("  which is a different command: here the sign is still being told to play")
+    print("  three files and every one of them has nothing in it. Step 5 found a")
+    print("  single empty file passed over while others played, and what the sign")
+    print("  does when there is nothing left to pass to has never been asked.")
+    print("  Blank is one answer and frozen on the last message drawn is the other.")
+    print("  Which it is decides whether a sequence that always names the whole pool")
+    print("  still has to blank the last file by hand to clear the display.")
+    ask("Ready to watch A, B and C be emptied one after another? [enter]")
+    for label in POOL:
+        send(
+            link,
+            frames.write_text_file(label, b""),
+            label="empty file %s" % label.decode(),
+            settle=settle,
+        )
+    print("\n  Give it half a minute before answering.")
+    ask("With every named file empty, what is on the sign? [blank/frozen/other]")
+
+    print("\n  Second, and the whole idea rests on this one: a file the sign is")
+    print("  already skipping is written, and the sequence is left alone. Today the")
+    print("  service writes the file and then names it, two packets and two")
+    print("  disturbances one on top of the other. If a sequence that already names")
+    print("  the file picks the text up by itself, the second packet is unnecessary.")
+    print("  If it does not, nothing else in this run matters.")
+    ask("Ready to watch A be written, with the sequence untouched? [enter]")
+    send(link, frames.write_text_file(b"A", render("<red>ONE")), label="write file A", settle=settle)
+    print("\n  Give it half a minute.")
+    ask("Did ONE start showing, with no run sequence write? [y/n]")
+    ask("How long did it take to appear? [at once/within a turn/longer/never]")
+
+    print("\n  And again with the other two, so that a rotation grows from nothing to")
+    print("  three messages without the sequence being touched once.")
+    send(
+        link, frames.write_text_file(b"B", render("<green>TWO")), label="write file B", settle=settle
+    )
+    ask("Are ONE and TWO both cycling now? [y/n]")
+    send(
+        link,
+        frames.write_text_file(b"C", render("<amber>THREE")),
+        label="write file C",
+        settle=settle,
+    )
+    ask("And all three, the rotation step 3 showed? [y/n]")
+
+
+def step_11_long_sequence(link: serial.Serial, settle: float, pool: list[bytes]) -> None:
+    """Measure what it costs the sign to pass over a sequence that is mostly empty."""
+    alone = len(pool) - 1
+    beside_three = len(pool) - len(POOL)
+
+    print("\nStep 11: what a sequence full of empty files costs")
+    print("  Steps 5 and 9 ask whether an empty file is passed over. This asks what")
+    print("  passing over it costs. A sequence that always named the whole pool would")
+    print("  name %d files. On a sign holding one message, %d of them are" % (len(pool), alone))
+    print("  empty and passed over on every turn. If each one costs the sign a beat,")
+    print("  a single held message gains a hitch it does not have today, which is the")
+    print("  very thing the change is meant to remove.")
+    print("  Step 5's answer is one observation, and the note recorded against it says")
+    print("  a short enough blank would look like a skip. This is where that gets")
+    print("  watched at length rather than once.")
+
+    print("\n  The baseline first: one full file, named on its own. Every file this")
+    print("  script writes is written in HOLD mode, so a sign with nothing else to do")
+    print("  should be completely still.")
+    send(link, frames.write_text_file(b"B", b""), label="empty file B", settle=settle)
+    send(link, frames.write_text_file(b"C", b""), label="empty file C", settle=settle)
+    send(link, frames.set_run_sequence([b"A"]), label="run sequence A", settle=settle)
+    print("\n  Watch it for half a minute.")
+    ask("Is ONE completely still, with nothing happening at all? [y/n]")
+
+    print("\n  Now the same single message with every other file in the pool named")
+    print("  around it. Nothing else changes: A still holds ONE and the other %d are" % alone)
+    print("  empty. Watch for a full minute. What is being looked for is a repeating")
+    print("  flicker, a redraw or a pause, anything that was not there a moment ago.")
+    send(
+        link,
+        frames.set_run_sequence(pool),
+        label="run sequence, whole pool",
+        settle=settle,
+    )
+    ask("Is ONE still completely still? [y/n]")
+    ask("If it is not, what happens and how often? [describe]")
+    ask(
+        "Against the flinch a run sequence write causes, how big is it? "
+        "[nothing at all/smaller/about the same/larger]"
+    )
+
+    print("\n  And with content in three of them, which is step 3's rotation with %d" % beside_three)
+    print("  empty files threaded through it. Step 3 had the same three messages with")
+    print("  nothing between them, so that is what the comparison is against.")
+    send(
+        link, frames.write_text_file(b"B", render("<green>TWO")), label="write file B", settle=settle
+    )
+    send(
+        link,
+        frames.write_text_file(b"C", render("<amber>THREE")),
+        label="write file C",
+        settle=settle,
+    )
+    print("\n  Watch several full cycles.")
+    ask("Does the rotation run as cleanly as it did in step 3? [y/n]")
+    ask(
+        "If there is a pause where the empty files are, how long is it? "
+        "[none/shorter than a message/about a message/longer]"
+    )
+
+    # Hand the sign back on the rotation every other step leaves it on, rather
+    # than on a sequence naming files nobody wrote.
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+
+
 def main() -> int:
     """Run the spike."""
     parser = argparse.ArgumentParser(
@@ -369,6 +578,15 @@ def main() -> int:
         help="seconds to wait after each write outside the timing step, default 2.0",
     )
     parser.add_argument(
+        "--pool",
+        type=int,
+        default=POOL_SIZE_DEFAULT,
+        help="how many TEXT files to allocate, default %d, which is the service's own "
+        "slot_count. Steps 3 to 8 use the first three whatever this is; steps 9 to 11 "
+        "need the rest, left empty. Raise it to %d to see what the largest pool the "
+        "service allows costs." % (POOL_SIZE_DEFAULT, len(c.TEXT_FILE_LABELS)),
+    )
+    parser.add_argument(
         "--confirm-erase",
         action="store_true",
         help="required, because step 2 erases every message on the sign",
@@ -380,19 +598,32 @@ def main() -> int:
             "this spike erases every message on the sign. Stop the service, and "
             "anything else that writes to it, then pass --confirm-erase."
         )
+    if not len(POOL) < args.pool <= len(c.TEXT_FILE_LABELS):
+        parser.error(
+            "--pool must be between %d and %d. The first %d files are what steps 3 to 8 "
+            "use, and steps 9 to 11 need at least one more that nothing has written."
+            % (len(POOL) + 1, len(c.TEXT_FILE_LABELS), len(POOL))
+        )
+
+    pool = list(c.TEXT_FILE_LABELS[: args.pool])
+    spare = pool[len(POOL) :]
 
     print("readerboard protocol spike")
     print("Sign: %s at %d baud" % (args.url, args.baud))
+    print("Pool: %d files, %s" % (len(pool), labels_as_text(pool)))
 
     link = step_1_transport(args.url, args.baud, args.settle)
     try:
-        step_2_memory(link, args.settle)
+        step_2_memory(link, args.settle, pool)
         step_3_rotation(link, args.settle)
         step_4_empty_sequence(link, args.settle)
         step_5_empty_file(link, args.settle)
         step_6_priority(link, args.settle)
         step_7_reads(link)
         step_8_timing(link, args.settle)
+        step_9_unwritten_files(link, args.settle, spare)
+        step_10_files_that_empty_and_fill(link, args.settle)
+        step_11_long_sequence(link, args.settle, pool)
     finally:
         link.close()
 
