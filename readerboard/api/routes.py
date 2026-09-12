@@ -86,10 +86,11 @@ async def put_message(
     The sign rotates through the slots that are showing on its own, so
     registering a second message does not displace the first.
 
-    This leaves a hidden slot hidden. Whether a message is showing is not part of
-    the message, and a source re-sending the same content every few minutes would
-    otherwise switch a hidden one back on every time; `PUT /messages/{key}/active`
-    is what moves that.
+    Leave `active` out and a hidden message stays hidden, which is what a source
+    re-sending the same content every few minutes wants: repeating itself cannot
+    switch back on something that was deliberately hidden. Send it and the message
+    moves, so one call can write the text, set a deadline and put it up.
+    `PUT /messages/{key}/active` does the same without resending the message.
     """
     slot = await registry.upsert(
         key,
@@ -116,13 +117,18 @@ async def set_message_active(
 
     A hidden message stays registered. It keeps its slot, its file, its text and
     its place in the order, and is simply left out of the rotation the sign
-    cycles, so showing it again needs no copy of what it said. This is separate
-    from the message itself deliberately: a source that re-sends the same content
-    on a timer would otherwise switch a hidden message back on every time.
+    cycles, so showing it again needs no copy of what it said. `PUT /messages/{key}`
+    can move it too, by sending `active`; this endpoint is for when the caller
+    does not have the message text to resend, and a caller who omits `active`
+    there cannot move it by accident.
 
-    Hiding one disturbs nothing else on the sign; the other messages carry on
-    without a blank or a restart. The hidden message's own file is emptied, which
-    is what stops the sign freezing on it when it was the last one showing.
+    Hiding or showing one is a single run sequence write. That does disturb the
+    display, but far less than rewriting a message does: briefly enough to be
+    missed unless you are watching a static screen for it. The hidden message's
+    own file keeps its text, so showing it again sends nothing but the sequence.
+    The exception is the last message showing: that one's file is emptied as it
+    goes, because a sign whose sequence names nothing freezes on what it was
+    drawing.
 
     404 when no slot by that name is registered.
     """

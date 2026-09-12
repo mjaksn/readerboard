@@ -77,7 +77,8 @@ class MessageRequest(BaseModel):
         gt=0,
         description=(
             "act on the message this many seconds from now, deleting or hiding it "
-            "according to delete_on_expiry; omit to keep it showing until it is replaced"
+            "according to delete_on_expiry. Omit it for no deadline, which leaves the "
+            "message in place until something replaces or removes it"
         ),
     )
     delete_on_expiry: bool = Field(

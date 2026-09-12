@@ -316,7 +316,7 @@
                 "type": "null"
               }
             ],
-            "description": "act on the message this many seconds from now, deleting or hiding it according to delete_on_expiry; omit to keep it showing until it is replaced",
+            "description": "act on the message this many seconds from now, deleting or hiding it according to delete_on_expiry. Omit it for no deadline, which leaves the message in place until something replaces or removes it",
             "title": "Ttl Seconds"
           }
         },
@@ -1045,7 +1045,7 @@
         ]
       },
       "put": {
-        "description": "Put a message in a slot, replacing whatever was there.\n\nThe sign rotates through the slots that are showing on its own, so\nregistering a second message does not displace the first.\n\nThis leaves a hidden slot hidden. Whether a message is showing is not part of\nthe message, and a source re-sending the same content every few minutes would\notherwise switch a hidden one back on every time; `PUT /messages/{key}/active`\nis what moves that.",
+        "description": "Put a message in a slot, replacing whatever was there.\n\nThe sign rotates through the slots that are showing on its own, so\nregistering a second message does not displace the first.\n\nLeave `active` out and a hidden message stays hidden, which is what a source\nre-sending the same content every few minutes wants: repeating itself cannot\nswitch back on something that was deliberately hidden. Send it and the message\nmoves, so one call can write the text, set a deadline and put it up.\n`PUT /messages/{key}/active` does the same without resending the message.",
         "operationId": "put_message_messages__key__put",
         "parameters": [
           {
@@ -1107,7 +1107,7 @@
     },
     "/messages/{key}/active": {
       "put": {
-        "description": "Take a message off the display, or put it back, keeping its slot either way.\n\nA hidden message stays registered. It keeps its slot, its file, its text and\nits place in the order, and is simply left out of the rotation the sign\ncycles, so showing it again needs no copy of what it said. This is separate\nfrom the message itself deliberately: a source that re-sends the same content\non a timer would otherwise switch a hidden message back on every time.\n\nHiding one disturbs nothing else on the sign; the other messages carry on\nwithout a blank or a restart. The hidden message's own file is emptied, which\nis what stops the sign freezing on it when it was the last one showing.\n\n404 when no slot by that name is registered.",
+        "description": "Take a message off the display, or put it back, keeping its slot either way.\n\nA hidden message stays registered. It keeps its slot, its file, its text and\nits place in the order, and is simply left out of the rotation the sign\ncycles, so showing it again needs no copy of what it said. `PUT /messages/{key}`\ncan move it too, by sending `active`; this endpoint is for when the caller\ndoes not have the message text to resend, and a caller who omits `active`\nthere cannot move it by accident.\n\nHiding or showing one is a single run sequence write. That does disturb the\ndisplay, but far less than rewriting a message does: briefly enough to be\nmissed unless you are watching a static screen for it. The hidden message's\nown file keeps its text, so showing it again sends nothing but the sequence.\nThe exception is the last message showing: that one's file is emptied as it\ngoes, because a sign whose sequence names nothing freezes on what it was\ndrawing.\n\n404 when no slot by that name is registered.",
         "operationId": "set_message_active_messages__key__active_put",
         "parameters": [
           {
