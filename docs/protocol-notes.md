@@ -560,10 +560,12 @@ settled first.
 The one outstanding measurement, the inter-packet delay this sign actually needs, was taken
 on 2026-09-11. Six writes in a row landed correctly at gaps of 1s, 0.5s and 0.25s, and
 failed at 0.1s. So this sign is good to at least 0.25s and its floor is somewhere between
-0.1s and 0.25s. `inter_packet_delay` still defaults to 0.5s, which is now a conservative
-choice with a measurement behind it rather than a guess, and 0.25s is there for anyone who
-wants the sign to keep up with a burst. The old implementation slept two seconds after every
-write and closed the port; that number was never measured at all.
+0.1s and 0.25s. `inter_packet_delay` defaults to 0.25s on the strength of that, halved from
+the 0.5s it was guessed at before anyone had asked the sign. It is a setting, so a sign that
+turns out to need more can have it, and the failure to watch for is a burst of writes going
+quietly missing rather than an error: a write the sign is too busy to hear is accepted by
+the link and never refused. The old implementation slept two seconds after every write and
+closed the port; that number was never measured at all.
 
 `scripts/protocol_spike.py` also re-proves the memory configuration, the run sequence and
 the priority takeover end to end, which is cheap and worth doing since it is already
@@ -875,6 +877,6 @@ Appendix A rules `?` out for a STRING file as well.
 
 **Timing.** The inter-byte timeout for a standard packet is one second, and a nested
 packet needs at least 100 ms after its `STX`. This service sends no nested packets. The
-`inter_packet_delay` setting defaults to 0.5s. This sign was measured on 2026-09-11 taking
-six writes in a row correctly at a 0.25s gap and failing at 0.1s, so the default has margin
-over what the hardware needs.
+`inter_packet_delay` setting defaults to 0.25s, which is what this sign was measured on
+2026-09-11 taking six writes in a row correctly at, the same run failing at 0.1s. So the
+default sits above the measured floor and well under the inter-byte timeout above.
