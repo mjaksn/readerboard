@@ -691,11 +691,11 @@ Whatever moves between runs, the link, the adapter, the sign's own load, is not 
 these runs can see. Anyone tempted to lower the default should run the step several times
 first, and should read the failure mode below before deciding it is safe.
 
-It is a setting, so a sign that
-turns out to need more can have it, and the failure to watch for is a burst of writes going
-quietly missing rather than an error: a write the sign is too busy to hear is accepted by
-the link and never refused. The old implementation slept two seconds after every write and
-closed the port; that number was never measured at all.
+It is a setting, so a sign that turns out to need more can have it, and the failure to
+watch for is a burst of writes going quietly missing rather than an error: a write the
+sign is too busy to hear is accepted by the link and never refused. The old
+implementation slept two seconds after every write and closed the port; that number was
+never measured at all.
 
 `scripts/protocol_spike.py` also re-proves the memory configuration, the run sequence and
 the priority takeover end to end, which is cheap and worth doing since it is already

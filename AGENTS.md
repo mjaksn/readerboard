@@ -95,11 +95,11 @@ apart, so read which one a change means.
 
 There is one place the dangerous one runs on demand: `POST /sign/reboot`, the
 recovery path for a sign whose decoder has wedged out of reach and which a soft
-reset did not bring back. It clears the sign deliberately to
-reset it, then re-pushes every slot and the run sequence from the service's own
-record, so the erase is followed at once by a restore and the display comes back
-rather than staying blank. `MessageRegistry.reboot` is the whole of it; it is
-gated behind the API key like every other write, and the client fronts it with a
+reset did not bring back. It clears the sign deliberately to reset it, then
+re-pushes every slot and the run sequence from the service's own record, so the
+erase is followed at once by a restore and the display comes back rather than
+staying blank. `MessageRegistry.reboot` is the whole of it; it is gated behind
+the API key like every other write, and the client fronts it with a
 warning-coloured confirmation. This is the exception the paragraph above allows
 for, not a hole in it: a message write still cannot reach the clear, only this
 one route asked for by name can.
@@ -162,9 +162,8 @@ A slot can also be **hidden**, which is `PUT /messages/{key}/active` and
 nothing else, so hiding one is a single sequence write. That write does disturb
 the display, measured on 2026-09-12, but far less than rewriting a TEXT file:
 short enough to be imperceptible when anything else on screen is changing, and
-easy to miss even on static content. A hidden slot keeps
-its file, its order, its text and its name, so showing it again needs no copy of
-the message.
+easy to miss even on static content. A hidden slot keeps its file, its order,
+its text and its name, so showing it again needs no copy of the message.
 
 Two parts of that are easy to get wrong. **A hidden slot's file keeps its text**,
 so showing it again is one run sequence write and no redraw: the controller still
@@ -289,10 +288,10 @@ integration. Nothing in the service knows it exists.
 It shows each transmission byte by byte, coloured by what each span is and
 annotated with the protocol's own meaning, and it keeps the sign's state: the
 file table, the contents of each file and each STRING file, the run sequence
-and the priority file.
-The state is what makes it worth having over a packet log. It says when a write
-lands in a file no memory configuration allocated, when a message overruns its
-file, and when the run sequence names a file that does not exist.
+and the priority file. The state is what makes it worth having over a packet
+log. It says when a write lands in a file no memory configuration allocated,
+when a message overruns its file, and when the run sequence names a file that
+does not exist.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but
