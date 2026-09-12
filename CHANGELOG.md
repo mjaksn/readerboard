@@ -11,7 +11,11 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.5.1] - 2026-09-11
+
+**A fix for signs reached through an Ethernet adapter.** `GET /sign/information`
+now answers through one, where until now it could not. Nothing else changes, and
+upgrading from 0.5.0 erases nothing.
 
 ### Fixed
 
@@ -24,9 +28,9 @@ library, and the names inside it may move without that being a breaking change.
   a 503 every time. What is waiting is now read until nothing is left, so a
   reply arrives as fast as the link carries it. A serial port was not affected.
 
-  The 0.5.0 entry below puts the cut-off replies down to the sign pausing
-  mid-reply. That was wrong: this was the cause, and no pause has been
-  measured. Reading to the EOT is still how a reply is collected.
+  The 0.5.0 notes put the cut-off replies down to the sign pausing mid-reply.
+  That was wrong: this was the cause, and no pause has been measured. Reading
+  to the EOT is still how a reply is collected.
 
 ## [0.5.0] - 2026-09-11
 
@@ -1282,6 +1286,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.3.0
