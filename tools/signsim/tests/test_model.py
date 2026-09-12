@@ -165,12 +165,6 @@ class TestPriority:
         assert "nothing of it shows until the priority file is released" in texts(notes)
         assert sign.files[b"A"].body == b"BEHIND THE ALERT"
 
-    def test_a_run_sequence_during_an_alert_is_flagged_as_the_open_question(self, sign):
-        configure(sign, frames.FileAllocation(b"A", 64))
-        send(sign, frames.write_text_file(c.FILE_PRIORITY, b"ALERT"))
-        notes = send(sign, frames.set_run_sequence([b"A"]))
-        assert "does not say either way" in texts(notes)
-
 
 class TestRunSequence:
     def test_a_label_that_is_not_configured_is_skipped(self, sign):

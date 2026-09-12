@@ -504,9 +504,9 @@ What this settles for the service:
   the value short, it destroys it.
 - **A dangling call is invisible.** A call whose STRING has gone draws nothing, not garbage,
   and a freshly allocated STRING needs no blanking before it is used.
-- **Alerts can carry live values**, and a STRING write needs no deferral while an alert is
-  up. It is not on the list of things that cancel one, and on this sign it did not. That
-  rests on one alert calling one STRING, which is all the session tried.
+- **Alerts can carry live values**, and a STRING write can go out while an alert is up. It
+  is not on the list of things that cancel one, and on this sign it did not. That rests on
+  one alert calling one STRING, which is all the session tried.
 - **Reading a STRING back has no place in normal running.** It blanks the display, and it
   cannot tell an unallocated label from an empty one.
 
@@ -526,8 +526,8 @@ on hardware and not merely assumed.
 3. **Does a run sequence write cancel a running priority message?** Answered no, on
    2026-09-11. With ALERT holding the whole display, the run sequence was rewritten from
    A B C to A B, a real change rather than a no-op, and the alert stayed up. The service
-   still defers run sequence writes while an alert is active, which is now unnecessary and
-   can be removed; see below.
+   deferred run sequence writes while an alert was active until this settled it, and no
+   longer does; see below.
 4. **Does the sign answer reads through the Ethernet adapter?** Answered yes. All four
    reads in the table below came back correct, so the adapter is two-way and divergence
    could be detected by asking rather than by re-pushing on a timer.
@@ -560,10 +560,12 @@ settled first.
 The one outstanding measurement, the inter-packet delay this sign actually needs, was taken
 on 2026-09-11. Six writes in a row landed correctly at gaps of 1s, 0.5s and 0.25s, and
 failed at 0.1s. So this sign is good to at least 0.25s and its floor is somewhere between
-0.1s and 0.25s. `inter_packet_delay` still defaults to 0.5s, which is now a conservative
-choice with a measurement behind it rather than a guess, and 0.25s is there for anyone who
-wants the sign to keep up with a burst. The old implementation slept two seconds after every
-write and closed the port; that number was never measured at all.
+0.1s and 0.25s. `inter_packet_delay` defaults to 0.25s on the strength of that, halved from
+the 0.5s it was guessed at before anyone had asked the sign. It is a setting, so a sign that
+turns out to need more can have it, and the failure to watch for is a burst of writes going
+quietly missing rather than an error: a write the sign is too busy to hear is accepted by
+the link and never refused. The old implementation slept two seconds after every write and
+closed the port; that number was never measured at all.
 
 `scripts/protocol_spike.py` also re-proves the memory configuration, the run sequence and
 the priority takeover end to end, which is cheap and worth doing since it is already
@@ -592,12 +594,12 @@ The spike answered it on 2026-09-11. With an alert holding the display, the run 
 rewritten from A B C to A B, and the alert stayed up. So a Set Run Sequence write is not a
 fifth thing that cancels a priority message, and the list above is the whole list.
 
-The service still takes the cautious reading, which is now obsolete. While an alert is
-active the registry holds run sequence writes back and applies them when the sign is handed
-back. Writing a slot's own TEXT file was never on the list above and carries on normally, so
-content stays current behind the alert. The deferral can now go, and it takes with it
-`MessageRegistry._apply_run_sequence`'s `force` flag, `flush_deferred`, the alert service's
-release hook and the simulator's warning about it.
+Until that measurement the service took the cautious reading: while an alert was active the
+registry held run sequence writes back and applied them when the sign was handed back. That
+is gone, and it took with it `MessageRegistry._apply_run_sequence`'s `force` flag,
+`flush_deferred`, the alert service's release hook and the simulator's warning about it.
+Writing a slot's own TEXT file was never on the list above and was never held back, so
+content stayed current behind the alert either way.
 
 ## Reading state back
 
@@ -875,6 +877,6 @@ Appendix A rules `?` out for a STRING file as well.
 
 **Timing.** The inter-byte timeout for a standard packet is one second, and a nested
 packet needs at least 100 ms after its `STX`. This service sends no nested packets. The
-`inter_packet_delay` setting defaults to 0.5s. This sign was measured on 2026-09-11 taking
-six writes in a row correctly at a 0.25s gap and failing at 0.1s, so the default has margin
-over what the hardware needs.
+`inter_packet_delay` setting defaults to 0.25s, which is what this sign was measured on
+2026-09-11 taking six writes in a row correctly at, the same run failing at 0.1s. So the
+default sits above the measured floor and well under the inter-byte timeout above.

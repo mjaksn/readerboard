@@ -335,7 +335,7 @@ def _health(payload: object) -> list[Block]:
     ]
 
 
-_SLOT_COLUMNS = ("key", "file", "message", "mode", "order", "source", "expires")
+_SLOT_COLUMNS = ("key", "file", "message", "mode", "order", "showing", "source", "expires")
 
 
 def _slot_row(slot: dict[str, object]) -> tuple[str, ...]:
@@ -347,6 +347,7 @@ def _slot_row(slot: dict[str, object]) -> tuple[str, ...]:
         str(slot.get("message", "")),
         str(slot.get("display_mode", "")),
         str(slot.get("order", "")),
+        yes_no(slot.get("active")),
         str(slot.get("source") or ""),
         when(expires) if expires else "never",
     )
@@ -381,10 +382,20 @@ def _slot(payload: object) -> list[Block]:
                 Row("message", str(payload.get("message", ""))),
                 Row("display mode", str(payload.get("display_mode", ""))),
                 Row("order", str(payload.get("order", ""))),
+                Row(
+                    "showing",
+                    yes_no(payload.get("active")),
+                    "no keeps it registered, on its file and off the display",
+                ),
                 Row("source", str(payload.get("source") or "not recorded")),
                 Row(
                     "expires",
                     when(payload["expires_at"]) if payload.get("expires_at") else "never",
+                ),
+                Row(
+                    "delete on expiry",
+                    yes_no(payload.get("delete_on_expiry")),
+                    "what the deadline does; no means it is hidden and kept",
                 ),
                 Row("updated", when(payload.get("updated_at"))),
             ),

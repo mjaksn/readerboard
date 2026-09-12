@@ -11,6 +11,7 @@ from readerboard.services.registry import (
 )
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
+from readerboard.sign.state import AlertState
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -34,6 +35,14 @@ def payloads_starting(transport: FakeTransport, command: bytes) -> list[bytes]:
 def run_sequences(transport: FakeTransport) -> list[bytes]:
     """Every run sequence packet the transport saw, in order."""
     return payloads_starting(transport, b"E.")
+
+
+def first_index(transport: FakeTransport, command: bytes) -> int:
+    """Where the first packet starting with ``command`` fell, for pinning an order."""
+    for index, packet in enumerate(transport.packets):
+        if packet.startswith(FRAME_PREFIX + command):
+            return index
+    raise AssertionError("no packet starting with %r" % command)
 
 
 class TestUpsert:
@@ -141,6 +150,283 @@ class TestRemoval:
         assert registry.list_slots() == []
 
 
+class TestActive:
+    """Switching a message off keeps it registered and takes it off the display.
+
+    The run sequence names the active slots and nothing else, so hiding one is a
+    sequence write and nothing more: the file keeps its text, and switching it
+    back on is another sequence write, with the controller declining to send
+    bytes the file already holds. The exception is hiding the last one, where
+    the file is emptied as well, because a sign handed a sequence naming nothing
+    was measured freezing on the message it was drawing and holding it there.
+    See docs/protocol-notes.md.
+    """
+
+    async def test_hiding_one_takes_it_out_of_the_run_sequence(self, registry, transport):
+        await add(registry, "one")
+        await add(registry, "two")
+
+        await registry.set_active("one", False)
+
+        assert run_sequences(transport)[-1].endswith(b"B" + b"\x04")
+
+    async def test_it_stays_registered_on_its_own_file(self, registry, layout):
+        await add(registry, "one", "HELLO")
+
+        await registry.set_active("one", False)
+
+        slot = registry.get("one")
+        assert slot.active is False
+        assert slot.message == "HELLO"
+        assert layout.slots.label_for("one") == b"A"
+        # It still holds its slot, so the pool is no emptier for hiding it.
+        assert registry.occupancy == (1, 3)
+
+    async def test_hiding_one_with_others_playing_costs_one_sequence_write(
+        self, registry, transport
+    ):
+        # The measurement this is built on: a sequence write leaves the rotation
+        # running, and rewriting a TEXT file restarts the message in it. So
+        # hiding is the sequence and nothing else, or it blinks for nothing.
+        await add(registry, "one", "HELLO")
+        await add(registry, "two")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert len(run_sequences(transport)) == 1
+        assert payloads_starting(transport, b"A") == []
+        assert payloads_starting(transport, b"B") == []
+
+    async def test_hiding_one_leaves_its_text_on_the_sign(self, registry, transport):
+        # Nothing cycles to it, so the bytes sit there unseen. That is what
+        # makes showing it again free.
+        await add(registry, "one", "HELLO")
+        await add(registry, "two")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert frames.packet(frames.write_text_file(b"A", b"")) not in transport.packets
+
+    async def test_hiding_the_last_one_leaves_the_sequence_naming_nothing(
+        self, registry, transport
+    ):
+        await add(registry, "one")
+
+        await registry.set_active("one", False)
+
+        assert run_sequences(transport)[-1].endswith(b"E.SU" + b"\x04")
+
+    async def test_showing_it_again_costs_one_sequence_write(self, registry, transport):
+        # The whole point. Its file still holds those bytes, so the write is
+        # suppressed and the sign is told only to start playing it again.
+        await add(registry, "one", "HELLO")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert payloads_starting(transport, b"A") == []
+        assert len(run_sequences(transport)) == 1
+        assert run_sequences(transport)[-1].endswith(b"AB" + b"\x04")
+
+    async def test_hiding_the_last_one_empties_its_file(self, registry, transport):
+        # With nothing left in the sequence the sign freezes on what it was
+        # drawing, so here the blank is what clears the display.
+        await add(registry, "one", "HELLO")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert frames.packet(frames.write_text_file(b"A", b"")) in transport.packets
+
+    async def test_showing_the_last_one_again_writes_the_message_back(
+        self, registry, transport
+    ):
+        # Coming back from an empty rotation costs both writes, since the file
+        # was emptied to break the freeze.
+        await add(registry, "one", "HELLO")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert payloads_starting(transport, b"A")
+        assert run_sequences(transport)[-1].endswith(b"A" + b"\x04")
+
+    async def test_setting_it_to_what_it_already_is_writes_nothing(self, registry, transport):
+        await add(registry, "one")
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert transport.packets == []
+
+    async def test_an_unknown_slot_is_a_clean_error(self, registry):
+        with pytest.raises(UnknownSlot, match="no slot named"):
+            await registry.set_active("nobody", True)
+
+    async def test_replacing_the_message_leaves_it_hidden(self, registry):
+        # A source that re-sends the same content every few minutes must not
+        # switch a message back on that somebody deliberately hid.
+        await add(registry, "one", "ONE")
+        await registry.set_active("one", False)
+
+        await add(registry, "one", "TWO")
+
+        assert registry.get("one").active is False
+        assert registry.get("one").message == "TWO"
+
+    async def test_a_hidden_slots_new_message_still_reaches_its_file(
+        self, registry, transport
+    ):
+        # Written into a file nothing cycles to, so it shows nothing now and
+        # switching it back on stays one sequence write.
+        await add(registry, "one", "ONE")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        await add(registry, "one", "TWO")
+
+        assert payloads_starting(transport, b"A")
+        assert registry.get("one").message == "TWO"
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert payloads_starting(transport, b"A") == []
+
+    async def test_a_message_can_be_shown_by_the_same_call_that_writes_it(
+        self, registry, transport
+    ):
+        # The one-call case this exists for: something that reports an event
+        # writes the message and puts it up in the same breath, rather than
+        # writing it and then making a second call to show it.
+        await add(registry, "alarm", "ARMED")
+        await add(registry, "other")
+        await registry.set_active("alarm", False)
+        transport.clear()
+
+        slot = await add(registry, "alarm", "DISARMED", active=True)
+
+        assert slot.active is True
+        # The text before the sequence, so the sign is never sent to a file
+        # that is still being written.
+        assert first_index(transport, b"A") < first_index(transport, b"E.")
+        assert run_sequences(transport)[-1].endswith(b"AB" + b"\x04")
+
+    async def test_a_message_can_be_hidden_by_the_same_call_that_writes_it(
+        self, registry, transport
+    ):
+        await add(registry, "alarm", "ARMED")
+        await add(registry, "other")
+        transport.clear()
+
+        slot = await add(registry, "alarm", "DISARMED", active=False)
+
+        assert slot.active is False
+        assert slot.message == "DISARMED"
+        # The sequence first this time. The other way round the new text would
+        # land in a file the sign was still cycling to, restarting the message
+        # for the moment before it went.
+        assert first_index(transport, b"E.") < first_index(transport, b"A")
+
+    async def test_saying_nothing_about_it_still_leaves_it_alone(self, registry):
+        # The guard that made this a separate endpoint in the first place. It
+        # survives because the field is absent by default, not because the
+        # field is absent from the endpoint.
+        await add(registry, "one", "ONE")
+        await registry.set_active("one", False)
+
+        await add(registry, "one", "TWO")
+        assert registry.get("one").active is False
+
+        await registry.set_active("one", True)
+        await add(registry, "one", "THREE")
+        assert registry.get("one").active is True
+
+    async def test_a_new_slot_can_be_registered_already_hidden(self, registry, transport):
+        await add(registry, "kept")
+        transport.clear()
+
+        slot = await add(registry, "later", "NOT YET", active=False)
+
+        assert slot.active is False
+        # It holds a file, and the rotation is exactly what it was, so there
+        # was nothing to tell the sign about it.
+        assert registry.occupancy == (2, 3)
+        assert run_sequences(transport) == []
+
+        transport.clear()
+        await registry.set_active("later", True)
+        assert run_sequences(transport)[-1].endswith(b"AB" + b"\x04")
+
+    async def test_a_notification_shows_for_its_ttl_and_waits_for_the_next_one(
+        self, registry, clock
+    ):
+        # End to end, the way an alarm panel would drive it: one call per event,
+        # carrying the text, the deadline and the decision to show it.
+        await add(
+            registry,
+            "alarm",
+            "ALARM NOW ARMED",
+            ttl_seconds=60,
+            delete_on_expiry=False,
+            active=True,
+        )
+        clock.advance(61)
+        assert await registry.sweep() == ["alarm"]
+        assert registry.get("alarm").active is False
+
+        await add(
+            registry,
+            "alarm",
+            "ALARM NOW DISARMED",
+            ttl_seconds=60,
+            delete_on_expiry=False,
+            active=True,
+        )
+
+        slot = registry.get("alarm")
+        assert slot.active is True
+        assert slot.message == "ALARM NOW DISARMED"
+        # A fresh deadline, so it goes off the display a minute from now rather
+        # than at once on the deadline the last event left behind.
+        assert slot.expires_at is not None
+        assert await registry.sweep() == []
+
+    async def test_a_hidden_slot_comes_back_hidden_after_a_restart(
+        self, registry, store, transport, clock
+    ):
+        await add(registry, "one")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        restored = MessageRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
+        await restored.restore()
+
+        assert restored.get("one").active is False
+        assert restored.get("two").active is True
+
+    async def test_a_restart_names_only_the_ones_showing(
+        self, registry, store, transport, clock
+    ):
+        await add(registry, "one")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        restored = MessageRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
+        await restored.restore()
+
+        assert run_sequences(transport)[-1].endswith(b"B" + b"\x04")
+
+
 class TestExpiry:
     async def test_a_slot_without_a_ttl_never_expires(self, registry, clock):
         await add(registry, "temperature")
@@ -171,6 +457,55 @@ class TestExpiry:
         clock.advance(61)
         await registry.sweep()
         assert registry.occupancy == (0, 3)
+
+    async def test_a_deadline_can_hide_a_slot_instead_of_dropping_it(
+        self, registry, clock, layout
+    ):
+        await add(registry, "bins", "BINS", ttl_seconds=60, delete_on_expiry=False)
+
+        clock.advance(61)
+        assert await registry.sweep() == ["bins"]
+
+        slot = registry.get("bins")
+        assert slot.active is False
+        assert slot.message == "BINS"
+        # It kept its slot, so the pool is no emptier for the deadline passing.
+        assert layout.slots.label_for("bins") == b"A"
+        assert registry.occupancy == (1, 3)
+
+    async def test_a_hidden_slot_does_not_expire_again(self, registry, clock):
+        # The deadline has already done what it was for. Left in place, the
+        # slot would be hidden again the moment it was shown.
+        await add(registry, "bins", ttl_seconds=60, delete_on_expiry=False)
+        clock.advance(61)
+        await registry.sweep()
+
+        assert registry.get("bins").expires_at is None
+        await registry.set_active("bins", True)
+        clock.advance(86400)
+        assert await registry.sweep() == []
+        assert registry.get("bins").active is True
+
+    async def test_a_hidden_slot_leaves_the_run_sequence(self, registry, clock, transport):
+        await add(registry, "kept")
+        await add(registry, "bins", ttl_seconds=60, delete_on_expiry=False)
+        clock.advance(61)
+
+        await registry.sweep()
+
+        assert run_sequences(transport)[-1].endswith(b"A" + b"\x04")
+
+    async def test_the_two_outcomes_can_expire_in_the_same_sweep(
+        self, registry, clock, layout
+    ):
+        await add(registry, "gone", ttl_seconds=60)
+        await add(registry, "bins", ttl_seconds=60, delete_on_expiry=False)
+
+        clock.advance(61)
+        assert sorted(await registry.sweep()) == ["bins", "gone"]
+
+        assert layout.slots.label_for("gone") is None
+        assert registry.get("bins").active is False
 
 
 class TestRestart:
@@ -405,41 +740,37 @@ class TestReboot:
         assert [slot.key for slot in registry.list_slots()] == ["one"]
 
 
-class TestAlertDeferral:
-    """A run sequence write during an alert might cancel it.
+class TestAnAlertDoesNotHoldTheRunSequenceBack:
+    """The run sequence goes out whatever is on the sign, an alert included.
 
-    The protocol says a running priority message is cancelled by a write to the
-    run time or run day table, and says nothing either way about the run
-    sequence. Until the spike settles that, the safe reading is that it might.
+    The service used to hold these writes back, because the protocol says a
+    running priority message is cancelled by a write to the run time or run day
+    table and says nothing either way about the run sequence. The spike settled
+    it on 2026-09-11: a real sequence change with an alert up left the alert on
+    the sign, so there is nothing to defer. These pin that it stays gone.
     """
 
-    def registry_with_alert(self, controller, layout, store, state, clock, active):
-        return MessageRegistry(
-            controller, layout, store, state, now=clock, alert_active=lambda: active()
-        )
+    def registry_with_an_alert(self, controller, layout, store, state, clock):
+        state.alert = AlertState(message="ALERT", mode="HOLD", started_at=clock())
+        return MessageRegistry(controller, layout, store, state, now=clock)
 
-    async def test_the_run_sequence_is_held_back_while_an_alert_is_up(
+    async def test_a_new_slot_reaches_the_run_sequence_during_an_alert(
         self, controller, layout, store, state, clock, transport
     ):
-        holding = True
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: holding
-        )
+        registry = self.registry_with_an_alert(controller, layout, store, state, clock)
         await registry.restore()
         transport.clear()
 
         await add(registry, "temperature")
 
-        assert run_sequences(transport) == []
+        assert len(run_sequences(transport)) == 1
 
     async def test_the_message_itself_still_reaches_the_sign(
         self, controller, layout, store, state, clock, transport
     ):
-        # Writing a TEXT file is not on the protocol's list of things that
-        # cancel a priority message, so content stays current behind the alert.
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: True
-        )
+        # Writing a TEXT file was never on the protocol's list either, so
+        # content stays current behind the alert.
+        registry = self.registry_with_an_alert(controller, layout, store, state, clock)
         await registry.restore()
         transport.clear()
 
@@ -447,33 +778,11 @@ class TestAlertDeferral:
 
         assert payloads_starting(transport, b"A")
 
-    async def test_it_is_applied_when_the_alert_is_released(
+    async def test_restore_configures_the_rotation_during_an_alert(
         self, controller, layout, store, state, clock, transport
     ):
-        holding = True
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: holding
-        )
-        await registry.restore()
-        await add(registry, "temperature")
-        transport.clear()
+        registry = self.registry_with_an_alert(controller, layout, store, state, clock)
 
-        holding = False
-        assert await registry.flush_deferred() is True
-
-        assert len(run_sequences(transport)) == 1
-
-    async def test_flushing_with_nothing_deferred_does_nothing(self, registry):
-        assert await registry.flush_deferred() is False
-
-    async def test_restore_applies_the_sequence_even_if_state_says_alert(
-        self, controller, layout, store, state, clock, transport
-    ):
-        # At startup the alert has not been re-asserted on the sign yet, so
-        # there is nothing to protect and the rotation must be configured.
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: True
-        )
         await registry.restore()
 
         assert len(run_sequences(transport)) == 1

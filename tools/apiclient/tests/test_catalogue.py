@@ -162,6 +162,7 @@ def test_the_key_loaders_are_the_ones_for_messages_and_variables():
     assert loaders == {
         ("get_message", "list_messages"),
         ("put_message", "list_messages"),
+        ("set_message_active", "list_messages"),
         ("delete_message", "list_messages"),
         ("get_variable", "list_variables"),
         ("put_variable", "list_variables"),

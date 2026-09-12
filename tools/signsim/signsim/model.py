@@ -572,17 +572,6 @@ class SignState:
         """Choose which files play, and in what order."""
         notes: list[Note] = []
 
-        if self.priority_active:
-            notes.append(
-                Note(
-                    NoteLevel.WARNING,
-                    "A run sequence was written while a priority message is up. The "
-                    "document lists what cancels a priority message and does not say "
-                    "either way about this one, which is why the service holds these "
-                    "writes back until the alert is released.",
-                )
-            )
-
         seen: set[bytes] = set()
         for label in command.labels:
             if label in seen:

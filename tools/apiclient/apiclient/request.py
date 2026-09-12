@@ -88,6 +88,20 @@ def fill_path(operation: Operation, values: dict[str, str]) -> str:
     return path
 
 
+def as_text(value: object) -> str:
+    """Return a value as the text a field holds, which is :func:`coerce` backwards.
+
+    A boolean is the only one that needs saying. Python writes it ``True`` and
+    JSON writes it ``true``, and a boolean field is a closed list of exactly the
+    two JSON spellings, so ``str`` would produce a word that is not in the list.
+    Qt drops a selection it does not recognise without a word, which would show
+    as a field quietly answering the opposite of what was loaded into it.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return "" if value is None else str(value)
+
+
 def coerce(kind: str, text: str) -> object:
     """Return the text as the kind of value the field wants, or as text if it will not.
 
@@ -98,6 +112,11 @@ def coerce(kind: str, text: str) -> object:
     that is not a number is answered for by the service, field by field, rather
     than turned into a document it cannot read.
     """
+    if kind == "bool":
+        lowered = text.strip().lower()
+        if lowered in ("true", "false"):
+            return lowered == "true"
+        return text
     if kind == "int":
         try:
             return int(text)

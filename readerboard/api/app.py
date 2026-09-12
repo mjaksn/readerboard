@@ -42,8 +42,10 @@ Drives a BetaBrite Classic sign over the Alpha protocol, either through a serial
 cable or through an Ethernet to RS-232 adapter.
 
 Several sources can share the sign at once. Each registers a named **slot**, and
-the sign rotates through the registered slots by itself. An **alert** takes the
-whole display over until it is released, then the rotation resumes.
+the sign rotates through the slots that are showing by itself. A slot can be
+hidden without being given up, so a message can be taken off the display and put
+back without being sent again. An **alert** takes the whole display over until it
+is released, then the rotation resumes.
 
 A **variable** is a value a slot's message or an alert calls with `<var:name>`.
 Changing it rewrites only the variable, so the sign shows the new value without
@@ -149,13 +151,8 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             settings.variable_capacity,
         )
         alerts = AlertService(controller, store, state)
-        registry = MessageRegistry(
-            controller, layout, store, state, alert_active=lambda: alerts.active is not None
-        )
-        # An alert holding the sign makes the registry hold back run sequence
-        # writes; releasing it is what lets them through.
-        alerts.set_release_hook(registry.flush_deferred)
-        # And an alert calling a variable is rendered by the registry, under its
+        registry = MessageRegistry(controller, layout, store, state)
+        # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
         alerts.set_rendering(registry.rendering)
         clock = ClockService(

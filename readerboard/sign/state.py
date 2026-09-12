@@ -51,13 +51,26 @@ old file would be actively misread, and then think about what the erase costs.
 
 
 class SlotState(BaseModel):
-    """One registered message."""
+    """One registered message.
+
+    ``active`` is whether the sign is playing it. An inactive slot keeps its
+    file, its place in the order and its message, and is simply left out of the
+    run sequence. Its file keeps its text too, so showing it again is one run
+    sequence write; the file is emptied only when no slot is left playing, which
+    is what stops a sign whose sequence names nothing from freezing on the last
+    message it drew. See ``MessageRegistry.set_active``.
+
+    ``delete_on_expiry`` is what a TTL does when it passes: True gives the file
+    back, False keeps the slot and takes it off the display.
+    """
 
     key: str
     label: str
     message: str
     mode: str
     order: int = 0
+    active: bool = True
+    delete_on_expiry: bool = True
     source: str | None = None
     expires_at: datetime | None = None
     updated_at: datetime
