@@ -11,6 +11,7 @@ from readerboard.services.registry import (
 )
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
+from readerboard.sign.state import AlertState
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -739,41 +740,37 @@ class TestReboot:
         assert [slot.key for slot in registry.list_slots()] == ["one"]
 
 
-class TestAlertDeferral:
-    """A run sequence write during an alert might cancel it.
+class TestAnAlertDoesNotHoldTheRunSequenceBack:
+    """The run sequence goes out whatever is on the sign, an alert included.
 
-    The protocol says a running priority message is cancelled by a write to the
-    run time or run day table, and says nothing either way about the run
-    sequence. Until the spike settles that, the safe reading is that it might.
+    The service used to hold these writes back, because the protocol says a
+    running priority message is cancelled by a write to the run time or run day
+    table and says nothing either way about the run sequence. The spike settled
+    it on 2026-09-11: a real sequence change with an alert up left the alert on
+    the sign, so there is nothing to defer. These pin that it stays gone.
     """
 
-    def registry_with_alert(self, controller, layout, store, state, clock, active):
-        return MessageRegistry(
-            controller, layout, store, state, now=clock, alert_active=lambda: active()
-        )
+    def registry_with_an_alert(self, controller, layout, store, state, clock):
+        state.alert = AlertState(message="ALERT", mode="HOLD", started_at=clock())
+        return MessageRegistry(controller, layout, store, state, now=clock)
 
-    async def test_the_run_sequence_is_held_back_while_an_alert_is_up(
+    async def test_a_new_slot_reaches_the_run_sequence_during_an_alert(
         self, controller, layout, store, state, clock, transport
     ):
-        holding = True
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: holding
-        )
+        registry = self.registry_with_an_alert(controller, layout, store, state, clock)
         await registry.restore()
         transport.clear()
 
         await add(registry, "temperature")
 
-        assert run_sequences(transport) == []
+        assert len(run_sequences(transport)) == 1
 
     async def test_the_message_itself_still_reaches_the_sign(
         self, controller, layout, store, state, clock, transport
     ):
-        # Writing a TEXT file is not on the protocol's list of things that
-        # cancel a priority message, so content stays current behind the alert.
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: True
-        )
+        # Writing a TEXT file was never on the protocol's list either, so
+        # content stays current behind the alert.
+        registry = self.registry_with_an_alert(controller, layout, store, state, clock)
         await registry.restore()
         transport.clear()
 
@@ -781,33 +778,11 @@ class TestAlertDeferral:
 
         assert payloads_starting(transport, b"A")
 
-    async def test_it_is_applied_when_the_alert_is_released(
+    async def test_restore_configures_the_rotation_during_an_alert(
         self, controller, layout, store, state, clock, transport
     ):
-        holding = True
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: holding
-        )
-        await registry.restore()
-        await add(registry, "temperature")
-        transport.clear()
+        registry = self.registry_with_an_alert(controller, layout, store, state, clock)
 
-        holding = False
-        assert await registry.flush_deferred() is True
-
-        assert len(run_sequences(transport)) == 1
-
-    async def test_flushing_with_nothing_deferred_does_nothing(self, registry):
-        assert await registry.flush_deferred() is False
-
-    async def test_restore_applies_the_sequence_even_if_state_says_alert(
-        self, controller, layout, store, state, clock, transport
-    ):
-        # At startup the alert has not been re-asserted on the sign yet, so
-        # there is nothing to protect and the rotation must be configured.
-        registry = self.registry_with_alert(
-            controller, layout, store, state, clock, lambda: True
-        )
         await registry.restore()
 
         assert len(run_sequences(transport)) == 1

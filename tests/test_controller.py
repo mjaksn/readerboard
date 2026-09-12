@@ -403,7 +403,8 @@ class TestNothingElseWritesWhileTheSignIsResetting:
         tone is generated."
 
         This shipped without the wait. SOUND asked for no settle, so the next
-        write went out one inter_packet_delay later, half a second by default,
+        write went out one inter_packet_delay later, a quarter of a second by
+        default,
         into a sign that was not listening. Nothing failed: the transport
         accepted it, the suppression cache recorded the file as holding those
         bytes, and the message stayed missing until the next periodic re-push.

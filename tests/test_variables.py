@@ -362,10 +362,7 @@ class TestRestart:
 async def wire(controller, layout, store, state, clock) -> tuple[MessageRegistry, AlertService]:
     """Build a registry and an alert service joined the way the service joins them."""
     alerts = AlertService(controller, store, state, now=clock)
-    registry = MessageRegistry(
-        controller, layout, store, state, now=clock, alert_active=lambda: alerts.active is not None
-    )
-    alerts.set_release_hook(registry.flush_deferred)
+    registry = MessageRegistry(controller, layout, store, state, now=clock)
     alerts.set_rendering(registry.rendering)
     await registry.restore()
     return registry, alerts
@@ -527,9 +524,9 @@ class TestAlertsAfterARestart:
         registry, alerts = await wire(
             controller, Layout(3, 256, 3, 16), store, store.load(), clock
         )
-        # A release takes the registry's lock again, through the run sequence it
-        # may have held back, so a restore holding that lock while it released
-        # would hang here rather than fail. The deadline turns a hang into a
+        # A restore takes the registry's lock to render the alert, and the alert
+        # service's to write it. A restore that took them the other way round
+        # would hang here rather than fail, so the deadline turns a hang into a
         # failure.
         await asyncio.wait_for(alerts.restore(), timeout=2)
         return registry, alerts

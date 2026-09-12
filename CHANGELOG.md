@@ -59,6 +59,27 @@ library, and the names inside it may move without that being a breaking change.
   Both fields appear in `GET /messages` and in the client, which grew the
   endpoint and a true/false field for each.
 
+### Changed
+
+- **Run sequence writes are no longer held back while an alert is up.** The
+  protocol lists four things that cancel a running priority message and says
+  nothing either way about a Set Run Sequence write, so the service had taken the
+  cautious reading and held those writes until the alert was released. The sign
+  settled it on 2026-09-11: with an alert holding the whole display the sequence
+  was rewritten from three files to two and the alert stayed up. So they go out
+  as they are made. Nothing about the HTTP surface changes; what changes is that
+  a slot registered, expired or hidden during an alert reaches the sign then
+  rather than at the release.
+
+- **`inter_packet_delay` now defaults to 0.25 seconds rather than 0.5.** The old
+  figure was a guess made before anyone had asked the sign. A BetaBrite Classic
+  took six writes in a row correctly at a 0.25 second gap on 2026-09-11, and the
+  same run failed at 0.1, so the new default sits above the measured floor and
+  makes a burst of writes land in half the time. It is still a setting: a sign
+  that needs more can be given more, and the symptom of too little is writes
+  going quietly missing rather than an error, since a write the sign is too busy
+  to hear is accepted by the link and never refused.
+
 ## [0.5.1] - 2026-09-11
 
 **A fix for signs reached through an Ethernet adapter.** `GET /sign/information`

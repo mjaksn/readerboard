@@ -16,8 +16,7 @@ rotation invisible behind it and no record of why.
 
 An alert can call variables, rendered through the registry's
 :meth:`MessageRegistry.rendering`, which holds the registry's lock until the
-priority file is written. Its lock is always taken before this service's own,
-and never held across :meth:`AlertService.release`, which takes it again.
+priority file is written. Its lock is always taken before this service's own.
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 
@@ -64,14 +63,9 @@ class AlertService:
         state: ServiceState,
         *,
         now: Callable[[], datetime] = _utcnow,
-        on_release: Callable[[], Awaitable[object]] | None = None,
         rendering: Rendering = _without_variables,
     ) -> None:
         """Wire the alert service to the sign and to its restored state.
-
-        ``on_release`` runs after the sign has been handed back. The registry
-        uses it to apply a run sequence it held back while the alert was up; see
-        ``MessageRegistry._apply_run_sequence`` for why it holds one back.
 
         ``rendering`` is where an alert is rendered, and is the registry's
         :meth:`MessageRegistry.rendering` in the service. Without one an alert
@@ -81,13 +75,8 @@ class AlertService:
         self._store = store
         self._state = state
         self._now = now
-        self._on_release = on_release
         self._rendering = rendering
         self._lock = asyncio.Lock()
-
-    def set_release_hook(self, hook: Callable[[], Awaitable[object]]) -> None:
-        """Attach something to run after the sign is handed back."""
-        self._on_release = hook
 
     def set_rendering(self, rendering: Rendering) -> None:
         """Render alerts through the registry, so that they can call variables."""
@@ -125,9 +114,6 @@ class AlertService:
             await self.release()
             return
 
-        # Released outside the rendering, never inside it: releasing applies the
-        # run sequence the registry held back, which takes the registry's lock,
-        # and the rendering is holding it.
         async with self._rendering() as render_message:
             body = render_message(alert.message, strict=False)
             fits = len(body) <= c.PRIORITY_FILE_CAPACITY
@@ -240,9 +226,6 @@ class AlertService:
 
         if was_active:
             logger.info("alert released, rotation resumes")
-
-        if self._on_release is not None:
-            await self._on_release()
 
         return was_active
 

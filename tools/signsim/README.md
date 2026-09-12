@@ -131,10 +131,7 @@ among others:
 - a transmission too truncated to act on, which is left to change nothing rather
   than applied with the decoder's placeholder values. A write cut off inside its
   start of mode would otherwise read as the empty priority write that releases
-  an alert, and a truncated clock write would set the clock to 00:00;
-- a run sequence written while an alert is up. The sign was measured taking that
-  without dropping the alert on 2026-09-11, so this flag is now a false alarm and
-  goes when the service stops deferring; see `docs/protocol-notes.md`.
+  an alert, and a truncated clock write would set the clock to 00:00.
 
 ## What it does not do
 

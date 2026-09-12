@@ -151,13 +151,8 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             settings.variable_capacity,
         )
         alerts = AlertService(controller, store, state)
-        registry = MessageRegistry(
-            controller, layout, store, state, alert_active=lambda: alerts.active is not None
-        )
-        # An alert holding the sign makes the registry hold back run sequence
-        # writes; releasing it is what lets them through.
-        alerts.set_release_hook(registry.flush_deferred)
-        # And an alert calling a variable is rendered by the registry, under its
+        registry = MessageRegistry(controller, layout, store, state)
+        # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
         alerts.set_rendering(registry.rendering)
         clock = ClockService(
