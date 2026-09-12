@@ -130,6 +130,13 @@ attempts. None of that is reassuring and none of it should be read that way: a m
 configuration write is destructive whether or not anybody catches the moment it happens.
 The warning in AGENTS.md under "The one dangerous operation" stands exactly as written.
 
+A run on 2026-09-12 answered that step "no" again, and it is not a third observation either
+way. The step asked whether the display blanked **and** any old message disappeared, as one
+question, and in that run there was no old message: step 1 had written SPIKE to the priority
+file and released it, so the sign reached step 2 with nothing of its own on the display. A
+"no" from a sign that had nothing to lose says nothing about the blank. The step now asks
+the two separately, so the next run cannot answer them together.
+
 ### The start and stop times
 
 Appendix B encodes times in ten minute steps, `00` for midnight through to the small
@@ -510,17 +517,15 @@ What this settles for the service:
 - **Reading a STRING back has no place in normal running.** It blanks the display, and it
   cannot tell an unallocated label from an empty one.
 
-## What the spike still has to confirm
+## What the spike has settled
 
-The wire format questions are closed. Seven behavioural ones are settled: a session on
-2026-09-09 answered three of the four open then, a second on 2026-09-11 answered the fourth
-along with a fifth added in between, and a third on 2026-09-12 answered two that came out of
-the fifth. What each turned out to be is recorded here rather than deleted, because the next
-person will want to know it was answered on hardware and not merely assumed.
-
-Three more were opened on 2026-09-12 and are **not answered**. All three ask what the sign
-does with a file that has nothing in it, and the change described under them rests on the
-answers.
+The wire format questions are closed, and so are all ten behavioural ones. A session on
+2026-09-09 answered three of the four open then; a second on 2026-09-11 answered the fourth
+along with a fifth added in between; and 2026-09-12 took two that came out of the fifth,
+then three more, and corrected one of its own answers on a second run that day. What each
+turned out to be is recorded here rather than deleted, because the next person will want to
+know it was answered on hardware and not merely assumed, and because two of these answers
+were wrong the first time and the record of how is worth more than the answer alone.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
@@ -566,55 +571,96 @@ answers.
    freeze, and `DELETE /messages`, deleting the last slot and hiding the last visible one
    all clear the display rather than leaving their last message up for good. That was
    assumed until this run.
-7. **What does an empty file do when the sequence names it beside full ones?** Answered on
-   2026-09-12, and **not the way the code said**. With A empty and B and C still holding
-   TWO and THREE, the sign **passes over A entirely**: no blank turn of its own, with TWO
-   and THREE cycling normally either side of it. That is the same treatment Appendix B
-   gives a label with no file at all, "If a File Label is invalid or does not exist, the
-   next File Label will be processed", extended to a file that exists and is empty.
+7. **What does an empty file do when the sequence names it beside full ones?** Asked on
+   2026-09-12 and **answered wrongly that day**, then corrected on a second run the same
+   day. Both halves are kept here, because the shape of the mistake is the useful part.
 
-   Two places said otherwise, neither with a measurement behind it: the `message` field's
-   description, which callers read on the OpenAPI page, said the sign "cycles to a file
-   with no text in it", and `_reattach_labels` said such a slot would sit there "while the
-   sign cycled to it and showed nothing". Both are corrected. The practical difference is
-   small, since the API refuses an empty message and every path that empties a file unnames
-   it first, but it was a claim the project was making to its callers and it was wrong.
+   The first run said the sign **passes over the empty file entirely**: no blank turn of
+   its own, with the messages either side cycling normally. The first half of that is
+   right and still is. The second half was an inference from it, and it was wrong: an
+   empty file is not free. **The message before it in the rotation holds for about five
+   seconds longer**, and then the sign carries on smoothly to the next file with content.
+   So there is no blank turn, but there is a gap, and it is taken out of the previous
+   message rather than shown as one of its own. Appendix B's "If a File Label is invalid
+   or does not exist, the next File Label will be processed" describes what is displayed
+   and says nothing about what the scan costs.
 
-   One session, one observation. The distinction it rests on is between a turn that is
-   skipped and a turn that is blank, and a short enough blank would look like a skip.
+   Two places said something different again, neither with a measurement behind it: the
+   `message` field's description, which callers read on the OpenAPI page, said the sign
+   "cycles to a file with no text in it", and `_reattach_labels` said such a slot would
+   sit there "while the sign cycled to it and showed nothing". Both are corrected to the
+   answer above. The practical difference is still small, since the API refuses an empty
+   message and every path that empties a file unnames it first, but it was a claim the
+   project was making to its callers and it has now been wrong twice in two directions.
 
-8. **What does a file the sign allocated and nothing ever wrote draw?** Open. Every file
-   this service names in a run sequence has been written first, so that state has never
-   reached the display and nobody knows what it looks like. It would reach the display
-   under the change below, from the moment the pool was allocated, and a file that draws
-   anything of its own would mean blanking the whole pool once after every reconfiguration.
-9. **What does the sign do when every file the sequence names is empty?** Open, and it is
-   not question 5: the sign is still being told to play files, they just have nothing in
-   them. Blank or frozen decides whether the rule in `MessageRegistry._hide` about emptying
-   the last visible file survives the change. The same step asks the other half, which
-   nobody had thought to doubt: **does a file the sign is skipping start playing when it is
-   written, with the sequence left alone?** The change rests entirely on that being yes.
-10. **What does a sequence of mostly empty files cost?** Open. Question 7 says such a file
-    is passed over; this asks what passing over the whole rest of the pool on every turn
-    does to a sign holding one message, which is seven files at the default `slot_count`
-    and twenty-five at the largest the service allows. If each skip costs the sign a beat,
-    a single held message gains a hitch it does not have today, which is the opposite of
-    what the change is for.
+   The caveat written under the first answer was right, and is why the second run looked
+   again: "one session, one observation. The distinction it rests on is between a turn
+   that is skipped and a turn that is blank, and a short enough blank would look like a
+   skip." It was neither. It was five seconds added to the message before it, which is
+   not a turn at all and is exactly what a person watching for a blank does not see.
 
-Those three are open because of a change being weighed. If an empty file really is passed
-over, the run sequence could name every file in the pool all the time, and be rewritten only
-when a message is hidden or the running order of the visible ones changes. Creating a
-message would then be one TEXT file write rather than a TEXT file write with a sequence
-write landing on top of it, and it is that combination, rather than either write on its own,
-that reads as a stutter rather than as a single interruption.
+8. **What does a file the sign allocated and nothing ever wrote draw?** Answered on
+   2026-09-12: **nothing**. Five files were allocated and never written, and a sequence
+   naming only those left the sign **blank**, which is worth holding next to question 5:
+   a sequence naming nothing freezes, a sequence naming only empty files blanks. They are
+   different commands and they do different things. Named between two files with text, a
+   never-written file behaved as an emptied one does, with **about two seconds** added to
+   the message before it. So a file the sign allocated and nobody wrote is indistinguishable
+   from one written empty, and a pool would not need blanking after a reconfiguration.
+9. **What does the sign do when every file the sequence names is empty?** Answered on
+   2026-09-12: **blank**, again unlike question 5's freeze. Emptying A, B and C one after
+   another with the sequence still naming all three left the display blank rather than
+   frozen on the last one drawn.
+
+   The other half of the question, which nobody had thought to doubt, came out **yes and
+   at once**: a file the sign is skipping starts playing the moment it is written, with
+   the sequence untouched. Writing A, then B, then C grew the rotation from blank to three
+   messages without one sequence write. This is the part worth remembering if the idea is
+   ever revisited: the premise held, and the sign does exactly what was hoped. What killed
+   it was question 10.
+10. **What does a sequence of mostly empty files cost?** Answered on 2026-09-12: **about
+    five seconds of dwell**, added to the message before the empty run rather than shown
+    as a turn. A single held message named alongside seven empty files was completely
+    still, so a sign with nothing to rotate to pays nothing. A three-message rotation with
+    five empty files threaded through it held on C, the last file with content, for about
+    five seconds longer than it did with nothing named after it.
+
+    Three measurements were taken and they do not add up per file: one empty file after C,
+    about five seconds; one never-written file after B, about two seconds; five empty files
+    after C, about five seconds. Whether the sign charges per file, per gap, or something
+    else again, these runs cannot say, and nothing here needs it settled.
+
+### The change those three were asked for, and why it was dropped
+
+Questions 8, 9 and 10 were put to the sign for a change being weighed on 2026-09-12. If an
+empty file really were free, the run sequence could name every file in the pool all the
+time, and be rewritten only when a message is hidden or the running order of the visible
+ones changes. Creating a message would then be one TEXT file write rather than a TEXT file
+write with a sequence write landing on top of it, and it is that combination, rather than
+either write on its own, that reads as a stutter rather than as a single interruption.
+
+**It was dropped after the run, and the reason is in question 10.** The sign does everything
+the idea needed: it notices a file filling up under a sequence that already names it, at
+once, and it gives an empty file no turn of its own. But an empty file is not free, and a
+pool named all the time would carry every unused file as dwell on the message before it,
+about five seconds of it. In almost any real use that would go unnoticed, which is the
+point: the saving is one packet and one brief flinch on create and delete, and it would be
+paid for with a rotation that drags. That is a wash, and a wash does not pay for the
+machinery it needs, which is position-aware label allocation and a sequence the registry
+has to track rather than derive.
+
+So the service goes on naming only the files of the slots that are showing, and this section
+exists so that the next person to have the idea can see it was measured rather than assumed.
+The three answers are useful on their own terms even though nothing was built on them.
 
 Step 5 of `scripts/protocol_spike.py` puts questions 6 and 7 to the sign, in that order: it
 names one file so the freeze lands somewhere known, empties that file underneath the freeze,
-and then names it again beside two full ones. Steps 9, 10 and 11 put the three open ones,
-which is why step 2 now allocates eight files rather than three: the last three steps need
-files that nothing has written, and enough of them to leave a sequence mostly empty.
-`--pool` raises that to the 26 the service allows, which is what to run if the answer to
-question 10 looks marginal at eight.
+and then names it again beside two full ones. Steps 9, 10 and 11 put questions 8, 9 and 10,
+which is why step 2 allocates eight files rather than three: those steps need files that
+nothing has written, and enough of them to leave a sequence mostly empty. `--pool` raises
+that to the 26 the service allows, which is what to run to see whether the dwell in question
+10 grows with the number of empty files; the runs so far suggest it does not, but three
+figures that do not add up per file are not enough to say so.
 
 The same session turned up another thing that was not on this list, because nobody thought
 to doubt it: a memory configuration does not display unless a bare `E$` clear precedes it.
@@ -635,7 +681,17 @@ The one outstanding measurement, the inter-packet delay this sign actually needs
 on 2026-09-11. Six writes in a row landed correctly at gaps of 1s, 0.5s and 0.25s, and
 failed at 0.1s. So this sign is good to at least 0.25s and its floor is somewhere between
 0.1s and 0.25s. `inter_packet_delay` defaults to 0.25s on the strength of that, halved from
-the 0.5s it was guessed at before anyone had asked the sign. It is a setting, so a sign that
+the 0.5s it was guessed at before anyone had asked the sign.
+
+The same step run again on 2026-09-12 **passed at 0.1s** and failed at 0.05s. One run each
+way is a discrepancy rather than a new figure, and nothing has been changed on the strength
+of it: the floor is somewhere at or below 0.1s on a good day and above it on a bad one,
+which is an argument for keeping the margin the default has rather than for trimming it.
+Whatever moves between runs, the link, the adapter, the sign's own load, is not something
+these runs can see. Anyone tempted to lower the default should run the step several times
+first, and should read the failure mode below before deciding it is safe.
+
+It is a setting, so a sign that
 turns out to need more can have it, and the failure to watch for is a burst of writes going
 quietly missing rather than an error: a write the sign is too busy to hear is accepted by
 the link and never refused. The old implementation slept two seconds after every write and

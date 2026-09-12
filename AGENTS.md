@@ -69,8 +69,10 @@ And being told to, which needs no reason.
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
 under `readerboard/protocol/`. It also lists the ten questions the document
-cannot answer. Three sessions with the sign have settled seven of them; the
-other three were opened on 2026-09-12 and are waiting on hardware.
+cannot answer, all of which three sessions with the sign have now settled. Two
+of those answers were wrong the first time and were caught on a repeat run, and
+both were about something brief on the display; the record of how is kept beside
+each answer, because it is the part that generalises.
 
 ## The one dangerous operation
 

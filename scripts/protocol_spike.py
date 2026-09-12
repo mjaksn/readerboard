@@ -5,11 +5,11 @@ The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
 RS-232 adapter. Ten things have been genuinely open, and this script is how each
-was put to the sign. The first seven are settled, across sessions on 2026-09-09,
+was put to the sign. All ten are settled now, across sessions on 2026-09-09,
 2026-09-11 and 2026-09-12, and their answers are in docs/protocol-notes.md.
 Running it again re-confirms them on the sign in front of you, which is worth
-doing: one answer has already been recorded wrongly once and caught on a repeat.
-The last three are open, and steps 9 to 11 are where they are asked.
+doing: two of the answers were recorded wrongly the first time and caught on a
+repeat, and both were about something brief on the display.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
@@ -29,29 +29,30 @@ The last three are open, and steps 9 to 11 are where they are asked.
    last message rewrites the sequence and then empties the file, so the
    emptying is the only thing left that can end the freeze. It does: the sign
    went blank.
-7. What does an empty file do when the sequence names it beside full ones? The
-   sign passes over it, with no blank turn of its own, the same treatment the
-   document gives a label with no file at all.
+7. What does an empty file do when the sequence names it beside full ones? It
+   gets no turn of its own, which the first run read as costing nothing. A
+   second run the same day found the rest of it: the message before it holds
+   about five seconds longer. No blank turn, but a gap all the same, taken out
+   of the previous message rather than shown as one.
 8. What does the sign draw for a file the memory configuration allocated and
-   nothing has ever written? Open. Nothing has ever named one in a run sequence,
-   because the service writes a file before it names it.
-9. What does it do when every file the sequence names is empty? Open, and it is
-   not question 5: the sign is still being told to play files, they just have
-   nothing in them. And does a file the sign is skipping start playing when it
-   is written, with the sequence left alone?
-10. What does a sequence of mostly empty files cost? Open. Question 7 says such
-    a file is passed over; this asks what passing over the whole rest of the
-    pool on every turn does to a sign holding one message.
+   nothing has ever written? Nothing, and it behaves exactly as one written
+   empty does, so an allocated pool needs no blanking.
+9. What does it do when every file the sequence names is empty? It blanks, which
+   is not question 5: a sequence naming nothing freezes, a sequence naming only
+   empty files blanks. And a file the sign is skipping does start playing the
+   moment it is written, with the sequence left alone.
+10. What does a sequence of mostly empty files cost? About five seconds of dwell
+    on the message before the empty run. A sign holding one message with the
+    whole pool named around it pays nothing, since it has nowhere to rotate to.
 
-The last three are here because of a change being weighed. If an empty file
-really is passed over, the run sequence could name every file in the pool all
-the time and be rewritten only when a message is hidden or the running order
-changes. Creating a message would then be one TEXT file write rather than a
-TEXT file write with a sequence write landing on top of it, and that combination
-is what reads as a stutter rather than as one interruption. Whether it works
-rests on these three, and on the second half of question 9, which nobody had
-thought to doubt: the whole idea assumes the sign notices a file filling up
-underneath a sequence that already names it.
+Questions 8, 9 and 10 were asked for a change that was then dropped: naming
+every file in the pool all the time, so that creating a message would be one
+TEXT file write rather than a TEXT file write with a sequence write landing on
+top of it. The sign turned out to do everything the idea needed, question 9's
+second half included, but question 10 priced it. Carrying every unused file as
+dwell on the message before it is a wash against the packet it saves.
+docs/protocol-notes.md has the whole of that reasoning; it is kept because the
+next person to have the idea should see it was measured rather than assumed.
 
 It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.
@@ -188,7 +189,12 @@ def step_2_memory(link: serial.Serial, settle: float, pool: list[bytes]) -> None
         label="allocate %d files" % len(pool),
         settle=settle,
     )
-    ask("Did the sign go blank, and did any old message disappear? [y/n]")
+    # Two questions rather than one. Asked together, a run that reached this
+    # step with nothing on the display answers "no" for want of a message to
+    # lose, and that reads afterwards as a third observation of no blank. It
+    # happened on 2026-09-12.
+    ask("Was there anything on the sign before that write? [y/n]")
+    ask("Did the display blank, however briefly? [y/n/could not tell]")
 
 
 def step_3_rotation(link: serial.Serial, settle: float) -> None:
@@ -284,15 +290,16 @@ def step_5_empty_file(link: serial.Serial, settle: float) -> None:
 
     print("\n  Second: what does an empty file do when it is named alongside full")
     print("  ones? A is empty now and B and C still hold TWO and THREE, so naming all")
-    print("  three asks it directly. The service refuses an empty message and tells")
-    print("  callers, in the message field's own description, that the sign would")
-    print("  cycle to the file and show nothing there. Nobody has ever checked that.")
+    print("  three asks it directly. This one has been answered wrongly once: A gets")
+    print("  no turn of its own, which the first run read as costing nothing, and it")
+    print("  does not. The message before A in the cycle holds about five seconds")
+    print("  longer, and that is what to watch for rather than a blank.")
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
-    print("\n  Watch several full cycles rather than one. The answers differ by what")
-    print("  happens where ONE used to be: a visible blank turn of its own, A passed")
-    print("  over so TWO and THREE cycle straight past it, or the display stuck.")
-    ask("With A empty, what does its turn look like? [blank turn/skipped/frozen/other]")
-    ask("Do TWO and THREE still cycle normally either side of it? [y/n]")
+    print("\n  Watch several full cycles rather than one, and time the file before A")
+    print("  against the other two rather than looking at where A would have been.")
+    ask("With A empty, what does its turn look like? [blank turn/no turn at all/frozen/other]")
+    ask("Does the message before A hold longer than the others, and by how long? [describe]")
+    ask("Do TWO and THREE still cycle normally otherwise? [y/n]")
 
     # Put step 3's state back. Step 6 takes the sign over and hands it back, and
     # it expects a rotation to be there for both halves of that.
@@ -421,10 +428,10 @@ def step_9_unwritten_files(link: serial.Serial, settle: float, spare: list[bytes
     )
 
     print("\n  Now one of them is named between two files that do have text. Step 5")
-    print("  found a file written empty is passed over; this asks whether one that")
-    print("  was never written is passed over too. TWO and THREE cycling straight")
-    print("  past it is one answer. A turn of its own is the other, and that is the")
-    print("  one that would put a gap in every rotation the service ever runs.")
+    print("  found a file written empty gets no turn of its own but still holds the")
+    print("  message before it several seconds longer. This asks whether one that was")
+    print("  never written behaves the same way, and 2026-09-12 said it does, at about")
+    print("  two seconds rather than five. So watch TWO rather than the gap after it.")
     send(
         link,
         frames.set_run_sequence([b"B", spare[0], b"C"]),
@@ -433,9 +440,10 @@ def step_9_unwritten_files(link: serial.Serial, settle: float, spare: list[bytes
     )
     print("\n  Watch several full cycles rather than one.")
     ask(
-        "What does %s's turn look like? [skipped/blank turn/text of some kind/other]"
+        "What does %s's turn look like? [no turn at all/blank turn/text of some kind/other]"
         % spare[0].decode()
     )
+    ask("Does TWO hold longer than THREE does, and by how long? [describe]")
 
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
     ask("Has the ONE, TWO, THREE rotation come back? [y/n]")
@@ -450,11 +458,10 @@ def step_10_files_that_empty_and_fill(link: serial.Serial, settle: float) -> Non
     print("\n  First, all three are emptied. This is not step 4's empty sequence,")
     print("  which is a different command: here the sign is still being told to play")
     print("  three files and every one of them has nothing in it. Step 5 found a")
-    print("  single empty file passed over while others played, and what the sign")
-    print("  does when there is nothing left to pass to has never been asked.")
-    print("  Blank is one answer and frozen on the last message drawn is the other.")
-    print("  Which it is decides whether a sequence that always names the whole pool")
-    print("  still has to blank the last file by hand to clear the display.")
+    print("  single empty file given no turn while the others played; this is what")
+    print("  the sign does when there is nothing left to give a turn to.")
+    print("  2026-09-12 said blank rather than frozen, which is the opposite of what")
+    print("  step 4's empty sequence does and is the point of asking both.")
     ask("Ready to watch A, B and C be emptied one after another? [enter]")
     for label in POOL:
         send(
@@ -499,15 +506,14 @@ def step_11_long_sequence(link: serial.Serial, settle: float, pool: list[bytes])
     beside_three = len(pool) - len(POOL)
 
     print("\nStep 11: what a sequence full of empty files costs")
-    print("  Steps 5 and 9 ask whether an empty file is passed over. This asks what")
-    print("  passing over it costs. A sequence that always named the whole pool would")
-    print("  name %d files. On a sign holding one message, %d of them are" % (len(pool), alone))
-    print("  empty and passed over on every turn. If each one costs the sign a beat,")
-    print("  a single held message gains a hitch it does not have today, which is the")
-    print("  very thing the change is meant to remove.")
-    print("  Step 5's answer is one observation, and the note recorded against it says")
-    print("  a short enough blank would look like a skip. This is where that gets")
-    print("  watched at length rather than once.")
+    print("  Steps 5 and 9 ask what an empty file does when it is named. This asks")
+    print("  what it costs. A sequence that always named the whole pool would name")
+    print("  %d files. On a sign holding one message, %d of them are empty" % (len(pool), alone))
+    print("  on every turn, and this is the step that priced that and found it too")
+    print("  expensive to be worth the packet it saves: about five seconds of dwell")
+    print("  added to the message before the empty run, on 2026-09-12.")
+    print("  A sign with only one message pays nothing, having nowhere to rotate to,")
+    print("  so both cases are run here and they do not give the same answer.")
 
     print("\n  The baseline first: one full file, named on its own. Every file this")
     print("  script writes is written in HOLD mode, so a sign with nothing else to do")
@@ -530,14 +536,12 @@ def step_11_long_sequence(link: serial.Serial, settle: float, pool: list[bytes])
     )
     ask("Is ONE still completely still? [y/n]")
     ask("If it is not, what happens and how often? [describe]")
-    ask(
-        "Against the flinch a run sequence write causes, how big is it? "
-        "[nothing at all/smaller/about the same/larger]"
-    )
 
     print("\n  And with content in three of them, which is step 3's rotation with %d" % beside_three)
     print("  empty files threaded through it. Step 3 had the same three messages with")
-    print("  nothing between them, so that is what the comparison is against.")
+    print("  nothing between them, so that is what the comparison is against. The cost")
+    print("  lands on C, the last file with content before the empty run, rather than")
+    print("  where the empty files are, so time C against ONE and TWO.")
     send(
         link, frames.write_text_file(b"B", render("<green>TWO")), label="write file B", settle=settle
     )
@@ -548,11 +552,8 @@ def step_11_long_sequence(link: serial.Serial, settle: float, pool: list[bytes])
         settle=settle,
     )
     print("\n  Watch several full cycles.")
-    ask("Does the rotation run as cleanly as it did in step 3? [y/n]")
-    ask(
-        "If there is a pause where the empty files are, how long is it? "
-        "[none/shorter than a message/about a message/longer]"
-    )
+    ask("How much longer does C hold than ONE and TWO do? [seconds, or none]")
+    ask("Is the rotation otherwise as clean as it was in step 3? [y/n]")
 
     # Hand the sign back on the rotation every other step leaves it on, rather
     # than on a sequence naming files nobody wrote.
