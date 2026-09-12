@@ -573,13 +573,17 @@ What this settles for the service, if it ever sends pictures:
 
 ## What the spike has settled
 
-The wire format questions are closed, and so are all ten behavioural ones. A session on
-2026-09-09 answered three of the four open then; a second on 2026-09-11 answered the fourth
-along with a fifth added in between; and 2026-09-12 took two that came out of the fifth,
-then three more, and corrected one of its own answers on a second run that day. What each
-turned out to be is recorded here rather than deleted, because the next person will want to
-know it was answered on hardware and not merely assumed, and because two of these answers
-were wrong the first time and the record of how is worth more than the answer alone.
+The wire format questions are closed. Eleven behavioural ones have been opened and ten are
+settled. A session on 2026-09-09 answered three of the four open then; a second on
+2026-09-11 answered the fourth along with a fifth added in between; and 2026-09-12 took two
+that came out of the fifth, then three more, and corrected one of its own answers on a
+second run that day. What each turned out to be is recorded here rather than deleted,
+because the next person will want to know it was answered on hardware and not merely
+assumed, and because two of these answers were wrong the first time and the record of how
+is worth more than the answer alone.
+
+The eleventh was opened on 2026-09-12 and is **not answered**. It asks what a read costs
+the display, which two earlier runs exercised without ever looking.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
@@ -683,6 +687,23 @@ were wrong the first time and the record of how is worth more than the answer al
     about five seconds; one never-written file after B, about two seconds; five empty files
     after C, about five seconds. Whether the sign charges per file, per gap, or something
     else again, these runs cannot say, and nothing here needs it settled.
+11. **What does a read cost the display?** Open, and the only one of these still open.
+    Step 7 has sent `F$`, `F#`, `F.` and `F)` to this sign twice over, on 2026-09-09 and
+    again on 2026-09-12, and both runs recorded only whether a reply came back. Nobody was
+    ever asked what the display did, so the absence of a recorded disturbance here is not
+    evidence of one; it is evidence that the question was not put.
+
+    The nearest measurement is a STRING file read on 2026-09-10, which "blanked the display
+    briefly mid-scroll and picked up from about where it was", and which is why "Reading a
+    STRING back has no place in normal running" is written above. That one result has since
+    been standing in for reads in general, and it should not: a STRING is buffered inline
+    into whatever message calls it, while these four ask the sign about its own tables and
+    touch no file a message is drawing. They could differ in either direction.
+
+    Step 7 now asks. It puts the display on one held message first, because a disturbance
+    this small vanishes into a rotation changing by itself, and then asks for a magnitude
+    against the blank a TEXT file write causes rather than for a yes or no. Any design that
+    polls the sign by reading is priced on this answer.
 
 ### The change those three were asked for, and why it was dropped
 

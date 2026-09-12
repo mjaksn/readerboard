@@ -4,12 +4,13 @@
 The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
-RS-232 adapter. Ten things have been genuinely open, and this script is how each
-was put to the sign. All ten are settled now, across sessions on 2026-09-09,
+RS-232 adapter. Eleven things have been genuinely open, and this script is how
+each was put to the sign. Ten are settled, across sessions on 2026-09-09,
 2026-09-11 and 2026-09-12, and their answers are in docs/protocol-notes.md.
 Running it again re-confirms them on the sign in front of you, which is worth
 doing: two of the answers were recorded wrongly the first time and caught on a
-repeat, and both were about something brief on the display.
+repeat, and both were about something brief on the display. The eleventh is
+asked by step 7 and has no answer yet.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
@@ -44,6 +45,13 @@ repeat, and both were about something brief on the display.
 10. What does a sequence of mostly empty files cost? About five seconds of dwell
     on the message before the empty run. A sign holding one message with the
     whole pool named around it pays nothing, since it has nowhere to rotate to.
+11. What does a read cost the display? Open. Step 7 has sent all four of these
+    reads twice and only ever asked whether a reply came back. The one
+    measurement anywhere near it is a STRING file read on 2026-09-10, which
+    blanked the display briefly mid-scroll, and that single result has been
+    standing in for every kind of read. It should not: a STRING is buffered
+    inline into whatever message calls it, while these four ask the sign about
+    its own tables and touch no file a message is drawing.
 
 Questions 8, 9 and 10 were asked for a change that was then dropped: naming
 every file in the pool all the time, so that creating a message would be one
@@ -338,12 +346,30 @@ def step_6_priority(link: serial.Serial, settle: float) -> None:
     ask("Has the rotation resumed on its own? [y/n]")
 
 
-def step_7_reads(link: serial.Serial) -> None:
-    """Find out whether the sign answers read commands through this adapter."""
-    print("\nStep 7: can the sign be asked what it is holding?")
+def step_7_reads(link: serial.Serial, settle: float) -> None:
+    """Find out whether the sign answers read commands, and what asking costs the display."""
+    print("\nStep 7: can the sign be asked what it is holding, and at what cost?")
     print("  This sign answered all four of these on 2026-09-09, so the adapter")
     print("  carries traffic both ways. Re-proving it is cheap, and divergence")
     print("  could be detected by asking rather than re-pushing on a timer.")
+
+    print("\n  What has never been asked is what a read costs the display. Both")
+    print("  earlier runs recorded only whether a reply came back. A STRING file")
+    print("  read was measured on 2026-09-10 blanking the display briefly")
+    print("  mid-scroll, and that one result is standing in for every kind of")
+    print("  read, which it should not: a STRING is buffered inline into whatever")
+    print("  message calls it, while these four ask the sign about its own tables")
+    print("  and touch no file a message is drawing. They could differ either way.")
+
+    print("\n  The display is put on one held message first, because a disturbance")
+    print("  this small vanishes into a rotation changing by itself. Watch that")
+    print("  message and nothing else.")
+    send(link, frames.set_run_sequence([b"A"]), label="run sequence A", settle=settle)
+    ask("Is ONE on the sign by itself, holding still? [y/n]")
+
+    print("\n  The four reads go out back to back and take a few seconds. Watch the")
+    print("  whole time rather than glancing at the end.")
+    ask("Ready? [enter]")
 
     replies = {
         "memory configuration": read_back(
@@ -359,6 +385,16 @@ def step_7_reads(link: serial.Serial) -> None:
             link, frames.read_run_time_table(), label="read run time table (F))"
         ),
     }
+
+    ask("What did ONE do while those four reads went out? [nothing/flicker/blank/other]")
+    ask(
+        "If it moved, how did it compare with the blank a TEXT file write causes? "
+        "[nothing at all/smaller/about the same/larger]"
+    )
+    ask("Did it happen on every read, or only some of them? [every/some/none/could not tell]")
+
+    # Back to the rotation the following steps expect.
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
 
     answered = [name for name, reply in replies.items() if reply]
     if answered:
@@ -620,7 +656,7 @@ def main() -> int:
         step_4_empty_sequence(link, args.settle)
         step_5_empty_file(link, args.settle)
         step_6_priority(link, args.settle)
-        step_7_reads(link)
+        step_7_reads(link, args.settle)
         step_8_timing(link, args.settle)
         step_9_unwritten_files(link, args.settle, spare)
         step_10_files_that_empty_and_fill(link, args.settle)
