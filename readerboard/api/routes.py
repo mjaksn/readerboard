@@ -26,6 +26,7 @@ from readerboard.api.models import (
     ControlCommandRequest,
     MessageRequest,
     SignInformationResponse,
+    SlotActiveRequest,
     SlotKey,
     SlotResponse,
     TokenInfo,
@@ -62,7 +63,11 @@ enumerations = APIRouter(prefix="/enumerations", tags=["Enumerations"])
 
 @messages.get("", summary="List the messages sharing the sign")
 async def list_messages(registry: RegistryDep) -> list[SlotResponse]:
-    """Return every registered slot, in the order the sign plays them."""
+    """Return every registered slot, in rotation order, hidden ones included.
+
+    A hidden slot is listed like any other, with `active` false. It is still
+    registered and still holding its file; it is simply not one the sign plays.
+    """
     return [SlotResponse.of(slot) for slot in registry.list_slots()]
 
 
@@ -78,8 +83,13 @@ async def put_message(
 ) -> SlotResponse:
     """Put a message in a slot, replacing whatever was there.
 
-    The sign rotates through every registered slot on its own, so registering a
-    second message does not displace the first.
+    The sign rotates through the slots that are showing on its own, so
+    registering a second message does not displace the first.
+
+    This leaves a hidden slot hidden. Whether a message is showing is not part of
+    the message, and a source re-sending the same content every few minutes would
+    otherwise switch a hidden one back on every time; `PUT /messages/{key}/active`
+    is what moves that.
     """
     slot = await registry.upsert(
         key,
@@ -87,8 +97,35 @@ async def put_message(
         mode=body.display_mode,
         order=body.order,
         ttl_seconds=body.ttl_seconds,
+        on_expiry=body.on_expiry,
         source=body.source,
     )
+    return SlotResponse.of(slot)
+
+
+@messages.put(
+    "/{key}/active",
+    summary="Show or hide a message without unregistering it",
+    dependencies=[RequireApiKey],
+)
+async def set_message_active(
+    key: SlotKey, body: SlotActiveRequest, registry: RegistryDep
+) -> SlotResponse:
+    """Take a message off the display, or put it back, keeping its slot either way.
+
+    A hidden message stays registered. It keeps its slot, its file, its text and
+    its place in the order, and is simply left out of the rotation the sign
+    cycles, so showing it again needs no copy of what it said. This is separate
+    from the message itself deliberately: a source that re-sends the same content
+    on a timer would otherwise switch a hidden message back on every time.
+
+    Hiding one disturbs nothing else on the sign; the other messages carry on
+    without a blank or a restart. The hidden message's own file is emptied, which
+    is what stops the sign freezing on it when it was the last one showing.
+
+    404 when no slot by that name is registered.
+    """
+    slot = await registry.set_active(key, body.active)
     return SlotResponse.of(slot)
 
 

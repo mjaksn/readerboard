@@ -247,7 +247,12 @@ class MessageRegistry:
         for variable in self.list_variables():
             await self._write_variable(variable)
         for slot in self.list_slots():
-            await self._write_slot(slot)
+            # An inactive slot's file is kept blank rather than holding its
+            # message, which :meth:`set_active` explains.
+            if slot.active:
+                await self._write_slot(slot)
+            else:
+                await self._blank(slot)
         await self._apply_run_sequence(force=force)
 
     async def refresh(self) -> None:
@@ -353,9 +358,17 @@ class MessageRegistry:
         mode: str,
         order: int = 0,
         ttl_seconds: float | None = None,
+        on_expiry: str = "delete",
         source: str | None = None,
     ) -> SlotState:
-        """Register or replace a slot and put it on the sign."""
+        """Register or replace a slot and put it on the sign.
+
+        Replacing a slot leaves it as active or inactive as it already was.
+        Whether a message is showing is not part of the message, and a source
+        that re-sends the same content every few minutes would otherwise switch
+        one back on every time it did. :meth:`set_active` is the only way that
+        moves.
+        """
         mode_token = MODE_BY_NAME[mode]
 
         async with self._lock:
@@ -382,6 +395,8 @@ class MessageRegistry:
                 message=message,
                 mode=mode,
                 order=order,
+                active=previous.active if previous is not None else True,
+                on_expiry=on_expiry,
                 source=source,
                 expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
                 updated_at=now,
@@ -389,9 +404,12 @@ class MessageRegistry:
 
             self._state.slots[key] = slot
             try:
-                await self._controller.write_text_file(
-                    label, body, mode=mode_token.value
-                )
+                # An inactive slot's file stays empty until it is switched on,
+                # so a new message for one is recorded and not written.
+                if slot.active:
+                    await self._controller.write_text_file(
+                        label, body, mode=mode_token.value
+                    )
                 if not existed:
                     await self._apply_run_sequence()
             except Exception:
@@ -418,6 +436,61 @@ class MessageRegistry:
             "updated" if existed else "registered",
             slot.label,
             " from %s" % source if source else "",
+        )
+        return slot
+
+    async def set_active(self, key: str, active: bool) -> SlotState:
+        """Put a slot into the rotation or take it out, without unregistering it.
+
+        An inactive slot keeps its file, its order, its message and its name.
+        It is left out of the run sequence, and that is the whole of what makes
+        it inactive: the sign cycles what the sequence names and nothing else.
+
+        Its file is emptied too, and that part is not tidiness. A sign handed a
+        run sequence naming nothing freezes on the message it was drawing and
+        holds it there indefinitely, measured on 2026-09-11 and recorded in
+        docs/protocol-notes.md. Deactivating the last active slot without
+        emptying its file would leave that message on the display for good. The
+        cost is one write when it is switched back on, which is a message about
+        to be drawn afresh anyway.
+
+        Nothing else on the sign is disturbed either way. A run sequence written
+        while the rotation was on screen was measured leaving it running, with
+        no blank and no restart, so the other messages carry on untouched.
+        """
+        async with self._lock:
+            slot = self._state.slots.get(key)
+            if slot is None:
+                raise UnknownSlot("no slot named %r is registered" % key)
+            if slot.active == active:
+                return slot
+
+            slot.active = active
+            if active:
+                try:
+                    # Written before the sequence names it, so the sign cannot
+                    # cycle to a file that is still empty.
+                    await self._write_slot(slot)
+                    await self._apply_run_sequence()
+                except Exception:
+                    # Nothing landed, so claiming it is showing would be a lie.
+                    slot.active = False
+                    raise
+            else:
+                try:
+                    await self._apply_run_sequence()
+                    await self._blank(slot)
+                except TransportError as err:
+                    # Taking something off is like removing it: the intent
+                    # stands and the next refresh carries it out.
+                    self._dirty = True
+                    logger.warning(
+                        "slot %r deactivated but the sign is unreachable (%s)", key, err
+                    )
+            self._save()
+
+        logger.info(
+            "slot %r %s", key, "put back into the rotation" if active else "taken off the display"
         )
         return slot
 
@@ -459,11 +532,16 @@ class MessageRegistry:
         return len(slots)
 
     async def sweep(self) -> list[str]:
-        """Drop slots whose TTL has passed, and let expired variables go stale.
+        """Act on slots whose TTL has passed, and let expired variables go stale.
 
-        Returns the keys of the slots that went. A variable is never dropped
-        here: messages call it, so it is given its stale value instead, which
-        :meth:`_expire_variables` explains.
+        What the deadline does is the slot's own ``on_expiry``: ``delete`` hands
+        its file back to the pool, ``deactivate`` keeps it registered and takes
+        it off the display, so it can be switched on again without being
+        registered afresh. Returns the keys of every slot whose deadline fired,
+        whichever of the two happened to it.
+
+        A variable is never dropped here: messages call it, so it is given its
+        stale value instead, which :meth:`_expire_variables` explains.
         """
         now = self._now()
         async with self._lock:
@@ -477,13 +555,23 @@ class MessageRegistry:
             if not expired:
                 return []
 
-            for slot in expired:
+            dropped = [slot for slot in expired if slot.on_expiry != "deactivate"]
+            deactivated = [slot for slot in expired if slot.on_expiry == "deactivate"]
+
+            for slot in dropped:
                 del self._state.slots[slot.key]
                 self._layout.slots.release(slot.key)
+            for slot in deactivated:
+                slot.active = False
+                # Cleared, or the slot would expire again the moment it was
+                # switched back on.
+                slot.expires_at = None
 
             # Taking the labels out of the run sequence is what removes them
-            # from the sign. The files themselves are left alone, because
-            # reallocating to reclaim them would erase everything else.
+            # from the sign. A dropped slot's file stays allocated, because
+            # reallocating to reclaim it would erase everything else; it is
+            # emptied instead. So is a deactivated one, since a sequence naming
+            # nothing leaves the sign frozen on its last message.
             try:
                 await self._apply_run_sequence()
                 for slot in expired:
@@ -493,9 +581,16 @@ class MessageRegistry:
                 logger.warning("slots expired but the sign is unreachable (%s)", err)
             self._save()
 
-        keys = [slot.key for slot in expired]
-        logger.info("slot(s) %s expired and left the rotation", ", ".join(keys))
-        return keys
+        if dropped:
+            logger.info(
+                "slot(s) %s expired and were removed", ", ".join(slot.key for slot in dropped)
+            )
+        if deactivated:
+            logger.info(
+                "slot(s) %s expired and were taken off the display, keeping their slots",
+                ", ".join(slot.key for slot in deactivated),
+            )
+        return [slot.key for slot in expired]
 
     # == changing variables =================================================
 
@@ -727,7 +822,10 @@ class MessageRegistry:
         ``force`` is for startup, where the state file may say an alert was
         active but nothing has been re-asserted on the sign yet.
         """
-        labels = [slot.label.encode("ascii") for slot in self.list_slots()]
+        # Only the active ones. An inactive slot keeps its file and its place in
+        # the order and is simply not named here, which is the whole mechanism
+        # behind switching a message off.
+        labels = [slot.label.encode("ascii") for slot in self.list_slots() if slot.active]
 
         if not force and self._alert_active():
             self._deferred_run_sequence = labels

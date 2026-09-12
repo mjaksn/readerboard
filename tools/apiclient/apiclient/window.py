@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty-one
+Everything the tool does is on it: the connection, the enumerations, all twenty-two
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -386,6 +386,16 @@ class OperationForm(QWidget):
             holder.setLayout(row)
             self._refresh_token_button(insert, item.markup)
             return holder
+
+        if item.kind == "bool":
+            # A closed list rather than a checkbox, so that reading it back goes
+            # through the same text path every other field uses; request.coerce
+            # turns the text into a real JSON boolean.
+            combo = QComboBox()
+            combo.addItems(["true", "false"])
+            combo.setCurrentText(str(item.prefill) if item.prefill is not None else "true")
+            self._body[item.name] = combo
+            return combo
 
         line = QLineEdit()
         line.setPlaceholderText(item.description)

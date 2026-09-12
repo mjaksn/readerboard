@@ -149,10 +149,30 @@ process; the API is what it answers on.
 ## How it works, in one pass
 
 A **slot** is a named place on the sign that a source owns. Each slot lives in
-its own sign file, and the run sequence names the occupied files in order. The
-sign cycles them by itself, so a message appearing or disappearing costs one
-small write and nothing after that. This is the whole design: the host does not
-rotate anything.
+its own sign file, and the run sequence names the files of the slots that are
+showing, in order. The sign cycles them by itself, so a message appearing or
+disappearing costs one small write and nothing after that. This is the whole
+design: the host does not rotate anything.
+
+A slot can also be **hidden**, which is `PUT /messages/{key}/active` and
+`MessageRegistry.set_active`. The run sequence names the active slots and
+nothing else, so hiding one is a sequence write and costs the messages still
+showing nothing: a sequence written while the rotation was on screen was
+measured leaving it running, with no blank and no restart. A hidden slot keeps
+its file, its order, its text and its name, so showing it again needs no copy of
+the message.
+
+Two parts of that are easy to get wrong. **A hidden slot's file is kept empty**,
+and that is not tidiness: a sign handed a run sequence naming nothing freezes on
+the message it was drawing and holds it there, measured on 2026-09-11, so hiding
+the last visible message without emptying its file would leave it on the display
+for good. That costs one write when it is shown again, which is a message about
+to be drawn afresh anyway. And **hiding does not move through `PUT /messages`**,
+which leaves `active` exactly as it found it. Whether a message is showing is not
+part of the message, and the registry's own docstring says why: a source
+re-sending the same content every five minutes would otherwise switch a hidden
+message back on every time it did. A `ttl_seconds` can hide rather than delete,
+which is `on_expiry`.
 
 A **variable** is a value in a STRING file of its own, which a slot's message
 calls with `<var:name>`. Writing one rewrites only that STRING file, and the
@@ -288,7 +308,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-one endpoints, formats every
+it at a running service and it can call all twenty-two endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are

@@ -11,6 +11,32 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Added
+
+- **A message can be hidden without being given up.** `PUT /messages/{key}/active`
+  with `{"active": false}` takes a message off the display and leaves it
+  registered, keeping its slot, its file, its place in the order and its text, so
+  `{"active": true}` shows it again and needs no copy of what it said. The run
+  sequence names the active slots and nothing else, which is the whole mechanism,
+  and the messages still showing carry on without a blank or a restart. A hidden
+  slot still counts against `slot_count`, since it is still holding a file.
+
+  Hiding deliberately does not move through `PUT /messages/{key}`, which leaves
+  `active` as it found it. Whether a message is showing is not part of the
+  message, and a source re-sending the same content every few minutes would
+  otherwise switch a hidden message back on every time it did.
+
+- **`on_expiry` decides what a `ttl_seconds` does when it passes.** The default,
+  `delete`, is what a deadline has always done and hands the slot back.
+  `deactivate` hides the message and keeps the slot, for anything that comes back
+  later rather than being finished with. An expiry that hides clears the deadline
+  with it, so a message shown again does not vanish at the next sweep.
+
+  Both fields appear in `GET /messages` and in the client, which grew the
+  endpoint and a true/false field for it.
+
 ## [0.5.1] - 2026-09-11
 
 **A fix for signs reached through an Ethernet adapter.** `GET /sign/information`

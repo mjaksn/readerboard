@@ -141,6 +141,139 @@ class TestRemoval:
         assert registry.list_slots() == []
 
 
+class TestActive:
+    """Switching a message off keeps it registered and takes it off the display.
+
+    The run sequence names the active slots and nothing else, so hiding one is a
+    sequence write. Its file is emptied as well, which is not tidiness: a sign
+    handed a sequence naming nothing was measured freezing on the message it was
+    drawing and holding it there. See docs/protocol-notes.md.
+    """
+
+    async def test_hiding_one_takes_it_out_of_the_run_sequence(self, registry, transport):
+        await add(registry, "one")
+        await add(registry, "two")
+
+        await registry.set_active("one", False)
+
+        assert run_sequences(transport)[-1].endswith(b"B" + b"\x04")
+
+    async def test_it_stays_registered_on_its_own_file(self, registry, layout):
+        await add(registry, "one", "HELLO")
+
+        await registry.set_active("one", False)
+
+        slot = registry.get("one")
+        assert slot.active is False
+        assert slot.message == "HELLO"
+        assert layout.slots.label_for("one") == b"A"
+        # It still holds its slot, so the pool is no emptier for hiding it.
+        assert registry.occupancy == (1, 3)
+
+    async def test_hiding_one_empties_its_file(self, registry, transport):
+        await add(registry, "one", "HELLO")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert frames.packet(frames.write_text_file(b"A", b"")) in transport.packets
+
+    async def test_hiding_one_leaves_the_others_alone(self, registry, transport):
+        # Rewriting another slot's file would restart it on the sign, which is
+        # the whole thing this is supposed to avoid.
+        await add(registry, "one")
+        await add(registry, "two")
+        transport.clear()
+
+        await registry.set_active("one", False)
+
+        assert frames.packet(frames.write_text_file(b"B", b"")) not in transport.packets
+        assert len(payloads_starting(transport, b"A")) == 1
+
+    async def test_hiding_the_last_one_leaves_the_sequence_naming_nothing(
+        self, registry, transport
+    ):
+        await add(registry, "one")
+
+        await registry.set_active("one", False)
+
+        assert run_sequences(transport)[-1].endswith(b"E.SU" + b"\x04")
+
+    async def test_showing_it_again_writes_the_message_back(self, registry, transport):
+        await add(registry, "one", "HELLO")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        # The file was emptied when it was hidden, so it has to be written again
+        # before the sequence names it.
+        assert payloads_starting(transport, b"A")
+        assert run_sequences(transport)[-1].endswith(b"A" + b"\x04")
+
+    async def test_setting_it_to_what_it_already_is_writes_nothing(self, registry, transport):
+        await add(registry, "one")
+        transport.clear()
+
+        await registry.set_active("one", True)
+
+        assert transport.packets == []
+
+    async def test_an_unknown_slot_is_a_clean_error(self, registry):
+        with pytest.raises(UnknownSlot, match="no slot named"):
+            await registry.set_active("nobody", True)
+
+    async def test_replacing_the_message_leaves_it_hidden(self, registry):
+        # A source that re-sends the same content every few minutes must not
+        # switch a message back on that somebody deliberately hid.
+        await add(registry, "one", "ONE")
+        await registry.set_active("one", False)
+
+        await add(registry, "one", "TWO")
+
+        assert registry.get("one").active is False
+        assert registry.get("one").message == "TWO"
+
+    async def test_a_hidden_slot_is_not_written_to_the_sign(self, registry, transport):
+        await add(registry, "one", "ONE")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        await add(registry, "one", "TWO")
+
+        # Recorded, but not drawn: its file stays empty until it is shown again.
+        assert payloads_starting(transport, b"A") == []
+        assert registry.get("one").message == "TWO"
+
+    async def test_a_hidden_slot_comes_back_hidden_after_a_restart(
+        self, registry, store, transport, clock
+    ):
+        await add(registry, "one")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        restored = MessageRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
+        await restored.restore()
+
+        assert restored.get("one").active is False
+        assert restored.get("two").active is True
+
+    async def test_a_restart_names_only_the_ones_showing(
+        self, registry, store, transport, clock
+    ):
+        await add(registry, "one")
+        await add(registry, "two")
+        await registry.set_active("one", False)
+        transport.clear()
+
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        restored = MessageRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
+        await restored.restore()
+
+        assert run_sequences(transport)[-1].endswith(b"B" + b"\x04")
+
+
 class TestExpiry:
     async def test_a_slot_without_a_ttl_never_expires(self, registry, clock):
         await add(registry, "temperature")
@@ -171,6 +304,55 @@ class TestExpiry:
         clock.advance(61)
         await registry.sweep()
         assert registry.occupancy == (0, 3)
+
+    async def test_a_deadline_can_hide_a_slot_instead_of_dropping_it(
+        self, registry, clock, layout
+    ):
+        await add(registry, "bins", "BINS", ttl_seconds=60, on_expiry="deactivate")
+
+        clock.advance(61)
+        assert await registry.sweep() == ["bins"]
+
+        slot = registry.get("bins")
+        assert slot.active is False
+        assert slot.message == "BINS"
+        # It kept its slot, so the pool is no emptier for the deadline passing.
+        assert layout.slots.label_for("bins") == b"A"
+        assert registry.occupancy == (1, 3)
+
+    async def test_a_hidden_slot_does_not_expire_again(self, registry, clock):
+        # The deadline has already done what it was for. Left in place, the
+        # slot would be hidden again the moment it was shown.
+        await add(registry, "bins", ttl_seconds=60, on_expiry="deactivate")
+        clock.advance(61)
+        await registry.sweep()
+
+        assert registry.get("bins").expires_at is None
+        await registry.set_active("bins", True)
+        clock.advance(86400)
+        assert await registry.sweep() == []
+        assert registry.get("bins").active is True
+
+    async def test_a_hidden_slot_leaves_the_run_sequence(self, registry, clock, transport):
+        await add(registry, "kept")
+        await add(registry, "bins", ttl_seconds=60, on_expiry="deactivate")
+        clock.advance(61)
+
+        await registry.sweep()
+
+        assert run_sequences(transport)[-1].endswith(b"A" + b"\x04")
+
+    async def test_the_two_outcomes_can_expire_in_the_same_sweep(
+        self, registry, clock, layout
+    ):
+        await add(registry, "gone", ttl_seconds=60)
+        await add(registry, "bins", ttl_seconds=60, on_expiry="deactivate")
+
+        clock.advance(61)
+        assert sorted(await registry.sweep()) == ["bins", "gone"]
+
+        assert layout.slots.label_for("gone") is None
+        assert registry.get("bins").active is False
 
 
 class TestRestart:

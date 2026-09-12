@@ -42,8 +42,10 @@ Drives a BetaBrite Classic sign over the Alpha protocol, either through a serial
 cable or through an Ethernet to RS-232 adapter.
 
 Several sources can share the sign at once. Each registers a named **slot**, and
-the sign rotates through the registered slots by itself. An **alert** takes the
-whole display over until it is released, then the rotation resumes.
+the sign rotates through the slots that are showing by itself. A slot can be
+hidden without being given up, so a message can be taken off the display and put
+back without being sent again. An **alert** takes the whole display over until it
+is released, then the rotation resumes.
 
 A **variable** is a value a slot's message or an alert calls with `<var:name>`.
 Changing it rewrites only the variable, so the sign shows the new value without

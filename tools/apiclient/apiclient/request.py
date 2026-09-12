@@ -98,6 +98,11 @@ def coerce(kind: str, text: str) -> object:
     that is not a number is answered for by the service, field by field, rather
     than turned into a document it cannot read.
     """
+    if kind == "bool":
+        lowered = text.strip().lower()
+        if lowered in ("true", "false"):
+            return lowered == "true"
+        return text
     if kind == "int":
         try:
             return int(text)
