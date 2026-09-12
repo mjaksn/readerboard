@@ -68,8 +68,11 @@ And being told to, which needs no reason.
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
-under `readerboard/protocol/`. It also lists the four questions the document
-cannot answer, three of which a session with the sign has since settled.
+under `readerboard/protocol/`. It also lists the ten questions the document
+cannot answer, all of which three sessions with the sign have now settled. Two
+of those answers were wrong the first time and were caught on a repeat run, and
+both were about something brief on the display; the record of how is kept beside
+each answer, because it is the part that generalises.
 
 ## The one dangerous operation
 
@@ -149,10 +152,37 @@ process; the API is what it answers on.
 ## How it works, in one pass
 
 A **slot** is a named place on the sign that a source owns. Each slot lives in
-its own sign file, and the run sequence names the occupied files in order. The
-sign cycles them by itself, so a message appearing or disappearing costs one
-small write and nothing after that. This is the whole design: the host does not
-rotate anything.
+its own sign file, and the run sequence names the files of the slots that are
+showing, in order. The sign cycles them by itself, so a message appearing or
+disappearing costs one small write and nothing after that. This is the whole
+design: the host does not rotate anything.
+
+A slot can also be **hidden**, which is `PUT /messages/{key}/active` and
+`MessageRegistry.set_active`. The run sequence names the active slots and
+nothing else, so hiding one is a single sequence write. That write does disturb
+the display, measured on 2026-09-12, but far less than rewriting a TEXT file:
+short enough to be imperceptible when anything else on screen is changing, and
+easy to miss even on static content. A hidden slot keeps
+its file, its order, its text and its name, so showing it again needs no copy of
+the message.
+
+Two parts of that are easy to get wrong. **A hidden slot's file keeps its text**,
+so showing it again is one run sequence write and no redraw: the controller still
+holds those bytes and declines to send them a second time. The exception is the
+last visible message, whose file is emptied as it goes, because a sign handed a
+run sequence naming nothing freezes on the message it was drawing and holds it
+there, measured on 2026-09-11; without the blank it would sit there for good.
+`MessageRegistry._hide` is the whole rule and is the only thing that should
+decide it.
+
+And **`active` is three-valued on `PUT /messages`**, which is not the same as
+being absent from it. Omitted, it leaves the slot showing or hidden exactly as it
+found it, so a source re-sending the same content every five minutes cannot
+switch back on something deliberately hidden. Sent, it moves the slot, which is
+what lets one call write a message and put it up: a notification with a minute on
+it is `active` true with a `ttl_seconds` and `delete_on_expiry` false, sent again
+in full the next time the thing it reports changes. `PUT /messages/{key}/active`
+stays for hiding something whose text the caller does not have in hand.
 
 A **variable** is a value in a STRING file of its own, which a slot's message
 calls with `<var:name>`. Writing one rewrites only that STRING file, and the
@@ -167,9 +197,8 @@ rules hold it together, and each has a reason that is easy to lose:
   variables share one lock so that nothing can slip between the check and the
   write. The alert service renders through `MessageRegistry.rendering`, which
   holds that lock until the priority file is written and the alert recorded.
-  Take the registry's lock before the alert service's, and never hold it across
-  `AlertService.release`, which takes it again to apply a run sequence it held
-  back.
+  Take the registry's lock before the alert service's, never the other way
+  round.
 - **Variables are written before messages** on a restore, a refresh and a
   reboot, so no message is drawn calling a STRING not yet written.
 - **The size check is not optional.** The sign does not truncate a value that
@@ -189,11 +218,6 @@ declines to write them again.
 
 ## Things that look wrong and are not
 
-- **Run sequence writes are held back while an alert is up.** The document says
-  a write to the run time or run day table cancels a running priority message,
-  and says nothing either way about the run sequence. Until the spike settles
-  it, the safe reading is that it might. See
-  `MessageRegistry._apply_run_sequence`.
 - **Everything is re-pushed on a timer.** The sign and the adapter are
   separately powered, so the sign can be power cycled with the TCP link still
   up. Nothing fires, the write cache stays warm, and suppression would then skip
@@ -268,9 +292,7 @@ file table, the contents of each file and each STRING file, the run sequence
 and the priority file.
 The state is what makes it worth having over a packet log. It says when a write
 lands in a file no memory configuration allocated, when a message overruns its
-file, when the run sequence names a file that does not exist, and when a run
-sequence write arrives during an alert, which `docs/protocol-notes.md` lists
-as one of the four questions only the sign can settle.
+file, and when the run sequence names a file that does not exist.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but
@@ -287,7 +309,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-one endpoints, formats every
+it at a running service and it can call all twenty-two endpoints, formats every
 response as text rather than JSON, and knows no vocabulary it was not told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are

@@ -256,6 +256,24 @@
         "additionalProperties": false,
         "description": "A message registered into a slot.",
         "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "whether the sign should be playing it. Omit it and the message keeps whatever it already was, which is what a source re-sending the same content on a timer wants: repeating itself cannot switch back on something that was deliberately hidden. true shows it, false hides it, and a new message nobody says anything about is shown",
+            "title": "Active"
+          },
+          "delete_on_expiry": {
+            "default": true,
+            "description": "what happens when ttl_seconds passes. True gives the slot back. False keeps the message registered and takes it off the display, clearing the deadline with it, so it can be shown again without being sent afresh. Nothing without a ttl_seconds",
+            "title": "Delete On Expiry",
+            "type": "boolean"
+          },
           "display_mode": {
             "default": "HOLD",
             "description": "how the sign presents the message",
@@ -263,7 +281,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the message, including markup tokens such as <red> and <degree>, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign cycles to a file with no text in it. Use DELETE to give the slot back",
+            "description": "the message, including markup tokens such as <red> and <degree>, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign gives a file with no text in it no turn of its own but does hold the message before it several seconds longer, so the slot would be spent and the rotation would drag. Use DELETE to give the slot back",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -298,7 +316,7 @@
                 "type": "null"
               }
             ],
-            "description": "drop the message this many seconds from now; omit to keep it until replaced",
+            "description": "act on the message this many seconds from now, deleting or hiding it according to delete_on_expiry. Omit it for no deadline, which leaves the message in place until something replaces or removes it",
             "title": "Ttl Seconds"
           }
         },
@@ -371,9 +389,35 @@
         "title": "SignInformationResponse",
         "type": "object"
       },
+      "SlotActiveRequest": {
+        "additionalProperties": false,
+        "description": "Whether the sign should be playing a slot.",
+        "properties": {
+          "active": {
+            "description": "true to put the message into the rotation, false to take it off the display while it stays registered, keeping its slot, its file, its text and its place in the order",
+            "title": "Active",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "active"
+        ],
+        "title": "SlotActiveRequest",
+        "type": "object"
+      },
       "SlotResponse": {
         "description": "A registered slot.",
         "properties": {
+          "active": {
+            "description": "whether the sign is playing it; a false one stays registered and hidden",
+            "title": "Active",
+            "type": "boolean"
+          },
+          "delete_on_expiry": {
+            "description": "whether ttl_seconds gives the slot back, or only hides the message",
+            "title": "Delete On Expiry",
+            "type": "boolean"
+          },
           "display_mode": {
             "title": "Display Mode",
             "type": "string"
@@ -430,6 +474,8 @@
           "message",
           "display_mode",
           "order",
+          "active",
+          "delete_on_expiry",
           "source",
           "expires_at",
           "updated_at"
@@ -640,9 +686,9 @@
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the registered slots by itself. An **alert** takes the\nwhole display over until it is released, then the rotation resumes.\n\nA **variable** is a value a slot's message or an alert calls with `<var:name>`.\nChanging it rewrites only the variable, so the sign shows the new value without\nblanking or restarting what calls it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render or a call\nto a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404\nfor a slot or variable that does not exist, 409 when every slot or every\nvariable is already in use or a variable something still calls is deleted, 503\nwhen the sign is unreachable, stops partway through an answer or answers with\nsomething the service cannot read, or no API key is configured at all, 500 for\nsomething the service has no code for, and 422 for a body that is not the shape\nthe endpoint declares, which includes a display mode the sign does not have.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the slots that are showing by itself. A slot can be\nhidden without being given up, so a message can be taken off the display and put\nback without being sent again. An **alert** takes the whole display over until it\nis released, then the rotation resumes.\n\nA **variable** is a value a slot's message or an alert calls with `<var:name>`.\nChanging it rewrites only the variable, so the sign shows the new value without\nblanking or restarting what calls it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render or a call\nto a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404\nfor a slot or variable that does not exist, 409 when every slot or every\nvariable is already in use or a variable something still calls is deleted, 503\nwhen the sign is unreachable, stops partway through an answer or answers with\nsomething the service cannot read, or no API key is configured at all, 500 for\nsomething the service has no code for, and 422 for a body that is not the shape\nthe endpoint declares, which includes a display mode the sign does not have.\n",
     "title": "readerboard",
-    "version": "0.5.0"
+    "version": "0.5.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -885,7 +931,7 @@
         ]
       },
       "get": {
-        "description": "Return every registered slot, in the order the sign plays them.",
+        "description": "Return every registered slot, in rotation order, hidden ones included.\n\nA hidden slot is listed like any other, with `active` false. It is still\nregistered and still holding its file; it is simply not one the sign plays.",
         "operationId": "list_messages_messages_get",
         "responses": {
           "200": {
@@ -999,7 +1045,7 @@
         ]
       },
       "put": {
-        "description": "Put a message in a slot, replacing whatever was there.\n\nThe sign rotates through every registered slot on its own, so registering a\nsecond message does not displace the first.",
+        "description": "Put a message in a slot, replacing whatever was there.\n\nThe sign rotates through the slots that are showing on its own, so\nregistering a second message does not displace the first.\n\nLeave `active` out and a hidden message stays hidden, which is what a source\nre-sending the same content every few minutes wants: repeating itself cannot\nswitch back on something that was deliberately hidden. Send it and the message\nmoves, so one call can write the text, set a deadline and put it up.\n`PUT /messages/{key}/active` does the same without resending the message.",
         "operationId": "put_message_messages__key__put",
         "parameters": [
           {
@@ -1054,6 +1100,68 @@
           }
         ],
         "summary": "Register or replace a message",
+        "tags": [
+          "Messages"
+        ]
+      }
+    },
+    "/messages/{key}/active": {
+      "put": {
+        "description": "Take a message off the display, or put it back, keeping its slot either way.\n\nA hidden message stays registered. It keeps its slot, its file, its text and\nits place in the order, and is simply left out of the rotation the sign\ncycles, so showing it again needs no copy of what it said. `PUT /messages/{key}`\ncan move it too, by sending `active`; this endpoint is for when the caller\ndoes not have the message text to resend, and a caller who omits `active`\nthere cannot move it by accident.\n\nHiding or showing one is a single run sequence write. That does disturb the\ndisplay, but far less than rewriting a message does: briefly enough to be\nmissed unless you are watching a static screen for it. The hidden message's\nown file keeps its text, so showing it again sends nothing but the sequence.\nThe exception is the last message showing: that one's file is emptied as it\ngoes, because a sign whose sequence names nothing freezes on what it was\ndrawing.\n\n404 when no slot by that name is registered.",
+        "operationId": "set_message_active_messages__key__active_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "the name of the slot, chosen by whoever owns it",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._-]+$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Show or hide a message without unregistering it",
         "tags": [
           "Messages"
         ]

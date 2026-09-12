@@ -131,9 +131,7 @@ among others:
 - a transmission too truncated to act on, which is left to change nothing rather
   than applied with the decoder's placeholder values. A write cut off inside its
   start of mode would otherwise read as the empty priority write that releases
-  an alert, and a truncated clock write would set the clock to 00:00;
-- a run sequence written while an alert is up, which is open question 3 in
-  `docs/protocol-notes.md`.
+  an alert, and a truncated clock write would set the clock to 00:00.
 
 ## What it does not do
 
@@ -148,8 +146,9 @@ geometry is not recorded anywhere in this repository.
 
 It is also one way. Read commands are decoded and shown, and nothing is sent
 back. Answering them would make this a rehearsal target for the reads in
-`readerboard/protocol/frames.py`, which have never been tried against the
-adapter; that is the obvious next thing.
+`readerboard/protocol/frames.py`, which the real sign answers correctly through
+the adapter but which have nowhere to be exercised when no sign is in the room;
+that is the obvious next thing.
 
 ## How it is put together
 

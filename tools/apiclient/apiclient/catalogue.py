@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from twenty-one hand-written
+The window builds its forms from this table rather than from twenty-two hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -192,7 +192,18 @@ OPERATIONS: tuple[Operation, ...] = (
                 name="ttl_seconds",
                 kind="float",
                 seconds_until="expires_at",
-                description="drop the message this many seconds from now; leave empty to keep it",
+                description="act on the message this many seconds from now; empty keeps it",
+            ),
+            Input(
+                name="delete_on_expiry",
+                kind="bool",
+                prefill=True,
+                description="true gives the slot back; false keeps it and hides the message",
+            ),
+            Input(
+                name="active",
+                kind="bool",
+                description="true shows it, false hides it; empty leaves it as it is",
             ),
             Input(
                 name="source",
@@ -200,6 +211,29 @@ OPERATIONS: tuple[Operation, ...] = (
             ),
         ),
         formatter="slot",
+    ),
+    Operation(
+        id="set_message_active",
+        group="Messages",
+        method="PUT",
+        path="/messages/{key}/active",
+        summary="Show or hide a message without unregistering it",
+        needs_key=True,
+        path_inputs=(_MESSAGE_KEY,),
+        body=(
+            Input(
+                name="active",
+                kind="bool",
+                required=True,
+                description="true puts it back into the rotation, false takes it off the display",
+            ),
+        ),
+        formatter="slot",
+        note=(
+            "A hidden message keeps its slot, its file, its text and its place in the "
+            "order, so showing it again needs no copy of what it said. It costs one run "
+            "sequence write, which disturbs the display far less than rewriting a message."
+        ),
     ),
     Operation(
         id="delete_message",

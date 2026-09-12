@@ -26,6 +26,7 @@ from readerboard.api.models import (
     ControlCommandRequest,
     MessageRequest,
     SignInformationResponse,
+    SlotActiveRequest,
     SlotKey,
     SlotResponse,
     TokenInfo,
@@ -62,7 +63,11 @@ enumerations = APIRouter(prefix="/enumerations", tags=["Enumerations"])
 
 @messages.get("", summary="List the messages sharing the sign")
 async def list_messages(registry: RegistryDep) -> list[SlotResponse]:
-    """Return every registered slot, in the order the sign plays them."""
+    """Return every registered slot, in rotation order, hidden ones included.
+
+    A hidden slot is listed like any other, with `active` false. It is still
+    registered and still holding its file; it is simply not one the sign plays.
+    """
     return [SlotResponse.of(slot) for slot in registry.list_slots()]
 
 
@@ -78,8 +83,14 @@ async def put_message(
 ) -> SlotResponse:
     """Put a message in a slot, replacing whatever was there.
 
-    The sign rotates through every registered slot on its own, so registering a
-    second message does not displace the first.
+    The sign rotates through the slots that are showing on its own, so
+    registering a second message does not displace the first.
+
+    Leave `active` out and a hidden message stays hidden, which is what a source
+    re-sending the same content every few minutes wants: repeating itself cannot
+    switch back on something that was deliberately hidden. Send it and the message
+    moves, so one call can write the text, set a deadline and put it up.
+    `PUT /messages/{key}/active` does the same without resending the message.
     """
     slot = await registry.upsert(
         key,
@@ -87,8 +98,41 @@ async def put_message(
         mode=body.display_mode,
         order=body.order,
         ttl_seconds=body.ttl_seconds,
+        delete_on_expiry=body.delete_on_expiry,
+        active=body.active,
         source=body.source,
     )
+    return SlotResponse.of(slot)
+
+
+@messages.put(
+    "/{key}/active",
+    summary="Show or hide a message without unregistering it",
+    dependencies=[RequireApiKey],
+)
+async def set_message_active(
+    key: SlotKey, body: SlotActiveRequest, registry: RegistryDep
+) -> SlotResponse:
+    """Take a message off the display, or put it back, keeping its slot either way.
+
+    A hidden message stays registered. It keeps its slot, its file, its text and
+    its place in the order, and is simply left out of the rotation the sign
+    cycles, so showing it again needs no copy of what it said. `PUT /messages/{key}`
+    can move it too, by sending `active`; this endpoint is for when the caller
+    does not have the message text to resend, and a caller who omits `active`
+    there cannot move it by accident.
+
+    Hiding or showing one is a single run sequence write. That does disturb the
+    display, but far less than rewriting a message does: briefly enough to be
+    missed unless you are watching a static screen for it. The hidden message's
+    own file keeps its text, so showing it again sends nothing but the sequence.
+    The exception is the last message showing: that one's file is emptied as it
+    goes, because a sign whose sequence names nothing freezes on what it was
+    drawing.
+
+    404 when no slot by that name is registered.
+    """
+    slot = await registry.set_active(key, body.active)
     return SlotResponse.of(slot)
 
 

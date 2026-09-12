@@ -13,6 +13,86 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Added
+
+- **A message can be hidden without being given up.** `PUT /messages/{key}/active`
+  with `{"active": false}` takes a message off the display and leaves it
+  registered, keeping its slot, its file, its place in the order and its text, so
+  `{"active": true}` shows it again and needs no copy of what it said. The run
+  sequence names the active slots and nothing else, which is the whole mechanism.
+  A hidden slot still counts against `slot_count`, since it is still holding a
+  file.
+
+  Switching one either way is a single run sequence write while any other message
+  is playing, and the hidden file keeps its text so there is nothing to send back
+  when it is shown again. That write is not invisible: it disturbs the display
+  briefly, measured on 2026-09-12. What makes it worth having is the comparison.
+  Rewriting a message's TEXT file restarts it with a blank you notice from across
+  the room; a sequence write is short enough to be imperceptible when anything
+  else on screen is changing, and easy to miss even on static content. So taking
+  a message off the display and putting it back is much cheaper than sending it
+  again.
+
+  The exception is the last message on the sign: hiding that one empties its file
+  as well, because a sign whose run sequence names nothing freezes on whatever it
+  was drawing and holds it, so the display would otherwise never clear. Emptying
+  that file does clear it, measured on the same day. Coming back from there costs
+  the text and the sequence both.
+
+  `active` is also a field on `PUT /messages/{key}`, where it is optional and
+  three-valued. Left out, it leaves the message showing or hidden exactly as it
+  found it, so a source re-sending the same content every few minutes cannot
+  switch back on something that was deliberately hidden. Sent, it moves the
+  message, which is what makes a recurring notification one call: something that
+  should appear for a minute whenever an event happens sends the text, a
+  `ttl_seconds`, `delete_on_expiry` false and `active` true, and sends the same
+  shape again at the next event. Without it that is two calls, because a
+  deadline that hides a message clears itself on the way out.
+
+  `PUT /messages/{key}/active` stays, for hiding or showing something without
+  resending a message the caller may not have.
+
+- **`delete_on_expiry` decides what a `ttl_seconds` does when it passes.** The
+  default, `true`, is what a deadline has always done and hands the slot back.
+  `false` hides the message and keeps the slot, for anything that comes back
+  later rather than being finished with. An expiry that hides clears the deadline
+  with it, so a message shown again does not vanish at the next sweep.
+
+  A boolean rather than a word with two accepted spellings: the caller picks
+  between the same two behaviours without having to find out which words the
+  field takes, and a typo is a 422 naming the field rather than a value the
+  service has to explain.
+
+  Both fields appear in `GET /messages` and in the client, which grew the
+  endpoint and a true/false field for each.
+
+### Changed
+
+- **Run sequence writes are no longer held back while an alert is up.** The
+  protocol lists four things that cancel a running priority message and says
+  nothing either way about a Set Run Sequence write, so the service had taken the
+  cautious reading and held those writes until the alert was released. The sign
+  settled it on 2026-09-11: with an alert holding the whole display the sequence
+  was rewritten from three files to two and the alert stayed up. So they go out
+  as they are made. Nothing about the HTTP surface changes; what changes is that
+  a slot registered, expired or hidden during an alert reaches the sign then
+  rather than at the release.
+
+- **`inter_packet_delay` now defaults to 0.25 seconds rather than 0.5.** The old
+  figure was a guess made before anyone had asked the sign. A BetaBrite Classic
+  took six writes in a row correctly at a 0.25 second gap on 2026-09-11, and the
+  same run failed at 0.1, so the new default sits above the measured floor and
+  makes a burst of writes land in half the time. It is still a setting: a sign
+  that needs more can be given more, and the symptom of too little is writes
+  going quietly missing rather than an error, since a write the sign is too busy
+  to hear is accepted by the link and never refused.
+
+## [0.5.1] - 2026-09-11
+
+**A fix for signs reached through an Ethernet adapter.** `GET /sign/information`
+now answers through one, where until now it could not. Nothing else changes, and
+upgrading from 0.5.0 erases nothing.
+
 ### Fixed
 
 - **`GET /sign/information` never worked through an Ethernet adapter.** Over a
@@ -24,9 +104,9 @@ library, and the names inside it may move without that being a breaking change.
   a 503 every time. What is waiting is now read until nothing is left, so a
   reply arrives as fast as the link carries it. A serial port was not affected.
 
-  The 0.5.0 entry below puts the cut-off replies down to the sign pausing
-  mid-reply. That was wrong: this was the cause, and no pause has been
-  measured. Reading to the EOT is still how a reply is collected.
+  The 0.5.0 notes put the cut-off replies down to the sign pausing mid-reply.
+  That was wrong: this was the cause, and no pause has been measured. Reading
+  to the EOT is still how a reply is collected.
 
 ## [0.5.0] - 2026-09-11
 
@@ -611,10 +691,18 @@ Removed section before upgrading.**
 
   `PUT /messages/{key}` takes the same floor, for a different reason. An empty
   message there is not the release sequence, it is a slot held open around
-  nothing: the sign cycles to a file with no text in it and the pool is a slot
+  nothing: the sign gives a file with no text in it no turn of its own but does
+  hold the message before it several seconds longer, and the pool is a slot
   smaller for it. `DELETE /messages/{key}` is how a slot is given back, and it
   always was. A service upgraded with one already in its state file drops it on
   the next start and hands the file back to the pool.
+
+  **[Corrected 2026-09-12]** The paragraph above said the sign "cycles to a file
+  with no text in it". That was never measured and it is wrong, and it is
+  reworded here rather than left to mislead. What the sign actually does is
+  above; `docs/protocol-notes.md`, question 7, has the measurement and the two
+  wrong answers that preceded it. Nothing about the release changed: an empty
+  message was refused in 0.4.0 and is refused now, for the same reason.
 
 - **A control command parameter of digits the sign never meant is now a 400.**
   `SET_TIME` and `SET_DAY_OF_WEEK` guarded their parameter with `str.isdigit`
@@ -1282,6 +1370,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.4.0
 [0.3.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.3.0

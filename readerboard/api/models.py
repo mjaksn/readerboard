@@ -64,7 +64,9 @@ class MessageRequest(BaseModel):
             "the message, including markup tokens such as <red> and <degree>, and "
             "<var:name> to call a variable, which has to exist first. It cannot be "
             "empty: an empty message holds a slot open around nothing, and the sign "
-            "cycles to a file with no text in it. Use DELETE to give the slot back"
+            "gives a file with no text in it no turn of its own but does hold the "
+            "message before it several seconds longer, so the slot would be spent and "
+            "the rotation would drag. Use DELETE to give the slot back"
         ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the message")
@@ -75,7 +77,30 @@ class MessageRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
-        description="drop the message this many seconds from now; omit to keep it until replaced",
+        description=(
+            "act on the message this many seconds from now, deleting or hiding it "
+            "according to delete_on_expiry. Omit it for no deadline, which leaves the "
+            "message in place until something replaces or removes it"
+        ),
+    )
+    delete_on_expiry: bool = Field(
+        default=True,
+        description=(
+            "what happens when ttl_seconds passes. True gives the slot back. False keeps "
+            "the message registered and takes it off the display, clearing the deadline "
+            "with it, so it can be shown again without being sent afresh. Nothing "
+            "without a ttl_seconds"
+        ),
+    )
+    active: bool | None = Field(
+        default=None,
+        description=(
+            "whether the sign should be playing it. Omit it and the message keeps "
+            "whatever it already was, which is what a source re-sending the same "
+            "content on a timer wants: repeating itself cannot switch back on "
+            "something that was deliberately hidden. true shows it, false hides it, "
+            "and a new message nobody says anything about is shown"
+        ),
     )
     source: str | None = Field(
         default=None,
@@ -86,6 +111,20 @@ class MessageRequest(BaseModel):
     _check_mode = field_validator("display_mode")(_normalise_mode)
 
 
+class SlotActiveRequest(BaseModel):
+    """Whether the sign should be playing a slot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    active: bool = Field(
+        description=(
+            "true to put the message into the rotation, false to take it off the display "
+            "while it stays registered, keeping its slot, its file, its text and its place "
+            "in the order"
+        )
+    )
+
+
 class SlotResponse(BaseModel):
     """A registered slot."""
 
@@ -94,6 +133,12 @@ class SlotResponse(BaseModel):
     message: str
     display_mode: str
     order: int
+    active: bool = Field(
+        description="whether the sign is playing it; a false one stays registered and hidden"
+    )
+    delete_on_expiry: bool = Field(
+        description="whether ttl_seconds gives the slot back, or only hides the message"
+    )
     source: str | None
     expires_at: datetime | None
     updated_at: datetime
@@ -107,6 +152,8 @@ class SlotResponse(BaseModel):
             message=slot.message,
             display_mode=slot.mode,
             order=slot.order,
+            active=slot.active,
+            delete_on_expiry=slot.delete_on_expiry,
             source=slot.source,
             expires_at=slot.expires_at,
             updated_at=slot.updated_at,
