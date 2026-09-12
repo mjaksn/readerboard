@@ -39,9 +39,12 @@ baud_rate = 9600
 serial_timeout = 10.0
 
 # Seconds to wait after each transmission before sending another. The default is
-# deliberately conservative. Run scripts/protocol_spike.py to measure what this
-# sign actually needs rather than guessing high forever.
-inter_packet_delay = 0.5
+# what a BetaBrite Classic was measured taking six writes in a row at, with the
+# same run failing at 0.1, so it has margin over the hardware without being a
+# guess. Run scripts/protocol_spike.py to measure what this sign needs; raise it
+# if a burst of writes goes missing, since a write the sign is too busy to hear
+# is accepted by the link and never refused.
+inter_packet_delay = 0.25
 
 # Whether to wait out the windows in which the sign cannot listen, after a reset
 # or a tone. Leave this on for a real sign. It is a separate setting from the

@@ -11,10 +11,11 @@ An HTTP service that drives a BetaBrite Classic sign, either through a serial ca
 through an Ethernet to RS-232 adapter.
 
 Several sources can share the sign at once. Each registers a named **slot**, and the sign
-rotates through the registered slots by itself. A **variable** is a value that messages
-call by name, such as a temperature, and changing it does not blank the sign or restart
-the message showing it. An **alert** takes the whole display over until it is released,
-after which the rotation resumes.
+rotates through the slots that are showing by itself. A slot can be hidden without being
+given up, so a message can be taken off the display and put back without being sent again. A
+**variable** is a value that messages call by name, such as a temperature, and changing it
+does not blank the sign or restart the message showing it. An **alert** takes the whole
+display over until it is released, after which the rotation resumes.
 
 ## What it does
 
@@ -231,6 +232,46 @@ curl -X PUT http://localhost:5001/messages/doorbell \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<amber>Someone at the door", "ttl_seconds": 300}'
 ```
+
+Take a message off the display without giving up its slot, and put it back later:
+
+```
+curl -X PUT http://localhost:5001/messages/doorbell/active \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"active": false}'
+```
+
+A hidden message keeps its slot, its place in the order and its text, so showing it again
+takes `{"active": true}` and no copy of what it said. The messages still showing carry on
+without a blink.
+
+`active` is a field on the message endpoint too, where leaving it out is the point: a
+source re-sending the same content every few minutes says nothing about it and so cannot
+switch back on something that was deliberately hidden. Sending it moves the message.
+
+A `ttl_seconds` can hide a message instead of deleting it, which suits anything that comes
+back later, such as a bin day or a school notice:
+
+```
+curl -X PUT http://localhost:5001/messages/bins \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"message": "<green>BINS OUT TONIGHT", "ttl_seconds": 43200,
+          "delete_on_expiry": false}'
+```
+
+Put those together and a recurring notification is one call per event, sent in the same
+shape every time. This shows the alarm's state for a minute whenever it changes, then takes
+it off the rotation until the next one:
+
+```
+curl -X PUT http://localhost:5001/messages/alarm \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"message": "<red>ALARM NOW <var:arm_state>", "ttl_seconds": 60,
+          "delete_on_expiry": false, "active": true}'
+```
+
+The deadline clears itself as it hides the message, so each event gets a fresh minute
+rather than the message vanishing again on a deadline the last one left behind.
 
 Show a live value. Create the variable first, then a message that calls it:
 

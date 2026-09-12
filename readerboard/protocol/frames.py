@@ -318,11 +318,10 @@ def soft_reset() -> bytes:
 # Reading state back from the sign.
 #
 # These exist so that divergence between what the service believes and what the
-# sign actually holds can be detected rather than assumed. Whether this sign
-# answers them through the Ethernet to RS-232 adapter is the one genuinely
-# unproven thing left; two-way traffic over that path has never been tried.
-# scripts/protocol_spike.py settles it. Until then the service reconciles by
-# re-pushing on a timer, which needs no reply.
+# sign actually holds can be detected rather than assumed. This sign does answer
+# them through the Ethernet to RS-232 adapter: all four came back on 2026-09-09
+# and again on 2026-09-11. Nothing in the service depends on that yet, so it
+# still reconciles by re-pushing on a timer, which needs no reply.
 # ===========================================================================
 
 

@@ -70,8 +70,8 @@ RESET_SETTLE_SECONDS = 10.0
 # is not a reset and still leaves the sign deaf, which is why the wait below is
 # not about restarting at all.
 #
-# Without it the next write goes out one inter_packet_delay later, half a second
-# by default, into a sign that is not listening. It is not refused: the
+# Without it the next write goes out one inter_packet_delay later, a quarter of
+# a second by default, into a sign that is not listening. It is not refused: the
 # transport accepts it, the suppression cache records the file as holding those
 # bytes, and nothing writes them again until the next periodic re-push.
 SOUND_SETTLE_SECONDS = 3.0
@@ -116,7 +116,7 @@ class SignController:
         self,
         transport: Transport,
         *,
-        inter_packet_delay: float = 0.5,
+        inter_packet_delay: float = 0.25,
         settle: bool = True,
         now: Callable[[], datetime] = _utcnow,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,

@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty-one
+Everything the tool does is on it: the connection, the enumerations, all twenty-two
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -387,6 +387,23 @@ class OperationForm(QWidget):
             self._refresh_token_button(insert, item.markup)
             return holder
 
+        if item.kind == "bool":
+            # A closed list rather than a checkbox, so that reading it back goes
+            # through the same text path every other field uses; request.coerce
+            # turns the text into a real JSON boolean.
+            combo = QComboBox()
+            if item.required or item.prefill is not None:
+                combo.addItems(["true", "false"])
+                combo.setCurrentText(request_module.as_text(item.prefill))
+            else:
+                # An optional boolean has three answers and the third is the
+                # default: say nothing. The empty entry is what build_body reads
+                # as a field nobody filled in, so the key is left out rather
+                # than sent as a value the caller never chose.
+                combo.addItems(["", "true", "false"])
+            self._body[item.name] = combo
+            return combo
+
         line = QLineEdit()
         line.setPlaceholderText(item.description)
         if item.prefill is not None:
@@ -547,8 +564,7 @@ class OperationForm(QWidget):
                 continue
             if item.name not in payload:
                 continue
-            value = payload[item.name]
-            _set_text(widget, "" if value is None else str(value))
+            _set_text(widget, request_module.as_text(payload[item.name]))
 
     def path_values(self) -> dict[str, str]:
         """Return what has been typed into the path parameters."""

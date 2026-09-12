@@ -135,6 +135,7 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
         schema = create_app(settings, transport=sign).openapi()
         for path, method in [
             ("/messages/{key}", "put"),
+            ("/messages/{key}/active", "put"),
             ("/messages/{key}", "delete"),
             ("/messages", "delete"),
             ("/variables/{name}", "put"),
@@ -259,6 +260,105 @@ class TestMessages:
     def test_an_unusable_slot_name_is_422(self, client):
         response = client.put(
             "/messages/not a valid key", json={"message": "HI"}, headers=HEADERS
+        )
+        assert response.status_code == 422
+
+    def test_a_new_message_is_showing_and_expires_by_being_deleted(self, client):
+        body = client.put(
+            "/messages/one", json={"message": "ONE"}, headers=HEADERS
+        ).json()
+
+        assert body["active"] is True
+        assert body["delete_on_expiry"] is True
+
+    def test_a_message_can_be_written_and_shown_in_one_call(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+
+        body = client.put(
+            "/messages/one",
+            json={"message": "TWO", "active": True, "ttl_seconds": 60,
+                  "delete_on_expiry": False},
+            headers=HEADERS,
+        ).json()
+
+        assert body["active"] is True
+        assert body["message"] == "TWO"
+
+    def test_leaving_active_out_does_not_move_it(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+
+        body = client.put("/messages/one", json={"message": "TWO"}, headers=HEADERS).json()
+
+        assert body["active"] is False
+
+    def test_a_delete_on_expiry_that_is_not_a_boolean_is_422(self, client):
+        response = client.put(
+            "/messages/one",
+            json={"message": "HI", "delete_on_expiry": "burn"},
+            headers=HEADERS,
+        )
+        assert response.status_code == 422
+
+
+class TestHidingAMessage:
+    """Taking a message off the display without giving up its slot."""
+
+    def test_hiding_it_keeps_it_registered(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+
+        body = client.put(
+            "/messages/one/active", json={"active": False}, headers=HEADERS
+        ).json()
+
+        assert body["active"] is False
+        assert body["message"] == "ONE"
+        # Still listed, still holding its file: hidden is not deleted.
+        assert [slot["key"] for slot in client.get("/messages").json()] == ["one"]
+        assert client.get("/health").json()["slots_used"] == 1
+
+    def test_showing_it_again_needs_no_copy_of_the_message(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+
+        body = client.put(
+            "/messages/one/active", json={"active": True}, headers=HEADERS
+        ).json()
+
+        assert body["active"] is True
+        assert body["message"] == "ONE"
+
+    def test_replacing_the_message_does_not_show_it_again(self, client):
+        # The trap this endpoint exists to avoid. A source re-sending the same
+        # content on a timer would otherwise switch a hidden message back on
+        # every few minutes, and nothing would say why.
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+
+        body = client.put(
+            "/messages/one", json={"message": "TWO"}, headers=HEADERS
+        ).json()
+
+        assert body["active"] is False
+        assert body["message"] == "TWO"
+
+    def test_hiding_an_unknown_slot_is_404(self, client):
+        response = client.put(
+            "/messages/nobody/active", json={"active": False}, headers=HEADERS
+        )
+        assert response.status_code == 404
+
+    def test_it_needs_a_key(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        assert (
+            client.put("/messages/one/active", json={"active": False}).status_code == 401
+        )
+
+    def test_a_body_that_is_not_a_boolean_is_422(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        response = client.put(
+            "/messages/one/active", json={"active": "maybe"}, headers=HEADERS
         )
         assert response.status_code == 422
 
