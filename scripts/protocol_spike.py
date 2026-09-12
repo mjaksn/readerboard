@@ -4,22 +4,29 @@
 The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
-RS-232 adapter. Five things are genuinely open, and this script settles them:
+RS-232 adapter. Seven things have been genuinely open, and this script is how
+each is put to the sign. The first five are settled, on 2026-09-09 and
+2026-09-11, and their answers are in docs/protocol-notes.md; running this again
+re-confirms them on the sign in front of you. The last two are open.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
    does exactly that, every time.
 3. Does a run sequence write cancel a running priority message? The document
    says a write to the run time or run day table does, and is silent about the
-   run sequence. Until this is answered, the service assumes it might and holds
-   run sequence writes back while an alert is up.
+   run sequence. The alert survived, which is why the service now sends these
+   writes whatever is on the display.
 4. Does the sign answer read commands through the adapter? If it does,
    divergence can be detected by asking rather than by re-pushing on a timer.
 5. What does an empty run sequence show? The sign is told to play nothing while
-   its files still hold their text. The document does not say whether that
-   blanks the display, freezes the last message on it, or falls back to
-   something of the sign's own. A message that is deactivated rather than
-   deleted rests on the answer.
+   its files still hold their text. It freezes on the message it was drawing
+   and holds it, rather than blanking.
+6. Does emptying that frozen file clear the display? Hiding or deleting the
+   last message rewrites the sequence and then empties the file, so the
+   emptying is the only thing left that can end the freeze. Never tested.
+7. What does an empty file do when the sequence names it beside full ones? The
+   service refuses an empty message, and tells callers the sign would cycle to
+   the file and show nothing there. Never tested either.
 
 It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.
@@ -193,9 +200,63 @@ def step_4_empty_sequence(link: serial.Serial, settle: float) -> None:
     ask("Did any of the three lose its text or its colour? [y/n]")
 
 
-def step_5_priority(link: serial.Serial, settle: float) -> None:
+def step_5_empty_file(link: serial.Serial, settle: float) -> None:
+    """Two things the service assumes about an empty file, neither of them measured."""
+    print("\nStep 5: an empty file, frozen on and then rotated through")
+    print("  Step 4 showed the sign freezes when the sequence names nothing. Two")
+    print("  things follow from that which nothing has ever checked, and the")
+    print("  service leans on both.")
+
+    print("\n  First: does emptying the file the sign is frozen on clear the display?")
+    print("  Every path that hides or removes the last message rewrites the sequence")
+    print("  and then empties the file, and the emptying is the only thing that can")
+    print("  end the freeze. If it does not end it, the last message stays up for")
+    print("  good and nothing the service can send will take it down.")
+    print("  The sequence is set to A alone first, so which file the sign freezes on")
+    print("  is known rather than whichever one it happened to reach.")
+    send(link, frames.set_run_sequence([b"A"]), label="run sequence A", settle=settle)
+    ask("Is ONE on the sign by itself? [y/n]")
+
+    send(link, frames.set_run_sequence([]), label="run sequence, empty", settle=settle)
+    ask("Frozen on ONE, as step 4 found? [y/n]")
+
+    print("\n  Now it is emptied underneath the freeze. Watch the sign from the moment")
+    print("  you answer the next question: the write goes out first and the question")
+    print("  after it comes %.2gs later, which is long enough to miss a change." % settle)
+    ask("Ready to watch file A be emptied? [enter]")
+    send(link, frames.write_text_file(b"A", b""), label="empty file A", settle=settle)
+    print("\n  Give it half a minute. Blank is the answer the service is built on.")
+    print("  Still showing ONE means the freeze outlives its own file, and that")
+    print("  hiding or deleting the last message cannot clear the sign at all.")
+    ask("With its file emptied, what is on the sign? [blank/still ONE/other]")
+
+    print("\n  Second: what does an empty file do when it is named alongside full")
+    print("  ones? A is empty now and B and C still hold TWO and THREE, so naming all")
+    print("  three asks it directly. The service refuses an empty message and tells")
+    print("  callers, in the message field's own description, that the sign would")
+    print("  cycle to the file and show nothing there. Nobody has ever checked that.")
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+    print("\n  Watch several full cycles rather than one. The answers differ by what")
+    print("  happens where ONE used to be: a visible blank turn of its own, A passed")
+    print("  over so TWO and THREE cycle straight past it, or the display stuck.")
+    ask("With A empty, what does its turn look like? [blank turn/skipped/frozen/other]")
+    ask("Do TWO and THREE still cycle normally either side of it? [y/n]")
+
+    # Put step 3's state back. Step 6 takes the sign over and hands it back, and
+    # it expects a rotation to be there for both halves of that.
+    send(
+        link,
+        frames.write_text_file(b"A", render("<red>ONE")),
+        label="restore file A",
+        settle=settle,
+    )
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+    ask("Has ONE come back, with all three cycling again? [y/n]")
+
+
+def step_6_priority(link: serial.Serial, settle: float) -> None:
     """Confirm takeover, release, and whether a run sequence write cancels an alert."""
-    print("\nStep 5: priority takeover and release")
+    print("\nStep 6: priority takeover and release")
     send(
         link,
         frames.write_text_file(c.FILE_PRIORITY, render("<red>ALERT")),
@@ -218,9 +279,9 @@ def step_5_priority(link: serial.Serial, settle: float) -> None:
     ask("Has the rotation resumed on its own? [y/n]")
 
 
-def step_6_reads(link: serial.Serial) -> None:
+def step_7_reads(link: serial.Serial) -> None:
     """Find out whether the sign answers read commands through this adapter."""
-    print("\nStep 6: can the sign be asked what it is holding?")
+    print("\nStep 7: can the sign be asked what it is holding?")
     print("  This sign answered all four of these on 2026-09-09, so the adapter")
     print("  carries traffic both ways. Re-proving it is cheap, and divergence")
     print("  could be detected by asking rather than re-pushing on a timer.")
@@ -249,9 +310,9 @@ def step_6_reads(link: serial.Serial) -> None:
         print("\n  The sign answered nothing. Reconciliation stays on the timer.")
 
 
-def step_7_timing(link: serial.Serial, settle: float) -> None:
+def step_8_timing(link: serial.Serial, settle: float) -> None:
     """Find the shortest gap between writes this sign will actually accept."""
-    print("\nStep 7: how much settling time the sign actually needs")
+    print("\nStep 8: how much settling time the sign actually needs")
     print("  inter_packet_delay defaults to 0.25s, which is what a BetaBrite Classic")
     print("  was measured taking six writes in a row at on 2026-09-11, the same run")
     print("  failing at 0.1s. This finds the figure for the sign in front of you.")
@@ -318,9 +379,10 @@ def main() -> int:
         step_2_memory(link, args.settle)
         step_3_rotation(link, args.settle)
         step_4_empty_sequence(link, args.settle)
-        step_5_priority(link, args.settle)
-        step_6_reads(link)
-        step_7_timing(link, args.settle)
+        step_5_empty_file(link, args.settle)
+        step_6_priority(link, args.settle)
+        step_7_reads(link)
+        step_8_timing(link, args.settle)
     finally:
         link.close()
 

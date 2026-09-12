@@ -68,8 +68,9 @@ And being told to, which needs no reason.
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
-under `readerboard/protocol/`. It also lists the five questions the document
-cannot answer, all of which two sessions with the sign have now settled.
+under `readerboard/protocol/`. It also lists the seven questions the document
+cannot answer: five that two sessions with the sign have settled, and two opened
+on 2026-09-12 that are still open, both about what an empty file does.
 
 ## The one dangerous operation
 
