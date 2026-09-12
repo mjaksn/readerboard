@@ -24,10 +24,10 @@ from readerboard.api.models import (
     AlertResponse,
     ClockResponse,
     ControlCommandRequest,
-    MessageRequest,
     SignInformationResponse,
     SlotActiveRequest,
     SlotKey,
+    SlotRequest,
     SlotResponse,
     TokenInfo,
     VariableName,
@@ -44,12 +44,12 @@ from readerboard.protocol.tokens import (
     Token,
 )
 from readerboard.services import commands
-from readerboard.services.registry import MessageRegistry
+from readerboard.services.registry import SlotRegistry
 from readerboard.sign.state import VariableState
 
 router = APIRouter()
 
-messages = APIRouter(prefix="/messages", tags=["Messages"])
+slots = APIRouter(prefix="/slots", tags=["Slots"])
 variables = APIRouter(prefix="/variables", tags=["Variables"])
 alerts_routes = APIRouter(prefix="/alerts", tags=["Alerts"])
 sign_routes = APIRouter(prefix="/sign", tags=["Sign"])
@@ -57,12 +57,12 @@ enumerations = APIRouter(prefix="/enumerations", tags=["Enumerations"])
 
 
 # ===========================================================================
-# Messages
+# Slots
 # ===========================================================================
 
 
-@messages.get("", summary="List the messages sharing the sign")
-async def list_messages(registry: RegistryDep) -> list[SlotResponse]:
+@slots.get("", summary="List the slots sharing the sign")
+async def list_slots(registry: RegistryDep) -> list[SlotResponse]:
     """Return every registered slot, in rotation order, hidden ones included.
 
     A hidden slot is listed like any other, with `active` false. It is still
@@ -71,26 +71,26 @@ async def list_messages(registry: RegistryDep) -> list[SlotResponse]:
     return [SlotResponse.of(slot) for slot in registry.list_slots()]
 
 
-@messages.get("/{key}", summary="Read one message")
-async def get_message(key: SlotKey, registry: RegistryDep) -> SlotResponse:
+@slots.get("/{key}", summary="Read one slot")
+async def get_slot(key: SlotKey, registry: RegistryDep) -> SlotResponse:
     """Return one slot by name."""
     return SlotResponse.of(registry.get(key))
 
 
-@messages.put("/{key}", summary="Register or replace a message", dependencies=[RequireApiKey])
-async def put_message(
-    key: SlotKey, body: MessageRequest, registry: RegistryDep
+@slots.put("/{key}", summary="Register or replace a slot", dependencies=[RequireApiKey])
+async def put_slot(
+    key: SlotKey, body: SlotRequest, registry: RegistryDep
 ) -> SlotResponse:
     """Put a message in a slot, replacing whatever was there.
 
     The sign rotates through the slots that are showing on its own, so
-    registering a second message does not displace the first.
+    registering a second slot does not displace the first.
 
-    Leave `active` out and a hidden message stays hidden, which is what a source
+    Leave `active` out and a hidden slot stays hidden, which is what a source
     re-sending the same content every few minutes wants: repeating itself cannot
-    switch back on something that was deliberately hidden. Send it and the message
+    switch back on something that was deliberately hidden. Send it and the slot
     moves, so one call can write the text, set a deadline and put it up.
-    `PUT /messages/{key}/active` does the same without resending the message.
+    `PUT /slots/{key}/active` does the same without resending the message.
     """
     slot = await registry.upsert(
         key,
@@ -105,28 +105,28 @@ async def put_message(
     return SlotResponse.of(slot)
 
 
-@messages.put(
+@slots.put(
     "/{key}/active",
-    summary="Show or hide a message without unregistering it",
+    summary="Show or hide a slot without giving it up",
     dependencies=[RequireApiKey],
 )
-async def set_message_active(
+async def set_slot_active(
     key: SlotKey, body: SlotActiveRequest, registry: RegistryDep
 ) -> SlotResponse:
-    """Take a message off the display, or put it back, keeping its slot either way.
+    """Take a slot off the display, or put it back, keeping it registered either way.
 
-    A hidden message stays registered. It keeps its slot, its file, its text and
-    its place in the order, and is simply left out of the rotation the sign
-    cycles, so showing it again needs no copy of what it said. `PUT /messages/{key}`
+    A hidden slot stays registered. It keeps its file, its text and its place in
+    the order, and is simply left out of the rotation the sign cycles, so showing
+    it again needs no copy of what it said. `PUT /slots/{key}`
     can move it too, by sending `active`; this endpoint is for when the caller
     does not have the message text to resend, and a caller who omits `active`
     there cannot move it by accident.
 
     Hiding or showing one is a single run sequence write. That does disturb the
     display, but far less than rewriting a message does: briefly enough to be
-    missed unless you are watching a static screen for it. The hidden message's
-    own file keeps its text, so showing it again sends nothing but the sequence.
-    The exception is the last message showing: that one's file is emptied as it
+    missed unless you are watching a static screen for it. The hidden slot's own
+    file keeps its text, so showing it again sends nothing but the sequence.
+    The exception is the last slot showing: that one's file is emptied as it
     goes, because a sign whose sequence names nothing freezes on what it was
     drawing.
 
@@ -136,25 +136,25 @@ async def set_message_active(
     return SlotResponse.of(slot)
 
 
-@messages.delete(
+@slots.delete(
     "/{key}",
-    summary="Take a message off the sign",
+    summary="Give up one slot",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[RequireApiKey],
 )
-async def delete_message(key: SlotKey, registry: RegistryDep) -> Response:
+async def delete_slot(key: SlotKey, registry: RegistryDep) -> Response:
     """Remove one slot and free the sign file it held."""
     await registry.remove(key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@messages.delete(
+@slots.delete(
     "",
-    summary="Take every message off the sign",
+    summary="Give up every slot",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[RequireApiKey],
 )
-async def clear_messages(registry: RegistryDep) -> Response:
+async def clear_slots(registry: RegistryDep) -> Response:
     """Remove every slot, leaving the sign showing nothing."""
     await registry.clear()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -227,7 +227,7 @@ async def delete_variable(name: VariableName, registry: RegistryDep) -> Response
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-def _variable_response(registry: MessageRegistry, variable: VariableState) -> VariableResponse:
+def _variable_response(registry: SlotRegistry, variable: VariableState) -> VariableResponse:
     """Describe a variable along with everything that calls it."""
     return VariableResponse.of(
         variable,
@@ -377,9 +377,10 @@ async def reboot_sign(registry: RegistryDep, alerts: AlertsDep) -> Response:
     Use it for a sign that has stopped responding to writes or is showing
     garbage, the wedged-decoder state a unit mounted out of reach can fall into
     from a stray bit and that cannot be fixed by power cycling it by hand. Do
-    not use it to clear the sign: `DELETE /messages` takes every message off
-    without resetting anything, and this puts them all straight back. Expect a
-    blank display for roughly ten seconds before the rotation returns.
+    not use it to clear the sign: `DELETE /slots` gives up every slot without
+    resetting anything, and this puts them all straight back. Expect a
+    blank display for twelve seconds or more before the rotation returns,
+    longer with a lot of messages to put back.
 
     503 if the sign cannot be reached, since a sign that is not answering cannot
     be rebooted.
@@ -438,7 +439,7 @@ async def control_commands() -> list[TokenInfo]:
     return _as_info(CONTROL_COMMANDS)
 
 
-router.include_router(messages)
+router.include_router(slots)
 router.include_router(variables)
 router.include_router(alerts_routes)
 router.include_router(sign_routes)

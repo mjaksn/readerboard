@@ -15,7 +15,7 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
-- **A message can be hidden without being given up.** `PUT /messages/{key}/active`
+- **A message can be hidden without being given up.** `PUT /slots/{key}/active`
   with `{"active": false}` takes a message off the display and leaves it
   registered, keeping its slot, its file, its place in the order and its text, so
   `{"active": true}` shows it again and needs no copy of what it said. The run
@@ -39,7 +39,7 @@ library, and the names inside it may move without that being a breaking change.
   that file does clear it, measured on the same day. Coming back from there costs
   the text and the sequence both.
 
-  `active` is also a field on `PUT /messages/{key}`, where it is optional and
+  `active` is also a field on `PUT /slots/{key}`, where it is optional and
   three-valued. Left out, it leaves the message showing or hidden exactly as it
   found it, so a source re-sending the same content every few minutes cannot
   switch back on something that was deliberately hidden. Sent, it moves the
@@ -49,7 +49,7 @@ library, and the names inside it may move without that being a breaking change.
   shape again at the next event. Without it that is two calls, because a
   deadline that hides a message clears itself on the way out.
 
-  `PUT /messages/{key}/active` stays, for hiding or showing something without
+  `PUT /slots/{key}/active` stays, for hiding or showing something without
   resending a message the caller may not have.
 
 - **`delete_on_expiry` decides what a `ttl_seconds` does when it passes.** The
@@ -63,10 +63,34 @@ library, and the names inside it may move without that being a breaking change.
   field takes, and a typo is a 422 naming the field rather than a value the
   service has to explain.
 
-  Both fields appear in `GET /messages` and in the client, which grew the
+  Both fields appear in `GET /slots` and in the client, which grew the
   endpoint and a true/false field for each.
 
 ### Changed
+
+- **The message endpoints are now the slot endpoints, and the paths moved from
+  `/messages` to `/slots`.** `GET /slots`, `GET /slots/{key}`,
+  `PUT /slots/{key}`, `PUT /slots/{key}/active`, `DELETE /slots/{key}` and
+  `DELETE /slots`, with the OpenAPI tag and every operation id renamed to match.
+  There is no alias and no deprecation window: the old paths 404.
+
+  The reason is that this project had two words for one thing and used both.
+  A slot is a named place on the sign that a source owns, and the documentation,
+  the response bodies, the key type and the client's own formatters all called
+  it that; only the paths, the request model and the handler names still said
+  message. A caller reading `GET /messages` and getting back a list of slots had
+  no way to tell whether they were the same concept, and the answer to that
+  question is not something anybody should have to work out from a response.
+
+  **The `message` field is unchanged**, on a slot and on an alert alike. The
+  word is right for the text: a slot holds a message. What it was wrong for was
+  naming the thing that holds it.
+
+  Internally `MessageRegistry` is now `SlotRegistry`. That is not part of the
+  versioned surface, but it is what the documentation refers to throughout.
+  `tests/test_component_names.py` now fails if `/messages` or `MessageRegistry`
+  reappears anywhere a person reads, which is how the old path is kept out of a
+  README example or a client catalogue entry rather than found later.
 
 - **Run sequence writes are no longer held back while an alert is up.** The
   protocol lists four things that cancel a running priority message and says
@@ -372,11 +396,18 @@ Removed section before upgrading.**
   the sign, which resets it, waits for it to restart, then re-pushes every
   message and the run sequence from the service's own record, so the sign comes
   back showing what it was rather than blank; any active alert is re-asserted
-  too. It is disruptive, blanking the sign for about ten seconds, and it is a
-  recovery tool rather than a way to clear messages, which `DELETE /messages`
+  too. It is disruptive, blanking the sign for twelve seconds or more, and it is
+  a recovery tool rather than a way to clear messages, which `DELETE /messages`
   still does without a reset. It is refused with a 503 when the sign cannot be
   reached, since a sign that is not answering cannot be rebooted. The client
   lists it and fronts it with a warning-coloured confirmation.
+
+  **[Corrected 2026-09-12]** The paragraph above said "about ten seconds". The
+  figure is twelve at the very least: `MessageRegistry.reboot` waits 2 seconds
+  after the clear and 10 after the configuration, both with the sign's lock
+  held, and then re-pushes every file paced by `inter_packet_delay`. Nothing
+  about the release changed; only the number, which was an estimate rather than
+  a measurement and understated it.
 
 - **A way to run against a real sign from a checkout, with the client beside
   it, and the sign's address where it can be edited.**

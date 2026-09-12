@@ -8,9 +8,11 @@ sign.** The wire formats below are quoted from the Alpha Sign Communications Pro
 itself, so they are no longer anybody's reading of anybody else's implementation. A session
 with the real BetaBrite Classic at the end of an Ethernet to RS-232 adapter on 2026-09-09
 settled three of the four behavioural questions that were open then. A second session on
-2026-09-11 settled the fourth, answered a fifth that had been added in between, and took the
-one measurement still outstanding. They are all listed at the end, with what each turned out
-to be.
+2026-09-11 settled the fourth, answered a fifth that had been added in between, and took
+the one measurement still outstanding, which a later run then put in doubt. A third, on
+2026-09-12, took two questions that came out of the fifth and then three more, and
+corrected one of its own answers on a second run that day as well as one given on
+2026-09-09. All ten are listed at the end, with what each turned out to be.
 
 That session also answered several things nobody had thought to doubt, each recorded below
 beside the measurement: a memory configuration does not display unless a bare `E$` clear
@@ -556,7 +558,7 @@ were wrong the first time and the record of how is worth more than the answer al
 5. **What does an empty run sequence show?** Answered on 2026-09-11: **the sign freezes on
    the message it was showing**, ONE in that run, and holds it for as long as the sequence
    names nothing. It does not blank, and it falls back to nothing of its own. That matters
-   twice. `DELETE /messages` empties the sequence and then blanks each file, and the
+   twice. `DELETE /slots` empties the sequence and then blanks each file, and the
    blanking is load-bearing rather than tidiness: without it the last message would sit on
    the display indefinitely. And a message deactivated rather than deleted would do the same
    if it were the last one active, so whatever implements that has to blank the file when
@@ -567,8 +569,8 @@ were wrong the first time and the record of how is worth more than the answer al
 6. **Does emptying the frozen file clear the display?** Answered yes, on 2026-09-12. The
    sequence was set to file A alone so that the freeze would land somewhere known, emptied
    so the sign froze on ONE, and then A was written empty underneath the freeze. The sign
-   went blank. So the blank that `MessageRegistry._blank` writes is what actually ends the
-   freeze, and `DELETE /messages`, deleting the last slot and hiding the last visible one
+   went blank. So the blank that `SlotRegistry._blank` writes is what actually ends the
+   freeze, and `DELETE /slots`, deleting the last slot and hiding the last visible one
    all clear the display rather than leaving their last message up for good. That was
    assumed until this run.
 7. **What does an empty file do when the sequence names it beside full ones?** Asked on
@@ -691,11 +693,11 @@ Whatever moves between runs, the link, the adapter, the sign's own load, is not 
 these runs can see. Anyone tempted to lower the default should run the step several times
 first, and should read the failure mode below before deciding it is safe.
 
-It is a setting, so a sign that
-turns out to need more can have it, and the failure to watch for is a burst of writes going
-quietly missing rather than an error: a write the sign is too busy to hear is accepted by
-the link and never refused. The old implementation slept two seconds after every write and
-closed the port; that number was never measured at all.
+It is a setting, so a sign that turns out to need more can have it, and the failure to
+watch for is a burst of writes going quietly missing rather than an error: a write the
+sign is too busy to hear is accepted by the link and never refused. The old
+implementation slept two seconds after every write and closed the port; that number was
+never measured at all.
 
 `scripts/protocol_spike.py` also re-proves the memory configuration, the run sequence and
 the priority takeover end to end, which is cheap and worth doing since it is already
@@ -726,7 +728,7 @@ fifth thing that cancels a priority message, and the list above is the whole lis
 
 Until that measurement the service took the cautious reading: while an alert was active the
 registry held run sequence writes back and applied them when the sign was handed back. That
-is gone, and it took with it `MessageRegistry._apply_run_sequence`'s `force` flag,
+is gone, and it took with it `SlotRegistry._apply_run_sequence`'s `force` flag,
 `flush_deferred`, the alert service's release hook and the simulator's warning about it.
 Writing a slot's own TEXT file was never on the list above and was never held back, so
 content stayed current behind the alert either way.
@@ -840,8 +842,8 @@ changing colours anyway.
 This is the fifth thing the document has got wrong about this hardware, and the
 first where it was wrong by omission rather than by promising too much. The other
 four all over-promised: double height, the wide character set, the programmable
-tone's frequency byte, and the four text positions. An empty row turns out to be
-a stronger reason to look than a row that says no.
+tone's frequency byte, and the twenty-four pictographs. An empty row turns out to
+be a stronger reason to look than a row that says no.
 
 `tests/test_constant_values.py::test_the_mode_the_document_calls_reserved` pins
 the byte, and says in its docstring that it is the one value in that file with no
@@ -872,18 +874,20 @@ not say.
 ### Modes and positions are complete
 
 Table 65 has twenty-two standard mode codes and every one is accounted for. `d` (64H) is
-the mode the document calls reserved and this sign draws anyway, described above. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
+the mode the document calls reserved and this sign draws anyway, described above, and it
+is offered. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
 through. `m` (6DH) SCROLL is "New message line pushes the bottom line to the top line **if
 2-line sign**". `u` (75H) EXPLODE and `v` (76H) CLOCK are both marked Alpha 3.0, and Table
 3 gives a Betabrite as EZ KEY II and Alpha 1.0 only. The remaining seventeen are all
-offered.
+offered too, eighteen with `d`.
 
 Table 66's thirteen special modes are all offered but one: `C` (43H) CYCLE COLORS, whose
 footnote reads "COLOR CYCLE will only work on AlphaEclipse 3600 signs". All seven of Table
 67's special graphics are offered.
 
-The display position field has six values. The four the service offers are `20H` Middle,
-`22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0 only.
+The display position field has six values. The four the service once offered were `20H`
+Middle, `22H` Top, `26H` Bottom and `30H` Fill; `31H` Left and `32H` Right are Alpha 3.0
+only.
 
 None of the four is offered any more. The note closing that list reads: "On one-line
 signs, the Display Position is irrelevant", a Betabrite is one line, and the sign
@@ -971,10 +975,10 @@ The tone command carries two footnotes that the implementation does not honour.
 > **4** Wait a minimum of 3 seconds before transmitting more data to the sign.
 
 `SOUND` did not settle. A soft reset was the only command that asked for a wait, so after
-a tone the next write went out once `inter_packet_delay` had passed, which defaults to half
-a second. A write inside that window reached a sign whose serial port was off and was lost,
-and the controller's suppression cache then believed it had succeeded, so nothing retried
-it until the next periodic re-push.
+a tone the next write went out once `inter_packet_delay` had passed, which defaulted to
+half a second at the time and is 0.25s now. A write inside that window reached a sign whose
+serial port was off and was lost, and the controller's suppression cache then believed it
+had succeeded, so nothing retried it until the next periodic re-push.
 
 This is fixed. `SOUND` now asks for `SOUND_SETTLE_SECONDS`, three, and the controller holds
 the sign's lock across the send and the wait, so another writer queues rather than writing

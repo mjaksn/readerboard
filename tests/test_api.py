@@ -83,12 +83,12 @@ ANY_DESCRIPTION = _AnyDescription()
 
 class TestAuth:
     def test_a_write_without_a_key_is_refused(self, client):
-        response = client.put("/messages/temperature", json={"message": "HI"})
+        response = client.put("/slots/temperature", json={"message": "HI"})
         assert response.status_code == 401
 
     def test_a_write_with_the_wrong_key_is_refused(self, client):
         response = client.put(
-            "/messages/temperature",
+            "/slots/temperature",
             json={"message": "HI"},
             headers={"X-API-Key": "wrong"},
         )
@@ -96,17 +96,17 @@ class TestAuth:
 
     def test_a_write_with_the_key_is_allowed(self, client):
         response = client.put(
-            "/messages/temperature", json={"message": "HI"}, headers=HEADERS
+            "/slots/temperature", json={"message": "HI"}, headers=HEADERS
         )
         assert response.status_code == 200
 
     def test_reads_do_not_need_a_key(self, client):
-        assert client.get("/messages").status_code == 200
+        assert client.get("/slots").status_code == 200
 
     def test_the_refusal_says_which_header_is_wanted(self, client):
         # The scheme is declared with auto_error=False precisely so this wording
         # and the 503 below stay ours rather than becoming "Not authenticated".
-        response = client.put("/messages/temperature", json={"message": "HI"})
+        response = client.put("/slots/temperature", json={"message": "HI"})
         assert response.json()["detail"] == "a valid X-API-Key header is required"
         assert response.headers["WWW-Authenticate"] == "X-API-Key"
 
@@ -134,10 +134,10 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
     def test_every_write_requires_it(self, settings, sign):
         schema = create_app(settings, transport=sign).openapi()
         for path, method in [
-            ("/messages/{key}", "put"),
-            ("/messages/{key}/active", "put"),
-            ("/messages/{key}", "delete"),
-            ("/messages", "delete"),
+            ("/slots/{key}", "put"),
+            ("/slots/{key}/active", "put"),
+            ("/slots/{key}", "delete"),
+            ("/slots", "delete"),
             ("/variables/{name}", "put"),
             ("/variables/{name}", "delete"),
             ("/alerts", "post"),
@@ -157,7 +157,7 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
         schema = create_app(settings, transport=sign).openapi()
         for path, method in [
             ("/health", "get"),
-            ("/messages", "get"),
+            ("/slots", "get"),
             ("/variables", "get"),
             ("/variables/{name}", "get"),
             ("/alerts", "get"),
@@ -193,36 +193,36 @@ class TestTheKeyIsDeclaredAsASecurityScheme:
 class TestMessages:
     def test_registering_and_reading_back(self, client):
         client.put(
-            "/messages/temperature",
+            "/slots/temperature",
             json={"message": "<green>18.4<degree>", "display_mode": "HOLD"},
             headers=HEADERS,
         )
 
-        body = client.get("/messages/temperature").json()
+        body = client.get("/slots/temperature").json()
         assert body["message"] == "<green>18.4<degree>"
         assert body["label"] == "A"
 
     def test_several_messages_share_the_sign(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        client.put("/messages/two", json={"message": "TWO"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/two", json={"message": "TWO"}, headers=HEADERS)
 
-        keys = [slot["key"] for slot in client.get("/messages").json()]
+        keys = [slot["key"] for slot in client.get("/slots").json()]
         assert keys == ["one", "two"]
 
     def test_an_unknown_slot_is_404(self, client):
-        assert client.get("/messages/nobody").status_code == 404
+        assert client.get("/slots/nobody").status_code == 404
 
     def test_deleting_an_unknown_slot_is_404(self, client):
-        assert client.delete("/messages/nobody", headers=HEADERS).status_code == 404
+        assert client.delete("/slots/nobody", headers=HEADERS).status_code == 404
 
     def test_deleting_a_slot(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        assert client.delete("/messages/one", headers=HEADERS).status_code == 204
-        assert client.get("/messages").json() == []
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        assert client.delete("/slots/one", headers=HEADERS).status_code == 204
+        assert client.get("/slots").json() == []
 
     def test_an_unknown_markup_token_is_400(self, client):
         response = client.put(
-            "/messages/one", json={"message": "<nosuchtag>"}, headers=HEADERS
+            "/slots/one", json={"message": "<nosuchtag>"}, headers=HEADERS
         )
         assert response.status_code == 400
         assert "unknown markup token" in response.json()["detail"]
@@ -232,27 +232,27 @@ class TestMessages:
         # open around nothing: the sign gives an empty file no turn of its own
         # but drags on the message before it, and the pool is a slot smaller
         # for it. DELETE is the way.
-        response = client.put("/messages/one", json={"message": ""}, headers=HEADERS)
+        response = client.put("/slots/one", json={"message": ""}, headers=HEADERS)
         assert response.status_code == 422
-        assert client.get("/messages").json() == []
+        assert client.get("/slots").json() == []
 
     def test_a_message_too_long_for_a_slot_is_400(self, client):
         response = client.put(
-            "/messages/one", json={"message": "X" * 300}, headers=HEADERS
+            "/slots/one", json={"message": "X" * 300}, headers=HEADERS
         )
         assert response.status_code == 400
 
     def test_a_full_pool_is_409(self, client):
         for key in ("one", "two", "three"):
-            client.put("/messages/%s" % key, json={"message": key}, headers=HEADERS)
+            client.put("/slots/%s" % key, json={"message": key}, headers=HEADERS)
 
-        response = client.put("/messages/four", json={"message": "X"}, headers=HEADERS)
+        response = client.put("/slots/four", json={"message": "X"}, headers=HEADERS)
         assert response.status_code == 409
         assert "slots are in use" in response.json()["detail"]
 
     def test_an_unknown_display_mode_is_422(self, client):
         response = client.put(
-            "/messages/one",
+            "/slots/one",
             json={"message": "HI", "display_mode": "NOSUCHMODE"},
             headers=HEADERS,
         )
@@ -260,24 +260,24 @@ class TestMessages:
 
     def test_an_unusable_slot_name_is_422(self, client):
         response = client.put(
-            "/messages/not a valid key", json={"message": "HI"}, headers=HEADERS
+            "/slots/not a valid key", json={"message": "HI"}, headers=HEADERS
         )
         assert response.status_code == 422
 
     def test_a_new_message_is_showing_and_expires_by_being_deleted(self, client):
         body = client.put(
-            "/messages/one", json={"message": "ONE"}, headers=HEADERS
+            "/slots/one", json={"message": "ONE"}, headers=HEADERS
         ).json()
 
         assert body["active"] is True
         assert body["delete_on_expiry"] is True
 
     def test_a_message_can_be_written_and_shown_in_one_call(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one/active", json={"active": False}, headers=HEADERS)
 
         body = client.put(
-            "/messages/one",
+            "/slots/one",
             json={"message": "TWO", "active": True, "ttl_seconds": 60,
                   "delete_on_expiry": False},
             headers=HEADERS,
@@ -287,16 +287,16 @@ class TestMessages:
         assert body["message"] == "TWO"
 
     def test_leaving_active_out_does_not_move_it(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one/active", json={"active": False}, headers=HEADERS)
 
-        body = client.put("/messages/one", json={"message": "TWO"}, headers=HEADERS).json()
+        body = client.put("/slots/one", json={"message": "TWO"}, headers=HEADERS).json()
 
         assert body["active"] is False
 
     def test_a_delete_on_expiry_that_is_not_a_boolean_is_422(self, client):
         response = client.put(
-            "/messages/one",
+            "/slots/one",
             json={"message": "HI", "delete_on_expiry": "burn"},
             headers=HEADERS,
         )
@@ -307,24 +307,24 @@ class TestHidingAMessage:
     """Taking a message off the display without giving up its slot."""
 
     def test_hiding_it_keeps_it_registered(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
 
         body = client.put(
-            "/messages/one/active", json={"active": False}, headers=HEADERS
+            "/slots/one/active", json={"active": False}, headers=HEADERS
         ).json()
 
         assert body["active"] is False
         assert body["message"] == "ONE"
         # Still listed, still holding its file: hidden is not deleted.
-        assert [slot["key"] for slot in client.get("/messages").json()] == ["one"]
+        assert [slot["key"] for slot in client.get("/slots").json()] == ["one"]
         assert client.get("/health").json()["slots_used"] == 1
 
     def test_showing_it_again_needs_no_copy_of_the_message(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one/active", json={"active": False}, headers=HEADERS)
 
         body = client.put(
-            "/messages/one/active", json={"active": True}, headers=HEADERS
+            "/slots/one/active", json={"active": True}, headers=HEADERS
         ).json()
 
         assert body["active"] is True
@@ -334,11 +334,11 @@ class TestHidingAMessage:
         # The trap this endpoint exists to avoid. A source re-sending the same
         # content on a timer would otherwise switch a hidden message back on
         # every few minutes, and nothing would say why.
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
-        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one/active", json={"active": False}, headers=HEADERS)
 
         body = client.put(
-            "/messages/one", json={"message": "TWO"}, headers=HEADERS
+            "/slots/one", json={"message": "TWO"}, headers=HEADERS
         ).json()
 
         assert body["active"] is False
@@ -346,20 +346,20 @@ class TestHidingAMessage:
 
     def test_hiding_an_unknown_slot_is_404(self, client):
         response = client.put(
-            "/messages/nobody/active", json={"active": False}, headers=HEADERS
+            "/slots/nobody/active", json={"active": False}, headers=HEADERS
         )
         assert response.status_code == 404
 
     def test_it_needs_a_key(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
         assert (
-            client.put("/messages/one/active", json={"active": False}).status_code == 401
+            client.put("/slots/one/active", json={"active": False}).status_code == 401
         )
 
     def test_a_body_that_is_not_a_boolean_is_422(self, client):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
         response = client.put(
-            "/messages/one/active", json={"active": "maybe"}, headers=HEADERS
+            "/slots/one/active", json={"active": "maybe"}, headers=HEADERS
         )
         assert response.status_code == 422
 
@@ -427,15 +427,15 @@ class TestExpiry:
         )
         with TestClient(create_app(settings, transport=sign)) as client:
             client.put(
-                "/messages/doorbell",
+                "/slots/doorbell",
                 json={"message": "DOOR", "ttl_seconds": 0.2},
                 headers=HEADERS,
             )
             started = time.monotonic()
-            while client.get("/messages").json() and time.monotonic() - started < 5:
+            while client.get("/slots").json() and time.monotonic() - started < 5:
                 time.sleep(0.05)
             waited = time.monotonic() - started
-            remaining = client.get("/messages").json()
+            remaining = client.get("/slots").json()
 
         assert remaining == []
         # Generous for a loaded CI runner, and still well short of the fifteen
@@ -512,7 +512,7 @@ class TestSignCommands:
         assert SOUND_SETTLE_SECONDS < RESET_SETTLE_SECONDS
 
     def test_a_soft_reset(self, client, sign):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
         sign.packets.clear()
 
         response = client.post(
@@ -524,7 +524,7 @@ class TestSignCommands:
 
     def test_a_soft_reset_erases_nothing(self, client, sign):
         # The whole point of it. The destructive reset is POST /sign/reboot.
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
         sign.packets.clear()
 
         client.post(
@@ -532,7 +532,7 @@ class TestSignCommands:
         )
 
         assert frames.packet(frames.clear_memory()) not in sign.packets
-        assert client.get("/messages").json()[0]["key"] == "one"
+        assert client.get("/slots").json()[0]["key"] == "one"
 
     def test_only_the_two_deafening_commands_make_the_route_wait(self):
         # The wait is what stops a write landing while the sign cannot hear it.
@@ -552,7 +552,7 @@ class TestSignCommands:
         assert "takes no parameter" in response.json()["detail"]
 
     def test_rebooting_the_sign(self, client, sign):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
 
         response = client.post("/sign/reboot", headers=HEADERS)
 
@@ -560,7 +560,7 @@ class TestSignCommands:
         # The clear went to the sign, and the message that was registered
         # survives the reset in the service's record.
         assert frames.packet(frames.clear_memory()) in sign.packets
-        assert client.get("/messages").json()[0]["key"] == "one"
+        assert client.get("/slots").json()[0]["key"] == "one"
 
     def test_an_unknown_command_is_400(self, client):
         response = client.post(
@@ -676,7 +676,7 @@ class TestSignInformation:
         assert client.get("/sign/information").status_code == 401
 
     def test_it_changes_nothing_on_the_sign(self, client, sign):
-        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
         sign.packets.clear()
         sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
 
@@ -684,7 +684,7 @@ class TestSignInformation:
 
         # One packet, and it is the question. Nothing was written.
         assert sign.packets == [frames.packet(frames.read_general_information())]
-        assert client.get("/messages").json()[0]["key"] == "one"
+        assert client.get("/slots").json()[0]["key"] == "one"
 
 
 class TestThereIsNoVerticalPosition:
@@ -706,7 +706,7 @@ class TestThereIsNoVerticalPosition:
         # rather than quietly having its choice dropped. That is the whole
         # reason this is a 422 and not a 200.
         response = client.put(
-            "/messages/temperature",
+            "/slots/temperature",
             json={"message": "HI", "position": "TOP"},
             headers=HEADERS,
         )
@@ -721,8 +721,8 @@ class TestThereIsNoVerticalPosition:
         assert response.status_code == 422
 
     def test_a_stored_slot_no_longer_reports_one(self, client):
-        client.put("/messages/temperature", json={"message": "HI"}, headers=HEADERS)
-        body = client.get("/messages/temperature", headers=HEADERS).json()
+        client.put("/slots/temperature", json={"message": "HI"}, headers=HEADERS)
+        body = client.get("/slots/temperature", headers=HEADERS).json()
         assert "position" not in body
 
 
@@ -815,20 +815,20 @@ class TestVariables:
 
     def test_the_callers_are_reported(self, client):
         self.put_variable(client)
-        client.put("/messages/weather", json={"message": "T=<var:temp>"}, headers=HEADERS)
+        client.put("/slots/weather", json={"message": "T=<var:temp>"}, headers=HEADERS)
 
         assert client.get("/variables/temp").json()["called_by"] == ["weather"]
 
     def test_a_message_calling_one_that_does_not_exist_is_400(self, client):
         response = client.put(
-            "/messages/weather", json={"message": "T=<var:temp>"}, headers=HEADERS
+            "/slots/weather", json={"message": "T=<var:temp>"}, headers=HEADERS
         )
         assert response.status_code == 400
         assert "no variable named 'temp'" in response.json()["detail"]
 
     def test_deleting_one_a_message_calls_is_409_and_names_it(self, client):
         self.put_variable(client)
-        client.put("/messages/weather", json={"message": "T=<var:temp>"}, headers=HEADERS)
+        client.put("/slots/weather", json={"message": "T=<var:temp>"}, headers=HEADERS)
 
         response = client.delete("/variables/temp", headers=HEADERS)
 
@@ -903,7 +903,7 @@ class TestUnreachableSign:
         sign.fail_with = "cable unplugged"
 
         response = client.put(
-            "/messages/temperature", json={"message": "18.4"}, headers=HEADERS
+            "/slots/temperature", json={"message": "18.4"}, headers=HEADERS
         )
 
         assert response.status_code == 503
@@ -913,13 +913,13 @@ class TestUnreachableSign:
 
     def test_a_rejected_write_leaves_no_slot_behind(self, client, sign):
         sign.fail_with = "cable unplugged"
-        client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
+        client.put("/slots/temperature", json={"message": "18.4"}, headers=HEADERS)
 
-        assert client.get("/messages").json() == []
+        assert client.get("/slots").json() == []
 
     def test_health_says_the_link_is_down(self, client, sign):
         sign.fail_with = "cable unplugged"
-        client.put("/messages/temperature", json={"message": "18.4"}, headers=HEADERS)
+        client.put("/slots/temperature", json={"message": "18.4"}, headers=HEADERS)
 
         assert client.get("/health").json()["link"]["connected"] is False
 
@@ -979,7 +979,7 @@ class TestTheErrorTable:
 
         with TestClient(app, raise_server_exceptions=False) as client:
             monkeypatch.setattr(app.state.registry, "upsert", explode)
-            response = client.put("/messages/one", json={"message": "HI"}, headers=HEADERS)
+            response = client.put("/slots/one", json={"message": "HI"}, headers=HEADERS)
 
         assert response.status_code == 500
 
@@ -994,7 +994,7 @@ class TestNoApiKeyConfigured:
             clock_sync_enabled=False,
         )
         with TestClient(create_app(settings, transport=sign)) as client:
-            response = client.put("/messages/one", json={"message": "HI"})
+            response = client.put("/slots/one", json={"message": "HI"})
             assert response.status_code == 503
             assert "no API key is configured" in response.json()["detail"]
 
@@ -1005,4 +1005,4 @@ def test_the_openapi_schema_can_be_produced_without_a_sign(settings, sign):
     schema = create_app(settings, transport=sign).openapi()
 
     assert schema["info"]["title"] == "readerboard"
-    assert "/messages/{key}" in schema["paths"]
+    assert "/slots/{key}" in schema["paths"]

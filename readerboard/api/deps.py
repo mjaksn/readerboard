@@ -16,7 +16,7 @@ from fastapi.security import APIKeyHeader
 
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
-from readerboard.services.registry import MessageRegistry
+from readerboard.services.registry import SlotRegistry
 from readerboard.sign.controller import SignController
 
 API_KEY_HEADER = "X-API-Key"
@@ -55,9 +55,9 @@ def get_controller(request: Request) -> SignController:
     return controller
 
 
-def get_registry(request: Request) -> MessageRegistry:
+def get_registry(request: Request) -> SlotRegistry:
     """Return the registered messages."""
-    registry: MessageRegistry = request.app.state.registry
+    registry: SlotRegistry = request.app.state.registry
     return registry
 
 
@@ -107,7 +107,7 @@ def require_api_key(
 
 
 ControllerDep = Annotated[SignController, Depends(get_controller)]
-RegistryDep = Annotated[MessageRegistry, Depends(get_registry)]
+RegistryDep = Annotated[SlotRegistry, Depends(get_registry)]
 AlertsDep = Annotated[AlertService, Depends(get_alerts)]
 ClockDep = Annotated[ClockService, Depends(get_clock)]
 RequireApiKey = Depends(require_api_key)

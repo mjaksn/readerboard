@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Put the display modes this service does not offer on a real sign.
 
-Seventeen of the protocol's standard modes and all nineteen of its special ones
-are offered by the service. The rest are absent because the document says they
-belong to other signs, and this asks the sign whether the document is right.
+Eighteen of the protocol's standard modes and nineteen of its twenty special
+ones are offered by the service. The rest are absent because the document says
+they belong to other signs, and this asks the sign whether the document is
+right.
 
 That is not an idle question here. The document has been wrong about this
-hardware five times: it promised double height and a wide character set that
-draw as ordinary text, a programmable tone on a fixed-pitch buzzer, twenty-four
-pictographs the sign renders as question marks, and four text positions that all
-draw the same thing. It has also been wrong the other way, listing NEWS FLASH
-and TRUMPET as Betabrite-only when they work fine.
+hardware four times: it promised double height and a wide character set that
+draw as ordinary text, a programmable tone on a fixed-pitch buzzer, and
+twenty-four pictographs the sign renders as question marks. It has also been
+wrong the other way, listing NEWS FLASH and TRUMPET as Betabrite-only when they
+work fine.
 
-The fifth kind of wrong is what this script found. Table 65 gives 64H the word
+Another kind of wrong is what this script found. Table 65 gives 64H the word
 "reserved" and no description, and on this sign it draws a random transition in
 a random colour, which nothing else offers. It is the AUTO_COLOR token now. So
 "the table says no" is a reason to look, not a conclusion, and an empty row is

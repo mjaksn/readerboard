@@ -21,7 +21,7 @@ from readerboard.protocol.markup import MarkupError
 from readerboard.services.alerts import AlertService
 from readerboard.services.registry import (
     LayoutFull,
-    MessageRegistry,
+    SlotRegistry,
     UnknownVariable,
     VariableInUse,
     VariablesDisabled,
@@ -56,11 +56,11 @@ def commands(transport: FakeTransport) -> list[bytes]:
     return [payload[:1] for payload in payloads(transport)]
 
 
-async def put(registry: MessageRegistry, name: str, value: str = "72", **kwargs):
+async def put(registry: SlotRegistry, name: str, value: str = "72", **kwargs):
     return await registry.put_variable(name, value, **kwargs)
 
 
-async def add(registry: MessageRegistry, key: str, message: str, **kwargs):
+async def add(registry: SlotRegistry, key: str, message: str, **kwargs):
     return await registry.upsert(key, message, mode="HOLD", **kwargs)
 
 
@@ -286,7 +286,7 @@ class TestOrderOfWrites:
 class TestRestart:
     def rebuild(self, store, transport, clock, layout):
         controller = SignController(transport, inter_packet_delay=0, settle=False)
-        return MessageRegistry(controller, layout, store, store.load(), now=clock)
+        return SlotRegistry(controller, layout, store, store.load(), now=clock)
 
     async def test_variables_come_back_in_the_same_files(self, registry, store, transport, clock):
         await put(registry, "temp", "72")
@@ -359,10 +359,10 @@ class TestRestart:
         assert any(payload.endswith(b"[]") for payload in payloads(transport))
 
 
-async def wire(controller, layout, store, state, clock) -> tuple[MessageRegistry, AlertService]:
+async def wire(controller, layout, store, state, clock) -> tuple[SlotRegistry, AlertService]:
     """Build a registry and an alert service joined the way the service joins them."""
     alerts = AlertService(controller, store, state, now=clock)
-    registry = MessageRegistry(controller, layout, store, state, now=clock)
+    registry = SlotRegistry(controller, layout, store, state, now=clock)
     alerts.set_rendering(registry.rendering)
     await registry.restore()
     return registry, alerts
@@ -519,7 +519,7 @@ class TestAlerts:
 class TestAlertsAfterARestart:
     """Putting back an alert that calls a variable, and letting go of one."""
 
-    async def restart(self, store, transport, clock) -> tuple[MessageRegistry, AlertService]:
+    async def restart(self, store, transport, clock) -> tuple[SlotRegistry, AlertService]:
         controller = SignController(transport, inter_packet_delay=0, settle=False)
         registry, alerts = await wire(
             controller, Layout(3, 256, 3, 16), store, store.load(), clock

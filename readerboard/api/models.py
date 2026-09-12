@@ -52,7 +52,7 @@ def _normalise_mode(value: str) -> str:
     return upper
 
 
-class MessageRequest(BaseModel):
+class SlotRequest(BaseModel):
     """A message registered into a slot."""
 
     model_config = ConfigDict(extra="forbid")

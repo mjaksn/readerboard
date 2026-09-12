@@ -37,17 +37,17 @@ def test_an_empty_base_url_is_refused():
 
 
 def test_a_path_parameter_is_substituted():
-    operation = catalogue.BY_ID["get_message"]
-    assert fill_path(operation, {"key": "kitchen"}) == "/messages/kitchen"
+    operation = catalogue.BY_ID["get_slot"]
+    assert fill_path(operation, {"key": "kitchen"}) == "/slots/kitchen"
 
 
 def test_a_path_parameter_is_percent_encoded():
-    operation = catalogue.BY_ID["get_message"]
-    assert fill_path(operation, {"key": "a b/c"}) == "/messages/a%20b%2Fc"
+    operation = catalogue.BY_ID["get_slot"]
+    assert fill_path(operation, {"key": "a b/c"}) == "/slots/a%20b%2Fc"
 
 
 def test_an_empty_path_parameter_is_refused_because_the_url_would_collapse():
-    operation = catalogue.BY_ID["get_message"]
+    operation = catalogue.BY_ID["get_slot"]
     with pytest.raises(InvalidRequest):
         fill_path(operation, {"key": "   "})
 
@@ -88,7 +88,7 @@ def test_a_float_with_no_json_spelling_is_sent_as_text_rather_than_as_itself(tex
 
 def test_no_body_this_client_builds_is_anything_but_json():
     prepared = build(
-        catalogue.BY_ID["put_message"],
+        catalogue.BY_ID["put_slot"],
         BASE,
         path_values={"key": "kitchen"},
         body_values={"message": "hello", "ttl_seconds": "nan"},
@@ -99,7 +99,7 @@ def test_no_body_this_client_builds_is_anything_but_json():
 
 
 def test_an_empty_optional_field_is_left_out_rather_than_sent_as_null():
-    operation = catalogue.BY_ID["put_message"]
+    operation = catalogue.BY_ID["put_slot"]
     body = build_body(operation, {"message": "hello", "ttl_seconds": "", "source": ""})
     assert body is not None
     assert "ttl_seconds" not in body
@@ -124,32 +124,32 @@ def test_a_required_field_left_alone_still_sends_what_is_in_it():
 
 def test_the_origin_is_the_address_a_request_actually_went_to():
     prepared = build(
-        catalogue.BY_ID["get_message"], "http://pi.local:5001", path_values={"key": "k"}
+        catalogue.BY_ID["get_slot"], "http://pi.local:5001", path_values={"key": "k"}
     )
     assert prepared.origin == "http://pi.local:5001"
-    assert prepared.url == "http://pi.local:5001/messages/k"
+    assert prepared.url == "http://pi.local:5001/slots/k"
 
 
 def test_an_operation_with_no_body_sends_none():
-    assert build_body(catalogue.BY_ID["list_messages"], {}) is None
+    assert build_body(catalogue.BY_ID["list_slots"], {}) is None
 
 
 def test_a_write_carries_the_key_and_a_read_does_not():
     write = build(
-        catalogue.BY_ID["put_message"],
+        catalogue.BY_ID["put_slot"],
         BASE,
         path_values={"key": "kitchen"},
         body_values={"message": "hi"},
         api_key="secret",
     )
-    read = build(catalogue.BY_ID["list_messages"], BASE, api_key="secret")
+    read = build(catalogue.BY_ID["list_slots"], BASE, api_key="secret")
     assert write.headers[API_KEY_HEADER] == "secret"
     assert API_KEY_HEADER not in read.headers
 
 
 def test_the_body_is_json_the_service_would_accept():
     prepared = build(
-        catalogue.BY_ID["put_message"],
+        catalogue.BY_ID["put_slot"],
         BASE,
         path_values={"key": "kitchen"},
         body_values={"message": "<red>hot", "display_mode": "HOLD", "order": "2"},
@@ -161,7 +161,7 @@ def test_the_body_is_json_the_service_would_accept():
         "display_mode": "HOLD",
         "order": 2,
     }
-    assert prepared.url == "http://127.0.0.1:8000/messages/kitchen"
+    assert prepared.url == "http://127.0.0.1:8000/slots/kitchen"
     assert prepared.method == "PUT"
 
 
@@ -199,7 +199,7 @@ def test_curl_reads_as_one_command():
 def test_a_field_holding_only_a_space_is_sent_as_typed():
     # Typed on purpose, to see what the service makes of it. Rewriting it to ""
     # or dropping it answers a different question.
-    operation = catalogue.BY_ID["put_message"]
+    operation = catalogue.BY_ID["put_slot"]
     body = build_body(operation, {"message": " ", "source": " "})
     assert body is not None
     assert body["message"] == " "
@@ -207,7 +207,7 @@ def test_a_field_holding_only_a_space_is_sent_as_typed():
 
 
 def test_a_field_nobody_touched_is_still_left_out():
-    operation = catalogue.BY_ID["put_message"]
+    operation = catalogue.BY_ID["put_slot"]
     body = build_body(operation, {"message": "hello", "source": ""})
     assert body is not None
     assert "source" not in body

@@ -52,11 +52,12 @@ MARKUP_TOKENS: tuple[Token, ...] = (
     # form this used to offer and the 1DH+2 attribute rendered pixel-identical
     # to plain text on the sign. See docs/protocol-notes.md.
     #
-    # These three are what a person actually sees on this hardware, out of the
-    # twenty character sets and attributes the protocol offers. Named for their
-    # appearance rather than for the document's labels, which contradict
-    # themselves here: it calls 1AH+6 "ten high standard" and also "seven stroke
-    # fancy", and on seven rows it is neither, it is ordinary text.
+    # These three, and the two attributes below them, are what a person actually
+    # sees on this hardware, out of the twenty character sets and attributes the
+    # protocol offers. Named for their appearance rather than for the document's
+    # labels, which contradict themselves here: it calls 1AH+6 "ten high
+    # standard" and also "seven stroke fancy", and on seven rows it is neither,
+    # it is ordinary text.
     #
     # The three font tokens are a choice rather than a switch, so returning from
     # one means selecting another; <font_normal> is the way back.

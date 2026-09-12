@@ -1,4 +1,4 @@
-"""The set of messages currently sharing the sign, and the variables they call.
+"""The set of slots currently sharing the sign, and the variables they call.
 
 A slot is a named place on the sign that a source owns. Home Assistant owns
 ``temperature``, a doorbell automation might own ``doorbell``, and each one
@@ -6,10 +6,10 @@ writes to its own slot without knowing or caring about the others. Writing to a
 slot that already exists replaces it rather than adding another, so a source
 that re-sends every five minutes does not accumulate anything.
 
-Each slot lives in its own sign file, and the run sequence names the occupied
-files in order. That is the whole rotation mechanism: the sign cycles them by
-itself, so a slot appearing or disappearing costs one small write and nothing
-after that.
+Each slot lives in its own sign file, and the run sequence names the files of
+the slots that are showing, in order. That is the whole rotation mechanism: the
+sign cycles them by itself, so a slot appearing or disappearing costs one small
+write and nothing after that.
 
 A variable is a value in a STRING file of its own, which a slot's message calls
 with ``<var:name>``. Changing a variable rewrites only its STRING file, which
@@ -75,7 +75,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class MessageRegistry:
+class SlotRegistry:
     """Owns the slots, the variables, both file pools, and the run sequence."""
 
     def __init__(
@@ -941,9 +941,9 @@ def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
 
 __all__ = [
     "LayoutFull",
-    "MessageRegistry",
     "MessageTooLong",
     "RegistryError",
+    "SlotRegistry",
     "UnknownSlot",
     "UnknownVariable",
     "VariableInUse",

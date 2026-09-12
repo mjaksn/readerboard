@@ -67,6 +67,13 @@ RETIRED = {
     "relayclient": "apiclient, the client's identifier",
     "relay client": "the client, its prose name",
     "BetaBrite sign simulator": "readerboard sign simulator, the simulator's display name",
+    # The slot endpoints answered on /messages until 0.6.0. The word is not
+    # banned: a slot still holds a message, and the request body still calls it
+    # that. What is banned is naming the thing that holds it, which had two
+    # words for one concept and left callers unable to tell whether a message
+    # and a slot were the same thing.
+    "/messages": "/slots, the path the slot endpoints answer on",
+    "MessageRegistry": "SlotRegistry, the class that owns the slots",
 }
 
 # CHANGELOG.md is exempt. A released entry is a record of what was true when it

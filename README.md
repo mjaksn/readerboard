@@ -12,10 +12,11 @@ through an Ethernet to RS-232 adapter.
 
 Several sources can share the sign at once. Each registers a named **slot**, and the sign
 rotates through the slots that are showing by itself. A slot can be hidden without being
-given up, so a message can be taken off the display and put back without being sent again. A
-**variable** is a value that messages call by name, such as a temperature, and changing it
-does not blank the sign or restart the message showing it. An **alert** takes the whole
-display over until it is released, after which the rotation resumes.
+given up, so a message can be taken off the display and put back without being sent again,
+unless it was the last one showing. A **variable** is a value that messages call by name,
+such as a temperature, and changing it does not blank the sign or restart the message
+showing it. An **alert** takes the whole display over until it is released, after which
+the rotation resumes.
 
 ## What it does
 
@@ -39,8 +40,10 @@ display over until it is released, after which the rotation resumes.
   flicker.
 - **It survives restarts and outages.** The registered messages are persisted and
   pushed to the sign again whenever the link returns, so a restart or a power cut leaves
-  the rotation intact. A write that arrives while the sign is unreachable is refused with
-  a 503 rather than silently held, so the caller learns it did not land.
+  the rotation intact. A message or a variable write that arrives while the sign is
+  unreachable is refused with a 503 rather than silently held, so the caller learns it did
+  not land. Deleting or hiding a message, or deleting a variable, is accepted and carried
+  out when the link returns.
 - **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
   render is a 400, each with the reason in the body. Nothing here reports a failure
   under a 200.
@@ -220,7 +223,7 @@ service's other reads and `GET /health` do not. In the Swagger UI at `/docs`, th
 Register a message:
 
 ```
-curl -X PUT http://localhost:5001/messages/temperature \
+curl -X PUT http://localhost:5001/slots/temperature \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<green>18.4<degree> <red><time>", "display_mode": "HOLD"}'
 ```
@@ -228,7 +231,7 @@ curl -X PUT http://localhost:5001/messages/temperature \
 Register a second one and the sign rotates between them:
 
 ```
-curl -X PUT http://localhost:5001/messages/doorbell \
+curl -X PUT http://localhost:5001/slots/doorbell \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<amber>Someone at the door", "ttl_seconds": 300}'
 ```
@@ -236,7 +239,7 @@ curl -X PUT http://localhost:5001/messages/doorbell \
 Take a message off the display without giving up its slot, and put it back later:
 
 ```
-curl -X PUT http://localhost:5001/messages/doorbell/active \
+curl -X PUT http://localhost:5001/slots/doorbell/active \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"active": false}'
 ```
@@ -245,7 +248,9 @@ A hidden message keeps its slot, its place in the order and its text, so showing
 takes `{"active": true}` and no copy of what it said. Hiding or showing one is a single run
 sequence write. That does disturb the display briefly, but far less than rewriting a
 message does: enough less that it is easy to miss unless you are watching for it on a
-static screen.
+static screen. The exception is the last message showing: its file is emptied as it goes,
+because a sign whose run sequence names nothing freezes on what it was drawing, so
+putting that one back costs the text as well as the sequence.
 
 `active` is a field on the message endpoint too, where leaving it out is the point: a
 source re-sending the same content every few minutes says nothing about it and so cannot
@@ -255,7 +260,7 @@ A `ttl_seconds` can hide a message instead of deleting it, which suits anything 
 back later, such as a bin day or a school notice:
 
 ```
-curl -X PUT http://localhost:5001/messages/bins \
+curl -X PUT http://localhost:5001/slots/bins \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<green>BINS OUT TONIGHT", "ttl_seconds": 43200,
           "delete_on_expiry": false}'
@@ -266,7 +271,7 @@ shape every time. This shows the alarm's state for a minute whenever it changes,
 it off the rotation until the next one:
 
 ```
-curl -X PUT http://localhost:5001/messages/alarm \
+curl -X PUT http://localhost:5001/slots/alarm \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<red>ALARM NOW <var:arm_state>", "ttl_seconds": 60,
           "delete_on_expiry": false, "active": true}'
@@ -282,7 +287,7 @@ curl -X PUT http://localhost:5001/variables/temp \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"value": "72", "ttl_seconds": 1800, "stale_value": "--"}'
 
-curl -X PUT http://localhost:5001/messages/weather \
+curl -X PUT http://localhost:5001/slots/weather \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "Outside <var:temp><degree>F", "display_mode": "ROTATE"}'
 ```
@@ -412,10 +417,10 @@ from the service's own record, so the display still comes back to what it was.
 curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'
 ```
 
-Reach for it only when a soft reset was not enough. The sign is blank for about ten
-seconds while it resets. Neither is a way to clear messages: `DELETE /messages` does
-that without resetting anything. The client fronts the reboot with a warning-coloured
-confirmation for the same reason.
+Reach for it only when a soft reset was not enough. The sign is blank for twelve seconds
+or more while it resets, longer with a lot of messages to put back. Neither is a way to
+clear messages: `DELETE /slots` does that without resetting anything. The client
+fronts the reboot with a warning-coloured confirmation for the same reason.
 
 ## Configuration
 

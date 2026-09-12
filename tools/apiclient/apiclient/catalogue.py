@@ -121,10 +121,10 @@ class Operation:
         return "%s %s" % (self.method, self.path)
 
 
-_MESSAGE_KEY = Input(
+_SLOT_KEY = Input(
     name="key",
     required=True,
-    keys_from="list_messages",
+    keys_from="list_slots",
     description="the name of the slot, chosen by whoever owns it",
 )
 
@@ -143,39 +143,39 @@ _DISPLAY_MODE = Input(
 )
 
 OPERATIONS: tuple[Operation, ...] = (
-    # == Messages =========================================================
+    # == Slots ============================================================
     Operation(
-        id="list_messages",
-        group="Messages",
+        id="list_slots",
+        group="Slots",
         method="GET",
-        path="/messages",
-        summary="List the messages sharing the sign",
+        path="/slots",
+        summary="List the slots sharing the sign",
         formatter="slots",
     ),
     Operation(
-        id="get_message",
-        group="Messages",
+        id="get_slot",
+        group="Slots",
         method="GET",
-        path="/messages/{key}",
-        summary="Read one message",
-        path_inputs=(_MESSAGE_KEY,),
+        path="/slots/{key}",
+        summary="Read one slot",
+        path_inputs=(_SLOT_KEY,),
         formatter="slot",
     ),
     Operation(
-        id="put_message",
-        group="Messages",
+        id="put_slot",
+        group="Slots",
         method="PUT",
-        path="/messages/{key}",
-        summary="Register or replace a message",
+        path="/slots/{key}",
+        summary="Register or replace a slot",
         needs_key=True,
-        path_inputs=(_MESSAGE_KEY,),
+        path_inputs=(_SLOT_KEY,),
         body=(
             Input(
                 name="message",
                 kind="textarea",
                 required=True,
                 markup=MARKUP_TOKENS,
-                fill_from="get_message",
+                fill_from="get_slot",
                 description=(
                     "the message, including markup tokens such as <red> and <degree>, "
                     "and <var:name> to call a variable"
@@ -213,13 +213,13 @@ OPERATIONS: tuple[Operation, ...] = (
         formatter="slot",
     ),
     Operation(
-        id="set_message_active",
-        group="Messages",
+        id="set_slot_active",
+        group="Slots",
         method="PUT",
-        path="/messages/{key}/active",
-        summary="Show or hide a message without unregistering it",
+        path="/slots/{key}/active",
+        summary="Show or hide a slot without giving it up",
         needs_key=True,
-        path_inputs=(_MESSAGE_KEY,),
+        path_inputs=(_SLOT_KEY,),
         body=(
             Input(
                 name="active",
@@ -236,21 +236,21 @@ OPERATIONS: tuple[Operation, ...] = (
         ),
     ),
     Operation(
-        id="delete_message",
-        group="Messages",
+        id="delete_slot",
+        group="Slots",
         method="DELETE",
-        path="/messages/{key}",
-        summary="Take a message off the sign",
+        path="/slots/{key}",
+        summary="Give up one slot",
         needs_key=True,
-        path_inputs=(_MESSAGE_KEY,),
+        path_inputs=(_SLOT_KEY,),
         formatter="empty",
     ),
     Operation(
-        id="clear_messages",
-        group="Messages",
+        id="clear_slots",
+        group="Slots",
         method="DELETE",
-        path="/messages",
-        summary="Take every message off the sign",
+        path="/slots",
+        summary="Give up every slot",
         needs_key=True,
         formatter="empty",
         destructive=True,
@@ -419,14 +419,14 @@ OPERATIONS: tuple[Operation, ...] = (
         needs_key=True,
         formatter="empty",
         confirm=(
-            "Rebooting resets the sign and blanks it for about ten seconds "
+            "Rebooting resets the sign and blanks it for twelve seconds or more "
             "before the messages come back. Use it only to recover a sign that "
             "has stopped responding, not to clear messages. Send it?"
         ),
         note=(
             "A recovery tool. It resets a wedged sign and restores the display "
-            "from the service's record; the sign goes blank for about ten "
-            "seconds first."
+            "from the service's record; the sign goes blank for twelve seconds "
+            "or more first."
         ),
     ),
     # == Enumerations =====================================================
@@ -480,7 +480,7 @@ OPERATIONS: tuple[Operation, ...] = (
 
 # The order the operation list shows the groups in. Health first because it is
 # what you press to find out whether anything else is worth trying.
-GROUP_ORDER = ("Health", "Messages", "Variables", "Alerts", "Sign", "Enumerations")
+GROUP_ORDER = ("Health", "Slots", "Variables", "Alerts", "Sign", "Enumerations")
 
 BY_ID: dict[str, Operation] = {operation.id: operation for operation in OPERATIONS}
 

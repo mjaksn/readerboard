@@ -259,11 +259,11 @@ def step_4_empty_sequence(link: serial.Serial, settle: float) -> None:
 
 
 def step_5_empty_file(link: serial.Serial, settle: float) -> None:
-    """Two things the service assumes about an empty file, neither of them measured."""
+    """Two things the service leans on about an empty file, both measured here."""
     print("\nStep 5: an empty file, frozen on and then rotated through")
     print("  Step 4 showed the sign freezes when the sequence names nothing. Two")
-    print("  things follow from that which nothing has ever checked, and the")
-    print("  service leans on both.")
+    print("  things follow from that which the service leans on, and this is where")
+    print("  they were checked.")
 
     print("\n  First: does emptying the file the sign is frozen on clear the display?")
     print("  Every path that hides or removes the last message rewrites the sequence")

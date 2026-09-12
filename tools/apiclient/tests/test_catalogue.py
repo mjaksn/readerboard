@@ -116,7 +116,7 @@ def test_the_markup_fields_are_the_ones_that_take_markup():
         if item.markup
     }
     assert markup == {
-        ("put_message", "message", catalogue.MARKUP_TOKENS),
+        ("put_slot", "message", catalogue.MARKUP_TOKENS),
         ("post_alert", "message", catalogue.MARKUP_TOKENS),
         ("put_variable", "value", catalogue.VALUE_TOKENS),
     }
@@ -160,10 +160,10 @@ def test_the_key_loaders_are_the_ones_for_messages_and_variables():
         if item.keys_from
     }
     assert loaders == {
-        ("get_message", "list_messages"),
-        ("put_message", "list_messages"),
-        ("set_message_active", "list_messages"),
-        ("delete_message", "list_messages"),
+        ("get_slot", "list_slots"),
+        ("put_slot", "list_slots"),
+        ("set_slot_active", "list_slots"),
+        ("delete_slot", "list_slots"),
         ("get_variable", "list_variables"),
         ("put_variable", "list_variables"),
         ("delete_variable", "list_variables"),
@@ -178,7 +178,7 @@ def test_the_fields_that_load_from_the_sign_are_the_content_being_replaced():
         if item.fill_from
     }
     assert loaders == {
-        ("put_message", "message", "get_message"),
+        ("put_slot", "message", "get_slot"),
         ("put_variable", "value", "get_variable"),
     }
 
@@ -225,7 +225,7 @@ def test_the_durations_read_back_from_a_moment_are_the_two_deadlines():
         if item.seconds_until
     }
     assert durations == {
-        ("put_message", "ttl_seconds", "expires_at"),
+        ("put_slot", "ttl_seconds", "expires_at"),
         ("put_variable", "ttl_seconds", "expires_at"),
     }
 
@@ -266,7 +266,7 @@ def test_a_duration_names_a_moment_its_own_form_can_actually_read_back():
 
 def test_only_clearing_every_message_is_marked_destructive():
     destructive = {operation.id for operation in catalogue.OPERATIONS if operation.destructive}
-    assert destructive == {"clear_messages"}
+    assert destructive == {"clear_slots"}
 
 
 def test_only_the_reboot_asks_for_a_warned_confirmation():

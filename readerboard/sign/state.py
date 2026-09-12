@@ -58,7 +58,7 @@ class SlotState(BaseModel):
     run sequence. Its file keeps its text too, so showing it again is one run
     sequence write; the file is emptied only when no slot is left playing, which
     is what stops a sign whose sequence names nothing from freezing on the last
-    message it drew. See ``MessageRegistry.set_active``.
+    message it drew. See ``SlotRegistry.set_active``.
 
     ``delete_on_expiry`` is what a TTL does when it passes: True gives the file
     back, False keeps the slot and takes it off the display.
