@@ -271,6 +271,28 @@ class TestMessages:
         assert body["active"] is True
         assert body["delete_on_expiry"] is True
 
+    def test_a_message_can_be_written_and_shown_in_one_call(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+
+        body = client.put(
+            "/messages/one",
+            json={"message": "TWO", "active": True, "ttl_seconds": 60,
+                  "delete_on_expiry": False},
+            headers=HEADERS,
+        ).json()
+
+        assert body["active"] is True
+        assert body["message"] == "TWO"
+
+    def test_leaving_active_out_does_not_move_it(self, client):
+        client.put("/messages/one", json={"message": "ONE"}, headers=HEADERS)
+        client.put("/messages/one/active", json={"active": False}, headers=HEADERS)
+
+        body = client.put("/messages/one", json={"message": "TWO"}, headers=HEADERS).json()
+
+        assert body["active"] is False
+
     def test_a_delete_on_expiry_that_is_not_a_boolean_is_422(self, client):
         response = client.put(
             "/messages/one",

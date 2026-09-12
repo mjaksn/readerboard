@@ -201,6 +201,11 @@ OPERATIONS: tuple[Operation, ...] = (
                 description="true gives the slot back; false keeps it and hides the message",
             ),
             Input(
+                name="active",
+                kind="bool",
+                description="true shows it, false hides it; empty leaves it as it is",
+            ),
+            Input(
                 name="source",
                 description="who registered this, recorded so the slot list is readable",
             ),

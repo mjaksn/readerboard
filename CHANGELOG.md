@@ -32,10 +32,18 @@ library, and the names inside it may move without that being a breaking change.
   display would otherwise never clear. Coming back from there costs the text and
   the sequence both.
 
-  Hiding deliberately does not move through `PUT /messages/{key}`, which leaves
-  `active` as it found it. Whether a message is showing is not part of the
-  message, and a source re-sending the same content every few minutes would
-  otherwise switch a hidden message back on every time it did.
+  `active` is also a field on `PUT /messages/{key}`, where it is optional and
+  three-valued. Left out, it leaves the message showing or hidden exactly as it
+  found it, so a source re-sending the same content every few minutes cannot
+  switch back on something that was deliberately hidden. Sent, it moves the
+  message, which is what makes a recurring notification one call: something that
+  should appear for a minute whenever an event happens sends the text, a
+  `ttl_seconds`, `delete_on_expiry` false and `active` true, and sends the same
+  shape again at the next event. Without it that is two calls, because a
+  deadline that hides a message clears itself on the way out.
+
+  `PUT /messages/{key}/active` stays, for hiding or showing something without
+  resending a message the caller may not have.
 
 - **`delete_on_expiry` decides what a `ttl_seconds` does when it passes.** The
   default, `true`, is what a deadline has always done and hands the slot back.

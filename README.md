@@ -243,9 +243,11 @@ curl -X PUT http://localhost:5001/messages/doorbell/active \
 
 A hidden message keeps its slot, its place in the order and its text, so showing it again
 takes `{"active": true}` and no copy of what it said. The messages still showing carry on
-without a blink. Hiding is deliberately separate from the message itself: a source that
-re-sends the same content every few minutes would otherwise switch a hidden message back
-on every time it did.
+without a blink.
+
+`active` is a field on the message endpoint too, where leaving it out is the point: a
+source re-sending the same content every few minutes says nothing about it and so cannot
+switch back on something that was deliberately hidden. Sending it moves the message.
 
 A `ttl_seconds` can hide a message instead of deleting it, which suits anything that comes
 back later, such as a bin day or a school notice:
@@ -256,6 +258,20 @@ curl -X PUT http://localhost:5001/messages/bins \
      -d '{"message": "<green>BINS OUT TONIGHT", "ttl_seconds": 43200,
           "delete_on_expiry": false}'
 ```
+
+Put those together and a recurring notification is one call per event, sent in the same
+shape every time. This shows the alarm's state for a minute whenever it changes, then takes
+it off the rotation until the next one:
+
+```
+curl -X PUT http://localhost:5001/messages/alarm \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"message": "<red>ALARM NOW <var:arm_state>", "ttl_seconds": 60,
+          "delete_on_expiry": false, "active": true}'
+```
+
+The deadline clears itself as it hides the message, so each event gets a fresh minute
+rather than the message vanishing again on a deadline the last one left behind.
 
 Show a live value. Create the variable first, then a message that calls it:
 

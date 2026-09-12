@@ -392,9 +392,15 @@ class OperationForm(QWidget):
             # through the same text path every other field uses; request.coerce
             # turns the text into a real JSON boolean.
             combo = QComboBox()
-            combo.addItems(["true", "false"])
-            prefilled = request_module.as_text(item.prefill)
-            combo.setCurrentText(prefilled if item.prefill is not None else "true")
+            if item.required or item.prefill is not None:
+                combo.addItems(["true", "false"])
+                combo.setCurrentText(request_module.as_text(item.prefill))
+            else:
+                # An optional boolean has three answers and the third is the
+                # default: say nothing. The empty entry is what build_body reads
+                # as a field nobody filled in, so the key is left out rather
+                # than sent as a value the caller never chose.
+                combo.addItems(["", "true", "false"])
             self._body[item.name] = combo
             return combo
 

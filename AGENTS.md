@@ -162,17 +162,23 @@ measured leaving it running, with no blank and no restart. A hidden slot keeps
 its file, its order, its text and its name, so showing it again needs no copy of
 the message.
 
-Two parts of that are easy to get wrong. **A hidden slot's file is kept empty**,
-and that is not tidiness: a sign handed a run sequence naming nothing freezes on
-the message it was drawing and holds it there, measured on 2026-09-11, so hiding
-the last visible message without emptying its file would leave it on the display
-for good. That costs one write when it is shown again, which is a message about
-to be drawn afresh anyway. And **hiding does not move through `PUT /messages`**,
-which leaves `active` exactly as it found it. Whether a message is showing is not
-part of the message, and the registry's own docstring says why: a source
-re-sending the same content every five minutes would otherwise switch a hidden
-message back on every time it did. A `ttl_seconds` can hide rather than delete,
-which is `delete_on_expiry`.
+Two parts of that are easy to get wrong. **A hidden slot's file keeps its text**,
+so showing it again is one run sequence write and no redraw: the controller still
+holds those bytes and declines to send them a second time. The exception is the
+last visible message, whose file is emptied as it goes, because a sign handed a
+run sequence naming nothing freezes on the message it was drawing and holds it
+there, measured on 2026-09-11; without the blank it would sit there for good.
+`MessageRegistry._hide` is the whole rule and is the only thing that should
+decide it.
+
+And **`active` is three-valued on `PUT /messages`**, which is not the same as
+being absent from it. Omitted, it leaves the slot showing or hidden exactly as it
+found it, so a source re-sending the same content every five minutes cannot
+switch back on something deliberately hidden. Sent, it moves the slot, which is
+what lets one call write a message and put it up: a notification with a minute on
+it is `active` true with a `ttl_seconds` and `delete_on_expiry` false, sent again
+in full the next time the thing it reports changes. `PUT /messages/{key}/active`
+stays for hiding something whose text the caller does not have in hand.
 
 A **variable** is a value in a STRING file of its own, which a slot's message
 calls with `<var:name>`. Writing one rewrites only that STRING file, and the

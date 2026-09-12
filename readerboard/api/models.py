@@ -89,6 +89,16 @@ class MessageRequest(BaseModel):
             "without a ttl_seconds"
         ),
     )
+    active: bool | None = Field(
+        default=None,
+        description=(
+            "whether the sign should be playing it. Omit it and the message keeps "
+            "whatever it already was, which is what a source re-sending the same "
+            "content on a timer wants: repeating itself cannot switch back on "
+            "something that was deliberately hidden. true shows it, false hides it, "
+            "and a new message nobody says anything about is shown"
+        ),
+    )
     source: str | None = Field(
         default=None,
         max_length=128,

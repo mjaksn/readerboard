@@ -36,6 +36,14 @@ def run_sequences(transport: FakeTransport) -> list[bytes]:
     return payloads_starting(transport, b"E.")
 
 
+def first_index(transport: FakeTransport, command: bytes) -> int:
+    """Where the first packet starting with ``command`` fell, for pinning an order."""
+    for index, packet in enumerate(transport.packets):
+        if packet.startswith(FRAME_PREFIX + command):
+            return index
+    raise AssertionError("no packet starting with %r" % command)
+
+
 class TestUpsert:
     async def test_a_new_slot_gets_a_file_and_goes_on_the_sign(self, registry, transport):
         slot = await add(registry, "temperature", "<green>18.4<degree>")
@@ -289,6 +297,105 @@ class TestActive:
         await registry.set_active("one", True)
 
         assert payloads_starting(transport, b"A") == []
+
+    async def test_a_message_can_be_shown_by_the_same_call_that_writes_it(
+        self, registry, transport
+    ):
+        # The one-call case this exists for: something that reports an event
+        # writes the message and puts it up in the same breath, rather than
+        # writing it and then making a second call to show it.
+        await add(registry, "alarm", "ARMED")
+        await add(registry, "other")
+        await registry.set_active("alarm", False)
+        transport.clear()
+
+        slot = await add(registry, "alarm", "DISARMED", active=True)
+
+        assert slot.active is True
+        # The text before the sequence, so the sign is never sent to a file
+        # that is still being written.
+        assert first_index(transport, b"A") < first_index(transport, b"E.")
+        assert run_sequences(transport)[-1].endswith(b"AB" + b"\x04")
+
+    async def test_a_message_can_be_hidden_by_the_same_call_that_writes_it(
+        self, registry, transport
+    ):
+        await add(registry, "alarm", "ARMED")
+        await add(registry, "other")
+        transport.clear()
+
+        slot = await add(registry, "alarm", "DISARMED", active=False)
+
+        assert slot.active is False
+        assert slot.message == "DISARMED"
+        # The sequence first this time. The other way round the new text would
+        # land in a file the sign was still cycling to, restarting the message
+        # for the moment before it went.
+        assert first_index(transport, b"E.") < first_index(transport, b"A")
+
+    async def test_saying_nothing_about_it_still_leaves_it_alone(self, registry):
+        # The guard that made this a separate endpoint in the first place. It
+        # survives because the field is absent by default, not because the
+        # field is absent from the endpoint.
+        await add(registry, "one", "ONE")
+        await registry.set_active("one", False)
+
+        await add(registry, "one", "TWO")
+        assert registry.get("one").active is False
+
+        await registry.set_active("one", True)
+        await add(registry, "one", "THREE")
+        assert registry.get("one").active is True
+
+    async def test_a_new_slot_can_be_registered_already_hidden(self, registry, transport):
+        await add(registry, "kept")
+        transport.clear()
+
+        slot = await add(registry, "later", "NOT YET", active=False)
+
+        assert slot.active is False
+        # It holds a file, and the rotation is exactly what it was, so there
+        # was nothing to tell the sign about it.
+        assert registry.occupancy == (2, 3)
+        assert run_sequences(transport) == []
+
+        transport.clear()
+        await registry.set_active("later", True)
+        assert run_sequences(transport)[-1].endswith(b"AB" + b"\x04")
+
+    async def test_a_notification_shows_for_its_ttl_and_waits_for_the_next_one(
+        self, registry, clock
+    ):
+        # End to end, the way an alarm panel would drive it: one call per event,
+        # carrying the text, the deadline and the decision to show it.
+        await add(
+            registry,
+            "alarm",
+            "ALARM NOW ARMED",
+            ttl_seconds=60,
+            delete_on_expiry=False,
+            active=True,
+        )
+        clock.advance(61)
+        assert await registry.sweep() == ["alarm"]
+        assert registry.get("alarm").active is False
+
+        await add(
+            registry,
+            "alarm",
+            "ALARM NOW DISARMED",
+            ttl_seconds=60,
+            delete_on_expiry=False,
+            active=True,
+        )
+
+        slot = registry.get("alarm")
+        assert slot.active is True
+        assert slot.message == "ALARM NOW DISARMED"
+        # A fresh deadline, so it goes off the display a minute from now rather
+        # than at once on the deadline the last event left behind.
+        assert slot.expires_at is not None
+        assert await registry.sweep() == []
 
     async def test_a_hidden_slot_comes_back_hidden_after_a_restart(
         self, registry, store, transport, clock

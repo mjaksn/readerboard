@@ -361,15 +361,22 @@ class MessageRegistry:
         order: int = 0,
         ttl_seconds: float | None = None,
         delete_on_expiry: bool = True,
+        active: bool | None = None,
         source: str | None = None,
     ) -> SlotState:
         """Register or replace a slot and put it on the sign.
 
-        Replacing a slot leaves it as active or inactive as it already was.
-        Whether a message is showing is not part of the message, and a source
-        that re-sends the same content every few minutes would otherwise switch
-        one back on every time it did. :meth:`set_active` is the only way that
-        moves.
+        ``active`` is three-valued on purpose. None, which is what a caller who
+        does not mention it sends, leaves the slot as showing or hidden as it
+        already was, so a source re-sending the same content every few minutes
+        cannot switch back on something that was deliberately hidden. True and
+        False say so explicitly and move it, which is what lets one call both
+        write a message and put it up: a notification with a minute on it is
+        ``active=True`` with a ``ttl_seconds`` and ``delete_on_expiry=False``,
+        sent again in full the next time the thing it reports changes.
+
+        A brand new slot with nothing said about it is active, since registering
+        a message nobody asked to hide means to show it.
         """
         mode_token = MODE_BY_NAME[mode]
 
@@ -397,7 +404,7 @@ class MessageRegistry:
                 message=message,
                 mode=mode,
                 order=order,
-                active=previous.active if previous is not None else True,
+                active=_resolve_active(active, previous),
                 delete_on_expiry=delete_on_expiry,
                 source=source,
                 expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
@@ -405,18 +412,31 @@ class MessageRegistry:
             )
 
             self._state.slots[key] = slot
+            # Whether the sign should be cycling to this file has changed, so
+            # the sequence has to be rewritten and not only the file.
+            membership_changed = previous is None or previous.active != slot.active
             try:
-                # A hidden slot's new text goes to the sign as well, into a
-                # file nothing is cycling to. That is what keeps switching it
-                # back on down to one write; :meth:`_hide` has the reasoning.
-                if slot.active:
-                    await self._controller.write_text_file(
-                        label, body, mode=mode_token.value
-                    )
-                else:
-                    await self._hide(slot)
-                if not existed:
+                if previous is not None and previous.active and not slot.active:
+                    # Going off the display, so stop the sign cycling to the
+                    # file before touching it. The other way round, the write
+                    # below would land in a file the sequence still names and
+                    # restart the message a moment before it went.
                     await self._apply_run_sequence()
+                    await self._hide(slot)
+                else:
+                    # Written before the sequence can name it, so the sign is
+                    # never sent to a file that is still being filled. A hidden
+                    # slot's new text goes to the sign too, into a file nothing
+                    # is cycling to, which is what keeps switching it back on
+                    # down to one write; :meth:`_hide` has the reasoning.
+                    if slot.active:
+                        await self._controller.write_text_file(
+                            label, body, mode=mode_token.value
+                        )
+                    else:
+                        await self._hide(slot)
+                    if membership_changed:
+                        await self._apply_run_sequence()
             except Exception:
                 # The write did not land, so the slot is not on the sign, and
                 # keeping it would promise what the sign is not showing. Put the
@@ -901,6 +921,20 @@ class MessageRegistry:
 
     def _save(self) -> None:
         self._store.save(self._state)
+
+
+def _resolve_active(asked: bool | None, previous: SlotState | None) -> bool:
+    """Work out whether a slot should be showing after an upsert.
+
+    Saying nothing is the interesting case, and it is the common one: a source
+    pushing the same message on a timer sends no opinion about whether it is
+    showing, and must not be able to undo a deliberate hiding by repeating
+    itself. So None means whatever it already was, and a slot nobody has an
+    opinion about yet is showing.
+    """
+    if asked is not None:
+        return asked
+    return previous.active if previous is not None else True
 
 
 def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
