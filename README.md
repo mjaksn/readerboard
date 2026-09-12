@@ -223,7 +223,7 @@ service's other reads and `GET /health` do not. In the Swagger UI at `/docs`, th
 Register a message:
 
 ```
-curl -X PUT http://localhost:5001/messages/temperature \
+curl -X PUT http://localhost:5001/slots/temperature \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<green>18.4<degree> <red><time>", "display_mode": "HOLD"}'
 ```
@@ -231,7 +231,7 @@ curl -X PUT http://localhost:5001/messages/temperature \
 Register a second one and the sign rotates between them:
 
 ```
-curl -X PUT http://localhost:5001/messages/doorbell \
+curl -X PUT http://localhost:5001/slots/doorbell \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<amber>Someone at the door", "ttl_seconds": 300}'
 ```
@@ -239,7 +239,7 @@ curl -X PUT http://localhost:5001/messages/doorbell \
 Take a message off the display without giving up its slot, and put it back later:
 
 ```
-curl -X PUT http://localhost:5001/messages/doorbell/active \
+curl -X PUT http://localhost:5001/slots/doorbell/active \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"active": false}'
 ```
@@ -260,7 +260,7 @@ A `ttl_seconds` can hide a message instead of deleting it, which suits anything 
 back later, such as a bin day or a school notice:
 
 ```
-curl -X PUT http://localhost:5001/messages/bins \
+curl -X PUT http://localhost:5001/slots/bins \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<green>BINS OUT TONIGHT", "ttl_seconds": 43200,
           "delete_on_expiry": false}'
@@ -271,7 +271,7 @@ shape every time. This shows the alarm's state for a minute whenever it changes,
 it off the rotation until the next one:
 
 ```
-curl -X PUT http://localhost:5001/messages/alarm \
+curl -X PUT http://localhost:5001/slots/alarm \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<red>ALARM NOW <var:arm_state>", "ttl_seconds": 60,
           "delete_on_expiry": false, "active": true}'
@@ -287,7 +287,7 @@ curl -X PUT http://localhost:5001/variables/temp \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"value": "72", "ttl_seconds": 1800, "stale_value": "--"}'
 
-curl -X PUT http://localhost:5001/messages/weather \
+curl -X PUT http://localhost:5001/slots/weather \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "Outside <var:temp><degree>F", "display_mode": "ROTATE"}'
 ```
@@ -419,7 +419,7 @@ curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'
 
 Reach for it only when a soft reset was not enough. The sign is blank for twelve seconds
 or more while it resets, longer with a lot of messages to put back. Neither is a way to
-clear messages: `DELETE /messages` does that without resetting anything. The client
+clear messages: `DELETE /slots` does that without resetting anything. The client
 fronts the reboot with a warning-coloured confirmation for the same reason.
 
 ## Configuration

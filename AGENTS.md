@@ -98,7 +98,7 @@ recovery path for a sign whose decoder has wedged out of reach and which a soft
 reset did not bring back. It clears the sign deliberately to reset it, then
 re-pushes every slot and the run sequence from the service's own record, so the
 erase is followed at once by a restore and the display comes back rather than
-staying blank. `MessageRegistry.reboot` is the whole of it; it is gated behind
+staying blank. `SlotRegistry.reboot` is the whole of it; it is gated behind
 the API key like every other write, and the client fronts it with a
 warning-coloured confirmation. This is the exception the paragraph above allows
 for, not a hole in it: a message write still cannot reach the clear, only this
@@ -157,8 +157,8 @@ showing, in order. The sign cycles them by itself, so a message appearing or
 disappearing costs one small write and nothing after that. This is the whole
 design: the host does not rotate anything.
 
-A slot can also be **hidden**, which is `PUT /messages/{key}/active` and
-`MessageRegistry.set_active`. The run sequence names the active slots and
+A slot can also be **hidden**, which is `PUT /slots/{key}/active` and
+`SlotRegistry.set_active`. The run sequence names the active slots and
 nothing else, so hiding one is a single sequence write. That write does disturb
 the display, measured on 2026-09-12, but far less than rewriting a TEXT file:
 short enough to be imperceptible when anything else on screen is changing, and
@@ -171,16 +171,16 @@ holds those bytes and declines to send them a second time. The exception is the
 last visible message, whose file is emptied as it goes, because a sign handed a
 run sequence naming nothing freezes on the message it was drawing and holds it
 there, measured on 2026-09-11; without the blank it would sit there for good.
-`MessageRegistry._hide` is the whole rule and is the only thing that should
+`SlotRegistry._hide` is the whole rule and is the only thing that should
 decide it.
 
-And **`active` is three-valued on `PUT /messages`**, which is not the same as
+And **`active` is three-valued on `PUT /slots`**, which is not the same as
 being absent from it. Omitted, it leaves the slot showing or hidden exactly as it
 found it, so a source re-sending the same content every five minutes cannot
 switch back on something deliberately hidden. Sent, it moves the slot, which is
 what lets one call write a message and put it up: a notification with a minute on
 it is `active` true with a `ttl_seconds` and `delete_on_expiry` false, sent again
-in full the next time the thing it reports changes. `PUT /messages/{key}/active`
+in full the next time the thing it reports changes. `PUT /slots/{key}/active`
 stays for hiding something whose text the caller does not have in hand.
 
 A **variable** is a value in a STRING file of its own, which a slot's message
@@ -192,9 +192,9 @@ rules hold it together, and each has a reason that is easy to lose:
 - **A variable a message or the alert calls cannot be deleted.** The STRING
   file's label is written into every caller as raw bytes, so handing that file
   to the next variable would put the wrong value on the sign with nothing to say
-  so. `MessageRegistry.remove_variable` refuses with a 409 instead, and slots and
+  so. `SlotRegistry.remove_variable` refuses with a 409 instead, and slots and
   variables share one lock so that nothing can slip between the check and the
-  write. The alert service renders through `MessageRegistry.rendering`, which
+  write. The alert service renders through `SlotRegistry.rendering`, which
   holds that lock until the priority file is written and the alert recorded.
   Take the registry's lock before the alert service's, never the other way
   round.

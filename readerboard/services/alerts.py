@@ -15,7 +15,7 @@ forgot about it would leave the sign stuck showing that alert forever, with the
 rotation invisible behind it and no record of why.
 
 An alert can call variables, rendered through the registry's
-:meth:`MessageRegistry.rendering`, which holds the registry's lock until the
+:meth:`SlotRegistry.rendering`, which holds the registry's lock until the
 priority file is written. Its lock is always taken before this service's own.
 """
 
@@ -68,7 +68,7 @@ class AlertService:
         """Wire the alert service to the sign and to its restored state.
 
         ``rendering`` is where an alert is rendered, and is the registry's
-        :meth:`MessageRegistry.rendering` in the service. Without one an alert
+        :meth:`SlotRegistry.rendering` in the service. Without one an alert
         cannot call a variable, and one that tries is refused.
         """
         self._controller = controller

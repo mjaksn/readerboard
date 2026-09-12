@@ -558,7 +558,7 @@ were wrong the first time and the record of how is worth more than the answer al
 5. **What does an empty run sequence show?** Answered on 2026-09-11: **the sign freezes on
    the message it was showing**, ONE in that run, and holds it for as long as the sequence
    names nothing. It does not blank, and it falls back to nothing of its own. That matters
-   twice. `DELETE /messages` empties the sequence and then blanks each file, and the
+   twice. `DELETE /slots` empties the sequence and then blanks each file, and the
    blanking is load-bearing rather than tidiness: without it the last message would sit on
    the display indefinitely. And a message deactivated rather than deleted would do the same
    if it were the last one active, so whatever implements that has to blank the file when
@@ -569,8 +569,8 @@ were wrong the first time and the record of how is worth more than the answer al
 6. **Does emptying the frozen file clear the display?** Answered yes, on 2026-09-12. The
    sequence was set to file A alone so that the freeze would land somewhere known, emptied
    so the sign froze on ONE, and then A was written empty underneath the freeze. The sign
-   went blank. So the blank that `MessageRegistry._blank` writes is what actually ends the
-   freeze, and `DELETE /messages`, deleting the last slot and hiding the last visible one
+   went blank. So the blank that `SlotRegistry._blank` writes is what actually ends the
+   freeze, and `DELETE /slots`, deleting the last slot and hiding the last visible one
    all clear the display rather than leaving their last message up for good. That was
    assumed until this run.
 7. **What does an empty file do when the sequence names it beside full ones?** Asked on
@@ -728,7 +728,7 @@ fifth thing that cancels a priority message, and the list above is the whole lis
 
 Until that measurement the service took the cautious reading: while an alert was active the
 registry held run sequence writes back and applied them when the sign was handed back. That
-is gone, and it took with it `MessageRegistry._apply_run_sequence`'s `force` flag,
+is gone, and it took with it `SlotRegistry._apply_run_sequence`'s `force` flag,
 `flush_deferred`, the alert service's release hook and the simulator's warning about it.
 Writing a slot's own TEXT file was never on the list above and was never held back, so
 content stayed current behind the alert either way.

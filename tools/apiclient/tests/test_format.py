@@ -95,7 +95,7 @@ def test_health_is_broken_out_rather_than_dumped():
 
 
 def test_an_empty_message_list_says_so_rather_than_showing_an_empty_table():
-    _result, text = rendered_text("list_messages", 200, "[]")
+    _result, text = rendered_text("list_slots", 200, "[]")
     assert "No messages are registered" in text
 
 
@@ -114,7 +114,7 @@ def test_a_message_list_becomes_a_table():
             }
         ]
     )
-    result, text = rendered_text("list_messages", 200, body)
+    result, text = rendered_text("list_slots", 200, body)
     assert "1 message sharing the sign" in text
     assert "kitchen" in text
     assert any(isinstance(block, Table) for block in result.blocks)
@@ -144,7 +144,7 @@ def test_an_enumeration_renders_as_a_table():
 
 
 def test_a_plain_detail_error_shows_the_detail():
-    result, text = rendered_text("get_message", 404, json.dumps({"detail": "no slot 'x'"}))
+    result, text = rendered_text("get_slot", 404, json.dumps({"detail": "no slot 'x'"}))
     assert result.ok is False
     assert "no slot 'x'" in text
     assert "no slot or variable by that name" in result.headline
@@ -170,7 +170,7 @@ def test_a_validation_error_is_broken_out_field_by_field():
             ]
         }
     )
-    result, text = rendered_text("put_message", 422, body)
+    result, text = rendered_text("put_slot", 422, body)
     assert result.ok is False
     assert "body -> ttl_seconds" in text
     assert "Input should be greater than 0" in text
@@ -178,7 +178,7 @@ def test_a_validation_error_is_broken_out_field_by_field():
 
 def test_the_error_detail_carries_the_whole_body_for_the_dialog():
     body = json.dumps({"detail": "the sign is unreachable"})
-    result, _text = rendered_text("put_message", 503, body)
+    result, _text = rendered_text("put_slot", 503, body)
     assert result.detail == body
 
 
@@ -220,7 +220,7 @@ def test_markup_in_a_message_is_escaped_rather_than_rendered_as_html():
             "updated_at": "2026-08-31T07:00:00+00:00",
         }
     )
-    html = as_html(render(catalogue.BY_ID["get_message"], 200, "OK", body))
+    html = as_html(render(catalogue.BY_ID["get_slot"], 200, "OK", body))
     assert "&lt;red&gt;hot" in html
 
 
@@ -260,7 +260,7 @@ def test_an_unreadable_body_is_not_headlined_as_a_success():
     # succeeded". Saying that above a response this module has just decided is
     # a failure would be the exact mistake the module exists to prevent, made
     # in its own first line.
-    result, _text = rendered_text("put_message", 200, "<html>gateway</html>", reason="OK")
+    result, _text = rendered_text("put_slot", 200, "<html>gateway</html>", reason="OK")
     assert result.ok is False
     assert "the call succeeded" not in result.headline
     assert "not JSON" in result.headline
@@ -279,13 +279,13 @@ def test_a_real_success_still_says_so():
             "updated_at": "2026-08-31T07:00:00+00:00",
         }
     )
-    result, _text = rendered_text("put_message", 200, body, reason="OK")
+    result, _text = rendered_text("put_slot", 200, body, reason="OK")
     assert result.ok is True
     assert "the call succeeded" in result.headline
 
 
 def test_a_four_hundred_keeps_the_meaning_it_had():
-    result, _text = rendered_text("get_message", 404, json.dumps({"detail": "nope"}))
+    result, _text = rendered_text("get_slot", 404, json.dumps({"detail": "nope"}))
     assert "no slot or variable by that name" in result.headline
 
 
@@ -325,8 +325,8 @@ def test_no_colour_the_themes_carry_is_written_down_instead_of_themed():
             }
         ]
     )
-    table = render(catalogue.BY_ID["list_messages"], 200, "OK", body)
-    failure = render(catalogue.BY_ID["list_messages"], 503, "Service Unavailable", "{}")
+    table = render(catalogue.BY_ID["list_slots"], 200, "OK", body)
+    failure = render(catalogue.BY_ID["list_slots"], 503, "Service Unavailable", "{}")
 
     for theme, other in ((LIGHT, DARK), (DARK, LIGHT)):
         html = as_html(table, theme) + as_html(failure, theme)

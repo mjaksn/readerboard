@@ -28,7 +28,7 @@ from readerboard.api.models import HealthResponse, LinkHealth
 from readerboard.config import Settings
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
-from readerboard.services.registry import MessageRegistry
+from readerboard.services.registry import SlotRegistry
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
 from readerboard.sign.state import StateStore
@@ -84,10 +84,10 @@ def build_transport(settings: Settings) -> Transport:
 async def _refresh_loop(app: FastAPI, interval: float) -> None:
     """Push everything to the sign again, periodically.
 
-    See ``MessageRegistry.refresh`` for why blind re-pushing is the only thing
+    See ``SlotRegistry.refresh`` for why blind re-pushing is the only thing
     that repairs a sign power cycled behind a still-connected adapter.
     """
-    registry: MessageRegistry = app.state.registry
+    registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 
     while True:
@@ -107,7 +107,7 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
 
 async def _sweep_loop(app: FastAPI, interval: float) -> None:
     """Expire slots and alerts, and turn variables stale, once their deadlines pass."""
-    registry: MessageRegistry = app.state.registry
+    registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 
     while True:
@@ -151,7 +151,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             settings.variable_capacity,
         )
         alerts = AlertService(controller, store, state)
-        registry = MessageRegistry(controller, layout, store, state)
+        registry = SlotRegistry(controller, layout, store, state)
         # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
         alerts.set_rendering(registry.rendering)

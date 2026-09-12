@@ -51,7 +51,7 @@ a set of empty names, which on screen looks exactly like a healthy one.
 
 **The key boxes offer what is registered, and say when what you typed is not.**
 Any form taking a slot key or a variable name has a **Load keys** button beside the
-box, which calls `GET /messages` or `GET /variables` and offers what came back. What you had already typed is
+box, which calls `GET /slots` or `GET /variables` and offers what came back. What you had already typed is
 kept if it is among them and cleared if it is not, because the list is the answer
 to what exists: a key missing from it is one the read would 404 on and the delete
 too. Nothing is selected for you either way, so Load followed by Send cannot act
@@ -67,7 +67,7 @@ keeping the spaces as though they had gone somewhere. Case is left alone:
 
 **A message already on the sign can be loaded back to edit it.** Register or
 replace a message carries a **Load From Sign** button under the message caption.
-It calls `GET /messages/{key}` for whatever key is in the box above and fills the
+It calls `GET /slots/{key}` for whatever key is in the box above and fills the
 form from the answer: the message text with its markup intact, the display mode,
 the order, the source, whether the message is showing and whether its deadline
 deletes it. Editing a message that is already up is then reading it first rather

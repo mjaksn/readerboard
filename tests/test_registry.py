@@ -5,8 +5,8 @@ import pytest
 from readerboard.protocol import frames
 from readerboard.services.registry import (
     LayoutFull,
-    MessageRegistry,
     MessageTooLong,
+    SlotRegistry,
     UnknownSlot,
 )
 from readerboard.sign.controller import SignController
@@ -434,7 +434,7 @@ class TestActive:
         await registry.set_active("one", False)
 
         controller = SignController(transport, inter_packet_delay=0, settle=False)
-        restored = MessageRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
+        restored = SlotRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
         await restored.restore()
 
         assert restored.get("one").active is False
@@ -449,7 +449,7 @@ class TestActive:
         transport.clear()
 
         controller = SignController(transport, inter_packet_delay=0, settle=False)
-        restored = MessageRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
+        restored = SlotRegistry(controller, Layout(3, 256), store, store.load(), now=clock)
         await restored.restore()
 
         assert run_sequences(transport)[-1].endswith(b"B" + b"\x04")
@@ -542,7 +542,7 @@ class TestRestart:
         controller = SignController(transport, inter_packet_delay=0, settle=False)
         layout = Layout(slot_count, slot_capacity)
         state = store.load()
-        return MessageRegistry(controller, layout, store, state, now=clock), layout
+        return SlotRegistry(controller, layout, store, state, now=clock), layout
 
     async def test_slots_come_back(self, registry, store, transport, clock):
         await add(registry, "temperature", "<green>18.4<degree>")
@@ -666,7 +666,7 @@ class TestAHalfAppliedWrite:
     async def test_the_registry_says_it_is_out_of_step(self, layout, store, state, clock):
         transport = self.FailsAfter()
         controller = SignController(transport, inter_packet_delay=0, settle=False)
-        registry = MessageRegistry(controller, layout, store, state, now=clock)
+        registry = SlotRegistry(controller, layout, store, state, now=clock)
         await registry.restore()
         await add(registry, "one", "ONE")
         await add(registry, "two", "TWO")
@@ -827,7 +827,7 @@ class TestAnAlertDoesNotHoldTheRunSequenceBack:
 
     def registry_with_an_alert(self, controller, layout, store, state, clock):
         state.alert = AlertState(message="ALERT", mode="HOLD", started_at=clock())
-        return MessageRegistry(controller, layout, store, state, now=clock)
+        return SlotRegistry(controller, layout, store, state, now=clock)
 
     async def test_a_new_slot_reaches_the_run_sequence_during_an_alert(
         self, controller, layout, store, state, clock, transport

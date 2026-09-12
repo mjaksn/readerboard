@@ -313,7 +313,7 @@ def _health(payload: object) -> list[Block]:
             ),
         ),
         Section(
-            title="Messages",
+            title="Slots",
             rows=(
                 Row(
                     "slots used",

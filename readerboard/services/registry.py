@@ -1,4 +1,4 @@
-"""The set of messages currently sharing the sign, and the variables they call.
+"""The set of slots currently sharing the sign, and the variables they call.
 
 A slot is a named place on the sign that a source owns. Home Assistant owns
 ``temperature``, a doorbell automation might own ``doorbell``, and each one
@@ -75,7 +75,7 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class MessageRegistry:
+class SlotRegistry:
     """Owns the slots, the variables, both file pools, and the run sequence."""
 
     def __init__(
@@ -941,9 +941,9 @@ def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
 
 __all__ = [
     "LayoutFull",
-    "MessageRegistry",
     "MessageTooLong",
     "RegistryError",
+    "SlotRegistry",
     "UnknownSlot",
     "UnknownVariable",
     "VariableInUse",

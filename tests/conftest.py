@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from readerboard.services.alerts import AlertService
-from readerboard.services.registry import MessageRegistry
+from readerboard.services.registry import SlotRegistry
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
 from readerboard.sign.state import ServiceState, StateStore
@@ -75,11 +75,11 @@ def layout() -> Layout:
 
 
 @pytest.fixture
-async def registry(controller, layout, store, state, clock) -> MessageRegistry:
+async def registry(controller, layout, store, state, clock) -> SlotRegistry:
     # restore() is what the service calls at startup, and it is what establishes
     # the memory configuration. Skipping it here would leave every test running
     # against a sign that was never allocated.
-    registry = MessageRegistry(controller, layout, store, state, now=clock)
+    registry = SlotRegistry(controller, layout, store, state, now=clock)
     await registry.restore()
     return registry
 

@@ -67,7 +67,7 @@ class FilePool:
         no longer exists. Such a key is refused here with a :class:`ValueError`
         rather than silently moved to a free file, since moving it would mean
         writing to a file the sign has not allocated.
-        ``MessageRegistry._reattach_labels`` catches that and drops the key.
+        ``SlotRegistry._reattach_labels`` catches that and drops the key.
         """
         if label not in self.labels:
             raise ValueError("file %r is outside the pool as it now stands" % label.decode("ascii"))

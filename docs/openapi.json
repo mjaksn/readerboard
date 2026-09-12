@@ -252,80 +252,6 @@
         "title": "LinkHealth",
         "type": "object"
       },
-      "MessageRequest": {
-        "additionalProperties": false,
-        "description": "A message registered into a slot.",
-        "properties": {
-          "active": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "whether the sign should be playing it. Omit it and the message keeps whatever it already was, which is what a source re-sending the same content on a timer wants: repeating itself cannot switch back on something that was deliberately hidden. true shows it, false hides it, and a new message nobody says anything about is shown",
-            "title": "Active"
-          },
-          "delete_on_expiry": {
-            "default": true,
-            "description": "what happens when ttl_seconds passes. True gives the slot back. False keeps the message registered and takes it off the display, clearing the deadline with it, so it can be shown again without being sent afresh. Nothing without a ttl_seconds",
-            "title": "Delete On Expiry",
-            "type": "boolean"
-          },
-          "display_mode": {
-            "default": "HOLD",
-            "description": "how the sign presents the message",
-            "title": "Display Mode",
-            "type": "string"
-          },
-          "message": {
-            "description": "the message, including markup tokens such as <red> and <degree>, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign gives a file with no text in it no turn of its own but does hold the message before it several seconds longer, so the slot would be spent and the rotation would drag. Use DELETE to give the slot back",
-            "maxLength": 4096,
-            "minLength": 1,
-            "title": "Message",
-            "type": "string"
-          },
-          "order": {
-            "default": 0,
-            "description": "lower numbers play earlier in the rotation; ties break on the slot name",
-            "title": "Order",
-            "type": "integer"
-          },
-          "source": {
-            "anyOf": [
-              {
-                "maxLength": 128,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "who registered this, recorded so the slot list is readable",
-            "title": "Source"
-          },
-          "ttl_seconds": {
-            "anyOf": [
-              {
-                "exclusiveMinimum": 0.0,
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "act on the message this many seconds from now, deleting or hiding it according to delete_on_expiry. Omit it for no deadline, which leaves the message in place until something replaces or removes it",
-            "title": "Ttl Seconds"
-          }
-        },
-        "required": [
-          "message"
-        ],
-        "title": "MessageRequest",
-        "type": "object"
-      },
       "SignInformationResponse": {
         "description": "What the sign says about itself.",
         "properties": {
@@ -403,6 +329,80 @@
           "active"
         ],
         "title": "SlotActiveRequest",
+        "type": "object"
+      },
+      "SlotRequest": {
+        "additionalProperties": false,
+        "description": "A message registered into a slot.",
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "whether the sign should be playing it. Omit it and the message keeps whatever it already was, which is what a source re-sending the same content on a timer wants: repeating itself cannot switch back on something that was deliberately hidden. true shows it, false hides it, and a new message nobody says anything about is shown",
+            "title": "Active"
+          },
+          "delete_on_expiry": {
+            "default": true,
+            "description": "what happens when ttl_seconds passes. True gives the slot back. False keeps the message registered and takes it off the display, clearing the deadline with it, so it can be shown again without being sent afresh. Nothing without a ttl_seconds",
+            "title": "Delete On Expiry",
+            "type": "boolean"
+          },
+          "display_mode": {
+            "default": "HOLD",
+            "description": "how the sign presents the message",
+            "title": "Display Mode",
+            "type": "string"
+          },
+          "message": {
+            "description": "the message, including markup tokens such as <red> and <degree>, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign gives a file with no text in it no turn of its own but does hold the message before it several seconds longer, so the slot would be spent and the rotation would drag. Use DELETE to give the slot back",
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "order": {
+            "default": 0,
+            "description": "lower numbers play earlier in the rotation; ties break on the slot name",
+            "title": "Order",
+            "type": "integer"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "who registered this, recorded so the slot list is readable",
+            "title": "Source"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "act on the message this many seconds from now, deleting or hiding it according to delete_on_expiry. Omit it for no deadline, which leaves the message in place until something replaces or removes it",
+            "title": "Ttl Seconds"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "SlotRequest",
         "type": "object"
       },
       "SlotResponse": {
@@ -911,262 +911,6 @@
         ]
       }
     },
-    "/messages": {
-      "delete": {
-        "description": "Remove every slot, leaving the sign showing nothing.",
-        "operationId": "clear_messages_messages_delete",
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Take every message off the sign",
-        "tags": [
-          "Messages"
-        ]
-      },
-      "get": {
-        "description": "Return every registered slot, in rotation order, hidden ones included.\n\nA hidden slot is listed like any other, with `active` false. It is still\nregistered and still holding its file; it is simply not one the sign plays.",
-        "operationId": "list_messages_messages_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SlotResponse"
-                  },
-                  "title": "Response List Messages Messages Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List the messages sharing the sign",
-        "tags": [
-          "Messages"
-        ]
-      }
-    },
-    "/messages/{key}": {
-      "delete": {
-        "description": "Remove one slot and free the sign file it held.",
-        "operationId": "delete_message_messages__key__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "description": "the name of the slot, chosen by whoever owns it",
-              "maxLength": 64,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]+$",
-              "title": "Key",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Take a message off the sign",
-        "tags": [
-          "Messages"
-        ]
-      },
-      "get": {
-        "description": "Return one slot by name.",
-        "operationId": "get_message_messages__key__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "description": "the name of the slot, chosen by whoever owns it",
-              "maxLength": 64,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]+$",
-              "title": "Key",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlotResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Read one message",
-        "tags": [
-          "Messages"
-        ]
-      },
-      "put": {
-        "description": "Put a message in a slot, replacing whatever was there.\n\nThe sign rotates through the slots that are showing on its own, so\nregistering a second message does not displace the first.\n\nLeave `active` out and a hidden message stays hidden, which is what a source\nre-sending the same content every few minutes wants: repeating itself cannot\nswitch back on something that was deliberately hidden. Send it and the message\nmoves, so one call can write the text, set a deadline and put it up.\n`PUT /messages/{key}/active` does the same without resending the message.",
-        "operationId": "put_message_messages__key__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "description": "the name of the slot, chosen by whoever owns it",
-              "maxLength": 64,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]+$",
-              "title": "Key",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/MessageRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlotResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Register or replace a message",
-        "tags": [
-          "Messages"
-        ]
-      }
-    },
-    "/messages/{key}/active": {
-      "put": {
-        "description": "Take a message off the display, or put it back, keeping its slot either way.\n\nA hidden message stays registered. It keeps its slot, its file, its text and\nits place in the order, and is simply left out of the rotation the sign\ncycles, so showing it again needs no copy of what it said. `PUT /messages/{key}`\ncan move it too, by sending `active`; this endpoint is for when the caller\ndoes not have the message text to resend, and a caller who omits `active`\nthere cannot move it by accident.\n\nHiding or showing one is a single run sequence write. That does disturb the\ndisplay, but far less than rewriting a message does: briefly enough to be\nmissed unless you are watching a static screen for it. The hidden message's\nown file keeps its text, so showing it again sends nothing but the sequence.\nThe exception is the last message showing: that one's file is emptied as it\ngoes, because a sign whose sequence names nothing freezes on what it was\ndrawing.\n\n404 when no slot by that name is registered.",
-        "operationId": "set_message_active_messages__key__active_put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "key",
-            "required": true,
-            "schema": {
-              "description": "the name of the slot, chosen by whoever owns it",
-              "maxLength": 64,
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]+$",
-              "title": "Key",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SlotActiveRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SlotResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "ApiKeyAuth": []
-          }
-        ],
-        "summary": "Show or hide a message without unregistering it",
-        "tags": [
-          "Messages"
-        ]
-      }
-    },
     "/sign/command": {
       "post": {
         "description": "Send one of the sign's own control commands.\n\n`SOFT_RESET` restarts the sign. It erases nothing, the sign comes back\nshowing what it was showing, and it is the first thing to try on a sign that\nhas stopped responding. The display is blank for a few seconds while it runs\nits power-up diagnostics, and this call waits that out before answering, so\na 204 means the sign is listening again. Reach for `POST /sign/reboot` only\nwhen a soft reset is not enough: that one erases the sign and rebuilds it.",
@@ -1236,7 +980,7 @@
     },
     "/sign/reboot": {
       "post": {
-        "description": "Reset the sign to recover it, then put everything back.\n\n**A recovery tool, not a routine operation, and it is disruptive.** It sends\nthe memory clear that resets the sign, which erases every file on it and\ntakes the display blank for several seconds while the sign restarts. The\nservice then waits for the reset to finish and re-pushes every message and\nthe run sequence from its own record, so the sign comes back showing what it\nwas showing before rather than empty. Any active alert is re-asserted as\npart of that restore.\n\nUse it for a sign that has stopped responding to writes or is showing\ngarbage, the wedged-decoder state a unit mounted out of reach can fall into\nfrom a stray bit and that cannot be fixed by power cycling it by hand. Do\nnot use it to clear the sign: `DELETE /messages` takes every message off\nwithout resetting anything, and this puts them all straight back. Expect a\nblank display for twelve seconds or more before the rotation returns,\nlonger with a lot of messages to put back.\n\n503 if the sign cannot be reached, since a sign that is not answering cannot\nbe rebooted.",
+        "description": "Reset the sign to recover it, then put everything back.\n\n**A recovery tool, not a routine operation, and it is disruptive.** It sends\nthe memory clear that resets the sign, which erases every file on it and\ntakes the display blank for several seconds while the sign restarts. The\nservice then waits for the reset to finish and re-pushes every message and\nthe run sequence from its own record, so the sign comes back showing what it\nwas showing before rather than empty. Any active alert is re-asserted as\npart of that restore.\n\nUse it for a sign that has stopped responding to writes or is showing\ngarbage, the wedged-decoder state a unit mounted out of reach can fall into\nfrom a stray bit and that cannot be fixed by power cycling it by hand. Do\nnot use it to clear the sign: `DELETE /slots` gives up every slot without\nresetting anything, and this puts them all straight back. Expect a\nblank display for twelve seconds or more before the rotation returns,\nlonger with a lot of messages to put back.\n\n503 if the sign cannot be reached, since a sign that is not answering cannot\nbe rebooted.",
         "operationId": "reboot_sign_sign_reboot_post",
         "responses": {
           "204": {
@@ -1278,6 +1022,262 @@
         "summary": "Set the sign's clock now",
         "tags": [
           "Sign"
+        ]
+      }
+    },
+    "/slots": {
+      "delete": {
+        "description": "Remove every slot, leaving the sign showing nothing.",
+        "operationId": "clear_slots_slots_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Give up every slot",
+        "tags": [
+          "Slots"
+        ]
+      },
+      "get": {
+        "description": "Return every registered slot, in rotation order, hidden ones included.\n\nA hidden slot is listed like any other, with `active` false. It is still\nregistered and still holding its file; it is simply not one the sign plays.",
+        "operationId": "list_slots_slots_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SlotResponse"
+                  },
+                  "title": "Response List Slots Slots Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List the slots sharing the sign",
+        "tags": [
+          "Slots"
+        ]
+      }
+    },
+    "/slots/{key}": {
+      "delete": {
+        "description": "Remove one slot and free the sign file it held.",
+        "operationId": "delete_slot_slots__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "the name of the slot, chosen by whoever owns it",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._-]+$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Give up one slot",
+        "tags": [
+          "Slots"
+        ]
+      },
+      "get": {
+        "description": "Return one slot by name.",
+        "operationId": "get_slot_slots__key__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "the name of the slot, chosen by whoever owns it",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._-]+$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read one slot",
+        "tags": [
+          "Slots"
+        ]
+      },
+      "put": {
+        "description": "Put a message in a slot, replacing whatever was there.\n\nThe sign rotates through the slots that are showing on its own, so\nregistering a second slot does not displace the first.\n\nLeave `active` out and a hidden slot stays hidden, which is what a source\nre-sending the same content every few minutes wants: repeating itself cannot\nswitch back on something that was deliberately hidden. Send it and the slot\nmoves, so one call can write the text, set a deadline and put it up.\n`PUT /slots/{key}/active` does the same without resending the message.",
+        "operationId": "put_slot_slots__key__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "the name of the slot, chosen by whoever owns it",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._-]+$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Register or replace a slot",
+        "tags": [
+          "Slots"
+        ]
+      }
+    },
+    "/slots/{key}/active": {
+      "put": {
+        "description": "Take a slot off the display, or put it back, keeping it registered either way.\n\nA hidden slot stays registered. It keeps its file, its text and its place in\nthe order, and is simply left out of the rotation the sign cycles, so showing\nit again needs no copy of what it said. `PUT /slots/{key}`\ncan move it too, by sending `active`; this endpoint is for when the caller\ndoes not have the message text to resend, and a caller who omits `active`\nthere cannot move it by accident.\n\nHiding or showing one is a single run sequence write. That does disturb the\ndisplay, but far less than rewriting a message does: briefly enough to be\nmissed unless you are watching a static screen for it. The hidden slot's own\nfile keeps its text, so showing it again sends nothing but the sequence.\nThe exception is the last slot showing: that one's file is emptied as it\ngoes, because a sign whose sequence names nothing freezes on what it was\ndrawing.\n\n404 when no slot by that name is registered.",
+        "operationId": "set_slot_active_slots__key__active_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "the name of the slot, chosen by whoever owns it",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._-]+$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlotActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlotResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Show or hide a slot without giving it up",
+        "tags": [
+          "Slots"
         ]
       }
     },

@@ -106,9 +106,9 @@ def test_a_path_item_s_own_keys_are_not_mistaken_for_methods():
     # read other services' descriptions, and one that did would otherwise look
     # like a service full of endpoints named PARAMETERS.
     document = current()
-    document["paths"]["/messages"]["parameters"] = []
-    document["paths"]["/messages"]["summary"] = "the slots"
-    document["paths"]["/messages"]["servers"] = []
+    document["paths"]["/slots"]["parameters"] = []
+    document["paths"]["/slots"]["summary"] = "the slots"
+    document["paths"]["/slots"]["servers"] = []
     difference = compare(document, catalogue.OPERATIONS)
     assert difference.matches, difference.detail()
 
