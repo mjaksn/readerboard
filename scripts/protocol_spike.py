@@ -66,11 +66,20 @@ It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.
 
 This script is destructive. Step 2 writes a memory configuration, and that
-erases every message on the sign. It therefore refuses to run without
+erases every message on the sign. It therefore refuses to run step 2 without
 --confirm-erase. It allocates eight files by default, the service's own
 slot_count, because the last three steps need files that nothing has written;
 steps 3 to 8 use A, B and C exactly as they always have. --pool changes how
 many are allocated, up to the 26 the service allows.
+
+--steps runs part of it: --steps 7, --steps 3-5, --steps 7,9,11, --steps 5- for
+that step onwards. The steps hand state to each other, so two things follow.
+Leaving step 2 out erases nothing and takes the sign's existing memory
+configuration on trust, which is the way to re-ask one question without
+flattening the sign. And a run starting above step 3 writes the three files
+step 3 normally leaves behind, because every step above it expects to find
+them. Step 9 is the one step a partial run cannot fully honour: without step 2
+in the same run, nothing can promise its files were never written.
 
 Run it with the sign in front of you. It pauses to ask what you saw, then prints
 a summary to paste into docs/protocol-notes.md.
@@ -104,12 +113,53 @@ POOL_SIZE_DEFAULT = 8
 SLOT_CAPACITY = 256
 READ_LIMIT_BYTES = 4096
 
+# What those three files hold. Every step from 4 on expects to find them, and
+# names them in its questions, so they are one constant rather than a literal
+# in each place that rewrites them.
+MESSAGES = ("<red>ONE", "<green>TWO", "<amber>THREE")
+LAST_STEP = 11
+
 observations: list[tuple[str, str]] = []
 
 
 def labels_as_text(labels: list[bytes]) -> str:
     """Render file labels for a printed line or a question."""
     return " ".join(label.decode("ascii") for label in labels)
+
+
+def parse_steps(spec: str) -> set[int]:
+    """Turn ``7``, ``3-5``, ``7,9,11`` or ``5-`` into the steps to run.
+
+    Raises :class:`ValueError` with something a person can act on, which the
+    caller hands to ``parser.error``.
+    """
+    chosen: set[int] = set()
+    for piece in (part.strip() for part in spec.split(",")):
+        if not piece:
+            continue
+        if "-" in piece:
+            low, _, high = piece.partition("-")
+            first = _step_number(low or "1")
+            last = _step_number(high) if high.strip() else LAST_STEP
+            if last < first:
+                raise ValueError("%r runs backwards; write it low to high" % piece)
+            chosen.update(range(first, last + 1))
+        else:
+            chosen.add(_step_number(piece))
+    if not chosen:
+        raise ValueError("no steps were named")
+    return chosen
+
+
+def _step_number(text: str) -> int:
+    """Read one step number, refusing anything outside the script."""
+    try:
+        number = int(text.strip())
+    except ValueError:
+        raise ValueError("%r is not a step number" % text.strip()) from None
+    if not 1 <= number <= LAST_STEP:
+        raise ValueError("there is no step %d; they run from 1 to %d" % (number, LAST_STEP))
+    return number
 
 
 def note(question: str, answer: str) -> None:
@@ -205,18 +255,36 @@ def step_2_memory(link: serial.Serial, settle: float, pool: list[bytes]) -> None
     ask("Did the display blank, however briefly? [y/n/could not tell]")
 
 
-def step_3_rotation(link: serial.Serial, settle: float) -> None:
-    """Confirm the sign rotates several files by itself, without blanking."""
-    print("\nStep 3: write three files and let the sign rotate them itself")
-    for label, text in zip(POOL, ("<red>ONE", "<green>TWO", "<amber>THREE"), strict=True):
+def write_the_three_files(link: serial.Serial, settle: float) -> None:
+    """Put ONE, TWO and THREE back in A, B and C and name all three."""
+    for label, text in zip(POOL, MESSAGES, strict=True):
         send(
             link,
             frames.write_text_file(label, render(text)),
             label="write file %s" % label.decode(),
             settle=settle,
         )
-
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+
+
+def establish_baseline(link: serial.Serial, settle: float) -> None:
+    """Leave the sign in the state step 3 normally hands on.
+
+    Only for a partial run that starts above step 3. Every step from 4 up
+    expects to find A, B and C holding ONE, TWO and THREE with the sequence
+    naming all three, because the step before it left them that way.
+    """
+    print("\nPreparing: the steps chosen start above step 3, which is what normally")
+    print("  leaves A, B and C holding ONE, TWO and THREE with all three named.")
+    print("  Writing that now so the steps below start where they expect to.")
+    write_the_three_files(link, settle)
+    ask("Is the sign cycling ONE, TWO, THREE? [y/n]")
+
+
+def step_3_rotation(link: serial.Serial, settle: float) -> None:
+    """Confirm the sign rotates several files by itself, without blanking."""
+    print("\nStep 3: write three files and let the sign rotate them itself")
+    write_the_three_files(link, settle)
     print("\n  Watch the sign for about half a minute. Nothing more is being sent.")
     ask("Does it cycle ONE, TWO, THREE by itself? [y/n]")
     ask("Is the rotation seamless, with no blanking between messages? [y/n]")
@@ -624,16 +692,31 @@ def main() -> int:
         "service allows costs." % (POOL_SIZE_DEFAULT, len(c.TEXT_FILE_LABELS)),
     )
     parser.add_argument(
+        "--steps",
+        default="1-%d" % LAST_STEP,
+        help="which steps to run, as 7, or 3-5, or 7,9,11, or 5- for that one onwards. "
+        "Default is all of them. Step 1 opens the link and always runs. Leave step 2 "
+        "out and the sign keeps the memory configuration it already has, so nothing is "
+        "erased; a run that starts above step 3 writes the three files that step 3 "
+        "normally leaves behind, since every step above it expects to find them.",
+    )
+    parser.add_argument(
         "--confirm-erase",
         action="store_true",
         help="required, because step 2 erases every message on the sign",
     )
     args = parser.parse_args()
 
-    if not args.confirm_erase:
+    try:
+        chosen = parse_steps(args.steps)
+    except ValueError as err:
+        parser.error("--steps %s" % err)
+
+    if 2 in chosen and not args.confirm_erase:
         parser.error(
-            "this spike erases every message on the sign. Stop the service, and "
-            "anything else that writes to it, then pass --confirm-erase."
+            "step 2 erases every message on the sign. Stop the service, and anything "
+            "else that writes to it, then pass --confirm-erase. Or leave step 2 out "
+            "with --steps, which erases nothing."
         )
     if not len(POOL) < args.pool <= len(c.TEXT_FILE_LABELS):
         parser.error(
@@ -648,19 +731,41 @@ def main() -> int:
     print("readerboard protocol spike")
     print("Sign: %s at %d baud" % (args.url, args.baud))
     print("Pool: %d files, %s" % (len(pool), labels_as_text(pool)))
+    print("Steps: %s" % ", ".join(str(number) for number in sorted(chosen)))
+
+    if 2 not in chosen:
+        print("\nStep 2 is not being run, so nothing is erased and the sign keeps the")
+        print("memory configuration it already has. Every step below assumes that")
+        print("configuration allocates at least %s." % labels_as_text(pool))
+    if 9 in chosen and 2 not in chosen:
+        print("\nStep 9 asks what a file nothing has ever written draws, and without")
+        print("step 2 in the same run nothing can promise that %s" % labels_as_text(spare))
+        print("were never written. Read its answer as being about empty files rather")
+        print("than untouched ones.")
 
     link = step_1_transport(args.url, args.baud, args.settle)
     try:
-        step_2_memory(link, args.settle, pool)
-        step_3_rotation(link, args.settle)
-        step_4_empty_sequence(link, args.settle)
-        step_5_empty_file(link, args.settle)
-        step_6_priority(link, args.settle)
-        step_7_reads(link, args.settle)
-        step_8_timing(link, args.settle)
-        step_9_unwritten_files(link, args.settle, spare)
-        step_10_files_that_empty_and_fill(link, args.settle)
-        step_11_long_sequence(link, args.settle, pool)
+        after_2 = sorted(chosen - {1, 2})
+        if 2 in chosen:
+            step_2_memory(link, args.settle, pool)
+        # Step 3 leaves the state every later step starts from, so a partial run
+        # that skips past it has to put that state there itself.
+        if after_2 and after_2[0] > 3:
+            establish_baseline(link, args.settle)
+
+        runners = {
+            3: lambda: step_3_rotation(link, args.settle),
+            4: lambda: step_4_empty_sequence(link, args.settle),
+            5: lambda: step_5_empty_file(link, args.settle),
+            6: lambda: step_6_priority(link, args.settle),
+            7: lambda: step_7_reads(link, args.settle),
+            8: lambda: step_8_timing(link, args.settle),
+            9: lambda: step_9_unwritten_files(link, args.settle, spare),
+            10: lambda: step_10_files_that_empty_and_fill(link, args.settle),
+            11: lambda: step_11_long_sequence(link, args.settle, pool),
+        }
+        for number in after_2:
+            runners[number]()
     finally:
         link.close()
 
