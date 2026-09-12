@@ -383,9 +383,10 @@ COUNTER_5 = b"\x08\x7e"
 # below is not: the document draws that list as a graphic rather than setting it
 # as text, so it survives neither extraction nor a search. These six therefore
 # carry the same caveat as the extended character identities, and nothing in the
-# suite pins them. They are used only by the simulator's decoder, which names
-# whichever entry it matches, so a wrong selector here would mislabel a
-# transmission rather than send a wrong byte to a sign.
+# suite pins them. Three of them are sent to the sign, as the <font_normal>,
+# <font_half_height> and <font_wide> tokens in tokens.py, so a wrong selector in
+# one of those three draws the wrong thing rather than merely mislabelling a
+# transmission; the other three are only ever decoded.
 
 CHARSET_5_NORMAL = b"\x1a\x31"
 CHARSET_7_NORMAL = b"\x1a\x33"
@@ -796,7 +797,10 @@ STRING_SCHEDULE = b"0000"
 #
 # The timing is the document's own: the inter-byte timeout for a standard packet
 # is one second. The service's ``inter_packet_delay`` setting is a separate thing
-# and deliberately conservative until it is measured against the sign.
+# and sits at 0.25s, which is what this sign was measured taking six writes in a
+# row at on 2026-09-11, the same run failing at 0.1s. A rerun on 2026-09-12
+# passed at 0.1s, so the margin in the default is deliberate rather than
+# untested.
 
 PROTOCOL_GENERATION = '1.0'
 INTER_BYTE_TIMEOUT_SECONDS = 1.0

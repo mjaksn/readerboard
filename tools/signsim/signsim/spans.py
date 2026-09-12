@@ -84,8 +84,9 @@ def _build_table() -> dict[bytes, tuple[SpanKind, str, str]]:
         kind = SpanKind.GLYPH if token.text in _GLYPH_TOKENS else SpanKind.CONTROL
         table[token.value] = (kind, token.text, token.description)
 
-    # Sequences the service never sends but the sign accepts, so that a log of
-    # traffic from anything else is still readable.
+    # Sequences the sign accepts, so that a log of traffic from anything else is
+    # still readable. A few of them the service does send as markup tokens, and
+    # the token table's own entry wins for those: this list is the fallback.
     extra: tuple[tuple[bytes, str, str], ...] = (
         (c.TRUE_DESCENDERS_ON, "true_descenders_on", "Draw descenders below the baseline"),
         (c.TRUE_DESCENDERS_OFF, "true_descenders_off", "Return to descenders on the baseline"),

@@ -47,17 +47,15 @@ files is the revision rather than a mistake in either.
 What this file does NOT establish
 =================================
 
-The identity of the extended characters. The document renders them as glyphs in
-a Character column, and glyphs are exactly what does not survive text extraction
-from a PDF. So this file pins the *structure* of the extended character set,
-which the document states in words and which is a real and checkable
-constraint, but it cannot confirm from the document that byte 0xA9 is a degree
-sign rather than some other mark.
+The identity of the extended characters is not established from text. The
+document renders them as glyphs in a Character column, and glyphs are exactly
+what does not survive text extraction from a PDF, so this file pins the
+*structure* of the extended character set, which the document states in words.
 
-For those identities the evidence is empirical instead: this sign has been
-displaying ``<degree>`` after an outdoor temperature for years. That is weaker
-than a citation and is deliberately not dressed up as one. See
-``test_extended_character_identities_are_not_verified_here``.
+The identities themselves were settled on 2026-09-10 by reading the three table
+pages as images, and codes 80H through A8H turned out to be IBM CP437 exactly,
+which corroborates that whole run. See
+``test_extended_character_identities_come_from_the_printed_table``.
 """
 
 import pytest

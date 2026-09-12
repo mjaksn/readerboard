@@ -8,9 +8,11 @@ sign.** The wire formats below are quoted from the Alpha Sign Communications Pro
 itself, so they are no longer anybody's reading of anybody else's implementation. A session
 with the real BetaBrite Classic at the end of an Ethernet to RS-232 adapter on 2026-09-09
 settled three of the four behavioural questions that were open then. A second session on
-2026-09-11 settled the fourth, answered a fifth that had been added in between, and took the
-one measurement still outstanding. They are all listed at the end, with what each turned out
-to be.
+2026-09-11 settled the fourth, answered a fifth that had been added in between, and took
+the one measurement still outstanding, which a later run then put in doubt. A third, on
+2026-09-12, took two questions that came out of the fifth and then three more, and
+corrected one of its own answers on a second run that day as well as one given on
+2026-09-09. All ten are listed at the end, with what each turned out to be.
 
 That session also answered several things nobody had thought to doubt, each recorded below
 beside the measurement: a memory configuration does not display unless a bare `E$` clear
@@ -872,11 +874,12 @@ not say.
 ### Modes and positions are complete
 
 Table 65 has twenty-two standard mode codes and every one is accounted for. `d` (64H) is
-the mode the document calls reserved and this sign draws anyway, described above. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
+the mode the document calls reserved and this sign draws anyway, described above, and it
+is offered. `n` (6EH) is the SPECIAL prefix, which the special modes below are reached
 through. `m` (6DH) SCROLL is "New message line pushes the bottom line to the top line **if
 2-line sign**". `u` (75H) EXPLODE and `v` (76H) CLOCK are both marked Alpha 3.0, and Table
 3 gives a Betabrite as EZ KEY II and Alpha 1.0 only. The remaining seventeen are all
-offered.
+offered too, eighteen with `d`.
 
 Table 66's thirteen special modes are all offered but one: `C` (43H) CYCLE COLORS, whose
 footnote reads "COLOR CYCLE will only work on AlphaEclipse 3600 signs". All seven of Table
