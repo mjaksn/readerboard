@@ -252,7 +252,9 @@ def step_6_reads(link: serial.Serial) -> None:
 def step_7_timing(link: serial.Serial, settle: float) -> None:
     """Find the shortest gap between writes this sign will actually accept."""
     print("\nStep 7: how much settling time the sign actually needs")
-    print("  inter_packet_delay defaults to a conservative value, not a measured one.")
+    print("  inter_packet_delay defaults to 0.25s, which is what a BetaBrite Classic")
+    print("  was measured taking six writes in a row at on 2026-09-11, the same run")
+    print("  failing at 0.1s. This finds the figure for the sign in front of you.")
     print("  The protocol's own inter-byte timeout is %.0fs." % c.INTER_BYTE_TIMEOUT_SECONDS)
 
     for gap in (1.0, 0.5, 0.25, 0.1, 0.05):

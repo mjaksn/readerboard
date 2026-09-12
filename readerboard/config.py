@@ -62,13 +62,14 @@ class Settings(BaseSettings):
     baud_rate: int = Field(default=9600, ge=110, le=921600)
     serial_timeout: float = Field(default=10.0, gt=0)
     inter_packet_delay: float = Field(
-        default=0.5,
+        default=0.25,
         ge=0,
         le=10,
         description=(
-            "seconds to wait after each transmission before sending another. The old "
-            "server always slept 2 seconds; run scripts/protocol_spike.py to find what "
-            "this sign actually needs"
+            "seconds to wait after each transmission before sending another. The "
+            "default is what a BetaBrite Classic was measured taking six writes in a "
+            "row at, with the same run failing at 0.1; run scripts/protocol_spike.py "
+            "to find what your own sign needs"
         ),
     )
     settle_delays_enabled: bool = Field(
