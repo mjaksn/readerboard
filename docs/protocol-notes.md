@@ -504,9 +504,9 @@ What this settles for the service:
   the value short, it destroys it.
 - **A dangling call is invisible.** A call whose STRING has gone draws nothing, not garbage,
   and a freshly allocated STRING needs no blanking before it is used.
-- **Alerts can carry live values**, and a STRING write needs no deferral while an alert is
-  up. It is not on the list of things that cancel one, and on this sign it did not. That
-  rests on one alert calling one STRING, which is all the session tried.
+- **Alerts can carry live values**, and a STRING write can go out while an alert is up. It
+  is not on the list of things that cancel one, and on this sign it did not. That rests on
+  one alert calling one STRING, which is all the session tried.
 - **Reading a STRING back has no place in normal running.** It blanks the display, and it
   cannot tell an unallocated label from an empty one.
 
@@ -526,8 +526,8 @@ on hardware and not merely assumed.
 3. **Does a run sequence write cancel a running priority message?** Answered no, on
    2026-09-11. With ALERT holding the whole display, the run sequence was rewritten from
    A B C to A B, a real change rather than a no-op, and the alert stayed up. The service
-   still defers run sequence writes while an alert is active, which is now unnecessary and
-   can be removed; see below.
+   deferred run sequence writes while an alert was active until this settled it, and no
+   longer does; see below.
 4. **Does the sign answer reads through the Ethernet adapter?** Answered yes. All four
    reads in the table below came back correct, so the adapter is two-way and divergence
    could be detected by asking rather than by re-pushing on a timer.
@@ -592,12 +592,12 @@ The spike answered it on 2026-09-11. With an alert holding the display, the run 
 rewritten from A B C to A B, and the alert stayed up. So a Set Run Sequence write is not a
 fifth thing that cancels a priority message, and the list above is the whole list.
 
-The service still takes the cautious reading, which is now obsolete. While an alert is
-active the registry holds run sequence writes back and applies them when the sign is handed
-back. Writing a slot's own TEXT file was never on the list above and carries on normally, so
-content stays current behind the alert. The deferral can now go, and it takes with it
-`MessageRegistry._apply_run_sequence`'s `force` flag, `flush_deferred`, the alert service's
-release hook and the simulator's warning about it.
+Until that measurement the service took the cautious reading: while an alert was active the
+registry held run sequence writes back and applied them when the sign was handed back. That
+is gone, and it took with it `MessageRegistry._apply_run_sequence`'s `force` flag,
+`flush_deferred`, the alert service's release hook and the simulator's warning about it.
+Writing a slot's own TEXT file was never on the list above and was never held back, so
+content stayed current behind the alert either way.
 
 ## Reading state back
 

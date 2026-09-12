@@ -193,9 +193,8 @@ rules hold it together, and each has a reason that is easy to lose:
   variables share one lock so that nothing can slip between the check and the
   write. The alert service renders through `MessageRegistry.rendering`, which
   holds that lock until the priority file is written and the alert recorded.
-  Take the registry's lock before the alert service's, and never hold it across
-  `AlertService.release`, which takes it again to apply a run sequence it held
-  back.
+  Take the registry's lock before the alert service's, never the other way
+  round.
 - **Variables are written before messages** on a restore, a refresh and a
   reboot, so no message is drawn calling a STRING not yet written.
 - **The size check is not optional.** The sign does not truncate a value that
@@ -215,12 +214,6 @@ declines to write them again.
 
 ## Things that look wrong and are not
 
-- **Run sequence writes are held back while an alert is up.** The document says
-  a write to the run time or run day table cancels a running priority message,
-  and says nothing either way about the run sequence, so the service took the
-  cautious reading. The spike settled it on 2026-09-11: the alert survived a run
-  sequence write. The deferral is unnecessary and is waiting to be removed. See
-  `MessageRegistry._apply_run_sequence`.
 - **Everything is re-pushed on a timer.** The sign and the adapter are
   separately powered, so the sign can be power cycled with the TCP link still
   up. Nothing fires, the write cache stays warm, and suppression would then skip
@@ -295,9 +288,7 @@ file table, the contents of each file and each STRING file, the run sequence
 and the priority file.
 The state is what makes it worth having over a packet log. It says when a write
 lands in a file no memory configuration allocated, when a message overruns its
-file, when the run sequence names a file that does not exist, and when a run
-sequence write arrives during an alert, which the sign has since been measured
-taking without dropping the alert; that flag goes when the deferral does.
+file, and when the run sequence names a file that does not exist.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but

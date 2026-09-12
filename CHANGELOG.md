@@ -59,6 +59,18 @@ library, and the names inside it may move without that being a breaking change.
   Both fields appear in `GET /messages` and in the client, which grew the
   endpoint and a true/false field for each.
 
+### Changed
+
+- **Run sequence writes are no longer held back while an alert is up.** The
+  protocol lists four things that cancel a running priority message and says
+  nothing either way about a Set Run Sequence write, so the service had taken the
+  cautious reading and held those writes until the alert was released. The sign
+  settled it on 2026-09-11: with an alert holding the whole display the sequence
+  was rewritten from three files to two and the alert stayed up. So they go out
+  as they are made. Nothing about the HTTP surface changes; what changes is that
+  a slot registered, expired or hidden during an alert reaches the sign then
+  rather than at the release.
+
 ## [0.5.1] - 2026-09-11
 
 **A fix for signs reached through an Ethernet adapter.** `GET /sign/information`

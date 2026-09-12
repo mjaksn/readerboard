@@ -86,21 +86,14 @@ class MessageRegistry:
         state: ServiceState,
         *,
         now: Callable[[], datetime] = _utcnow,
-        alert_active: Callable[[], bool] = lambda: False,
     ) -> None:
-        """Wire the registry to the sign and to the state it was restored from.
-
-        ``alert_active`` lets the registry know when an alert is holding the
-        display. See :meth:`_apply_run_sequence` for why that matters.
-        """
+        """Wire the registry to the sign and to the state it was restored from."""
         self._controller = controller
         self._layout = layout
         self._store = store
         self._state = state
         self._now = now
-        self._alert_active = alert_active
         self._lock = asyncio.Lock()
-        self._deferred_run_sequence: list[bytes] | None = None
         self._dirty = False
 
     # == reading ============================================================
@@ -171,9 +164,7 @@ class MessageRegistry:
                 self._state.variables = {}
 
             self._reattach_labels()
-            # force, because the state file may say an alert was active but
-            # nothing has been re-asserted on the sign yet.
-            await self._rewrite_all(force=True)
+            await self._rewrite_all()
             self._save()
 
     def _reattach_labels(self) -> None:
@@ -240,7 +231,7 @@ class MessageRegistry:
                     name,
                 )
 
-    async def _rewrite_all(self, *, force: bool = False) -> None:
+    async def _rewrite_all(self) -> None:
         # Variables first, so that no message is ever drawn calling a STRING that
         # is not written yet, then the messages, then the run sequence that
         # starts playing them.
@@ -255,7 +246,7 @@ class MessageRegistry:
                 await self._write_slot(slot)
             else:
                 await self._hide(slot)
-        await self._apply_run_sequence(force=force)
+        await self._apply_run_sequence()
 
     async def refresh(self) -> None:
         """Push everything to the sign again, whether or not it looks necessary.
@@ -316,7 +307,7 @@ class MessageRegistry:
             # again is belt and braces: after a reset the cache is exactly what
             # cannot be trusted, and the rewrite below must not be suppressed.
             self._controller.forget_sign_contents()
-            await self._rewrite_all(force=True)
+            await self._rewrite_all()
             self._dirty = False
             self._save()
 
@@ -344,8 +335,7 @@ class MessageRegistry:
         would leave the alert calling a file the next variable could be given.
 
         The renderer takes a message and ``strict``, as :func:`render` does.
-        Nothing that holds this may wait on anything that takes this lock, and
-        releasing an alert does, through the run sequence it may have held back.
+        Nothing that holds this may wait on anything that takes this lock.
         """
         async with self._lock:
             yield self._render_message
@@ -865,59 +855,24 @@ class MessageRegistry:
         """
         await self._controller.write_text_file(slot.label.encode("ascii"), b"")
 
-    async def _apply_run_sequence(self, *, force: bool = False) -> None:
-        """Tell the sign which files to play, unless an alert is holding it.
+    async def _apply_run_sequence(self) -> None:
+        """Tell the sign which files to play.
 
-        The protocol says a running priority message is cancelled by a serial
-        write to the run time table or the run day table, and says nothing
-        either way about a write to the run sequence, so this took the cautious
-        reading: a slot expiring during an alert would otherwise take the alert
-        off the display with nothing to explain why.
-
-        The spike settled it on 2026-09-11. The sign was given a real run
-        sequence change with an alert up and kept the alert, so the deferral
-        below is unnecessary and is waiting to be removed, along with
-        ``flush_deferred``, the ``force`` flag and the alert service's release
-        hook.
-
-        Until then, while an alert is up the sequence is remembered and applied
-        when the sign is handed back. Writing a slot's own TEXT file is not on
-        the protocol's list and carries on as normal, so content stays current
-        behind the alert. Nor is writing a variable's STRING file, and on this
-        sign that was measured leaving an alert in place.
-
-        ``force`` is for startup, where the state file may say an alert was
-        active but nothing has been re-asserted on the sign yet.
+        This goes out whatever else is on the sign, an alert included. The
+        service used to hold these writes back while an alert was up, because
+        the protocol says a running priority message is cancelled by a serial
+        write to the run time table or the run day table and says nothing
+        either way about the run sequence. The spike settled it on 2026-09-11:
+        with an alert holding the whole display the sequence was rewritten from
+        A B C to A B, a real change rather than a no-op, and the alert stayed
+        up. A Set Run Sequence write is not a fifth thing that cancels one, so
+        there is nothing here to protect against.
         """
         # Only the active ones. An inactive slot keeps its file and its place in
         # the order and is simply not named here, which is the whole mechanism
         # behind switching a message off.
         labels = [slot.label.encode("ascii") for slot in self.list_slots() if slot.active]
-
-        if not force and self._alert_active():
-            self._deferred_run_sequence = labels
-            logger.debug(
-                "an alert is holding the sign, so the run sequence is deferred until release"
-            )
-            return
-
-        self._deferred_run_sequence = None
         await self._controller.set_run_sequence(labels)
-
-    async def flush_deferred(self) -> bool:
-        """Apply a run sequence that was held back during an alert.
-
-        Called when the alert is released. Returns whether anything was waiting.
-        """
-        async with self._lock:
-            labels = self._deferred_run_sequence
-            if labels is None:
-                return False
-            self._deferred_run_sequence = None
-            await self._controller.set_run_sequence(labels)
-
-        logger.info("applied the run sequence that was deferred during the alert")
-        return True
 
     def _save(self) -> None:
         self._store.save(self._state)
