@@ -5,9 +5,11 @@ The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
 RS-232 adapter. Seven things have been genuinely open, and this script is how
-each is put to the sign. The first five are settled, on 2026-09-09 and
-2026-09-11, and their answers are in docs/protocol-notes.md; running this again
-re-confirms them on the sign in front of you. The last two are open.
+each was put to the sign. All seven are settled now, across sessions on
+2026-09-09, 2026-09-11 and 2026-09-12, and their answers are in
+docs/protocol-notes.md. Running it again re-confirms them on the sign in front
+of you, which is worth doing: one answer has already been recorded wrongly once
+and caught on a repeat.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
@@ -23,10 +25,11 @@ re-confirms them on the sign in front of you. The last two are open.
    and holds it, rather than blanking.
 6. Does emptying that frozen file clear the display? Hiding or deleting the
    last message rewrites the sequence and then empties the file, so the
-   emptying is the only thing left that can end the freeze. Never tested.
+   emptying is the only thing left that can end the freeze. It does: the sign
+   went blank.
 7. What does an empty file do when the sequence names it beside full ones? The
-   service refuses an empty message, and tells callers the sign would cycle to
-   the file and show nothing there. Never tested either.
+   sign passes over it, with no blank turn of its own, the same treatment the
+   document gives a label with no file at all.
 
 It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.

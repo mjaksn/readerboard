@@ -64,7 +64,8 @@ class MessageRequest(BaseModel):
             "the message, including markup tokens such as <red> and <degree>, and "
             "<var:name> to call a variable, which has to exist first. It cannot be "
             "empty: an empty message holds a slot open around nothing, and the sign "
-            "cycles to a file with no text in it. Use DELETE to give the slot back"
+            "passes over a file with no text in it, so the slot would be spent and never "
+            "seen. Use DELETE to give the slot back"
         ),
     )
     display_mode: str = Field(default="HOLD", description="how the sign presents the message")

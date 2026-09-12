@@ -543,23 +543,29 @@ came out of the fifth, and the service already behaves as though it knows.
    every message's text and colour intact, with nothing rewritten in between: reactivating
    costs one packet and no redraw.
 
-6. **Does emptying the frozen file clear the display?** **Open.** Question 5 says the sign
-   holds its last message when the sequence names nothing, and every path that hides or
-   removes the last message rewrites the sequence and then empties that file. The emptying
-   is the only thing left that could end the freeze, and nothing has ever watched it
-   happen. If it does not end it, `DELETE /messages`, deleting the last slot and hiding the
-   last visible one all leave that message on the sign with no way to take it down.
-   `MessageRegistry._hide` and `_blank` are written as though the answer is yes.
-7. **What does an empty file do when the sequence names it beside full ones?** **Open.**
-   Question 5 emptied the sequence, not a file, so this has never been asked. Two places
-   answer it anyway: the `message` field's description, which callers read on the OpenAPI
-   page, says an empty message "holds a slot open around nothing, and the sign cycles to a
-   file with no text in it", and `_reattach_labels` says such a slot would sit there "while
-   the sign cycled to it and showed nothing". Both assert a blank turn in the rotation, and
-   neither has a measurement behind it. The document covers only the neighbouring case, a
-   label with no file at all, which it says is skipped. Little rests on it today, since the
-   API refuses an empty message and every path that empties a file unnames it first, but it
-   is a claim the project is making to its callers.
+6. **Does emptying the frozen file clear the display?** Answered yes, on 2026-09-12. The
+   sequence was set to file A alone so that the freeze would land somewhere known, emptied
+   so the sign froze on ONE, and then A was written empty underneath the freeze. The sign
+   went blank. So the blank that `MessageRegistry._blank` writes is what actually ends the
+   freeze, and `DELETE /messages`, deleting the last slot and hiding the last visible one
+   all clear the display rather than leaving their last message up for good. That was
+   assumed until this run.
+7. **What does an empty file do when the sequence names it beside full ones?** Answered on
+   2026-09-12, and **not the way the code said**. With A empty and B and C still holding
+   TWO and THREE, the sign **passes over A entirely**: no blank turn of its own, with TWO
+   and THREE cycling normally either side of it. That is the same treatment Appendix B
+   gives a label with no file at all, "If a File Label is invalid or does not exist, the
+   next File Label will be processed", extended to a file that exists and is empty.
+
+   Two places said otherwise, neither with a measurement behind it: the `message` field's
+   description, which callers read on the OpenAPI page, said the sign "cycles to a file
+   with no text in it", and `_reattach_labels` said such a slot would sit there "while the
+   sign cycled to it and showed nothing". Both are corrected. The practical difference is
+   small, since the API refuses an empty message and every path that empties a file unnames
+   it first, but it was a claim the project was making to its callers and it was wrong.
+
+   One session, one observation. The distinction it rests on is between a turn that is
+   skipped and a turn that is blank, and a short enough blank would look like a skip.
 
 Step 5 of `scripts/protocol_spike.py` puts both to the sign, in that order: it names one
 file so the freeze lands somewhere known, empties that file underneath the freeze, and then

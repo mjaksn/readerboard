@@ -173,9 +173,10 @@ class MessageRegistry:
         Two slots cannot: one whose file is outside the pool as it now stands,
         and one with no message, which an earlier version accepted. The second
         would otherwise be rewritten and left in the run sequence on every
-        start, holding a file open around nothing while the sign cycled to it
-        and showed nothing. A variable whose file is outside the pool cannot
-        come back either.
+        start, holding a file open around nothing. The sign passes over an empty
+        file rather than giving it a blank turn, measured on 2026-09-12, so the
+        slot would be spent without even showing as a gap in the rotation. A
+        variable whose file is outside the pool cannot come back either.
 
         A slot calling a variable that did not come back stays. The call draws
         nothing, which is what the sign itself draws for a call to a STRING that

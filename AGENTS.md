@@ -69,8 +69,7 @@ And being told to, which needs no reason.
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
 under `readerboard/protocol/`. It also lists the seven questions the document
-cannot answer: five that two sessions with the sign have settled, and two opened
-on 2026-09-12 that are still open, both about what an empty file does.
+cannot answer, all of which three sessions with the sign have now settled.
 
 ## The one dangerous operation
 
