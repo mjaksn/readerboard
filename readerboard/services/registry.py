@@ -360,7 +360,7 @@ class MessageRegistry:
         mode: str,
         order: int = 0,
         ttl_seconds: float | None = None,
-        on_expiry: str = "delete",
+        delete_on_expiry: bool = True,
         source: str | None = None,
     ) -> SlotState:
         """Register or replace a slot and put it on the sign.
@@ -398,7 +398,7 @@ class MessageRegistry:
                 mode=mode,
                 order=order,
                 active=previous.active if previous is not None else True,
-                on_expiry=on_expiry,
+                delete_on_expiry=delete_on_expiry,
                 source=source,
                 expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
                 updated_at=now,
@@ -541,11 +541,11 @@ class MessageRegistry:
     async def sweep(self) -> list[str]:
         """Act on slots whose TTL has passed, and let expired variables go stale.
 
-        What the deadline does is the slot's own ``on_expiry``: ``delete`` hands
-        its file back to the pool, ``deactivate`` keeps it registered and takes
-        it off the display, so it can be switched on again without being
-        registered afresh. Returns the keys of every slot whose deadline fired,
-        whichever of the two happened to it.
+        What the deadline does is the slot's own ``delete_on_expiry``: True hands
+        its file back to the pool, False keeps it registered and takes it off
+        the display, so it can be switched on again without being registered
+        afresh. Returns the keys of every slot whose deadline fired, whichever
+        of the two happened to it.
 
         A variable is never dropped here: messages call it, so it is given its
         stale value instead, which :meth:`_expire_variables` explains.
@@ -562,8 +562,8 @@ class MessageRegistry:
             if not expired:
                 return []
 
-            dropped = [slot for slot in expired if slot.on_expiry != "deactivate"]
-            deactivated = [slot for slot in expired if slot.on_expiry == "deactivate"]
+            dropped = [slot for slot in expired if slot.delete_on_expiry]
+            deactivated = [slot for slot in expired if not slot.delete_on_expiry]
 
             for slot in dropped:
                 del self._state.slots[slot.key]

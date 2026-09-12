@@ -43,18 +43,6 @@ VariableName = Annotated[
 ]
 
 
-ON_EXPIRY_CHOICES = ("delete", "deactivate")
-
-
-def _normalise_on_expiry(value: str) -> str:
-    lower = value.strip().lower()
-    if lower not in ON_EXPIRY_CHOICES:
-        raise ValueError(
-            "on_expiry must be one of %s, got %r" % (", ".join(ON_EXPIRY_CHOICES), value)
-        )
-    return lower
-
-
 def _normalise_mode(value: str) -> str:
     upper = value.strip().upper()
     if upper not in MODE_BY_NAME:
@@ -89,15 +77,16 @@ class MessageRequest(BaseModel):
         gt=0,
         description=(
             "act on the message this many seconds from now, deleting or hiding it "
-            "according to on_expiry; omit to keep it showing until it is replaced"
+            "according to delete_on_expiry; omit to keep it showing until it is replaced"
         ),
     )
-    on_expiry: str = Field(
-        default="delete",
+    delete_on_expiry: bool = Field(
+        default=True,
         description=(
-            "what happens when ttl_seconds passes: delete gives the slot back, and "
-            "deactivate keeps it registered but takes it off the display, so it can be "
-            "shown again without being sent afresh. Nothing without a ttl_seconds"
+            "what happens when ttl_seconds passes. True gives the slot back. False keeps "
+            "the message registered and takes it off the display, clearing the deadline "
+            "with it, so it can be shown again without being sent afresh. Nothing "
+            "without a ttl_seconds"
         ),
     )
     source: str | None = Field(
@@ -107,7 +96,6 @@ class MessageRequest(BaseModel):
     )
 
     _check_mode = field_validator("display_mode")(_normalise_mode)
-    _check_on_expiry = field_validator("on_expiry")(_normalise_on_expiry)
 
 
 class SlotActiveRequest(BaseModel):
@@ -135,7 +123,9 @@ class SlotResponse(BaseModel):
     active: bool = Field(
         description="whether the sign is playing it; a false one stays registered and hidden"
     )
-    on_expiry: str = Field(description="what ttl_seconds does when it passes")
+    delete_on_expiry: bool = Field(
+        description="whether ttl_seconds gives the slot back, or only hides the message"
+    )
     source: str | None
     expires_at: datetime | None
     updated_at: datetime
@@ -150,7 +140,7 @@ class SlotResponse(BaseModel):
             display_mode=slot.mode,
             order=slot.order,
             active=slot.active,
-            on_expiry=slot.on_expiry,
+            delete_on_expiry=slot.delete_on_expiry,
             source=slot.source,
             expires_at=slot.expires_at,
             updated_at=slot.updated_at,

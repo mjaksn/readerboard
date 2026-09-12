@@ -97,7 +97,7 @@ async def put_message(
         mode=body.display_mode,
         order=body.order,
         ttl_seconds=body.ttl_seconds,
-        on_expiry=body.on_expiry,
+        delete_on_expiry=body.delete_on_expiry,
         source=body.source,
     )
     return SlotResponse.of(slot)

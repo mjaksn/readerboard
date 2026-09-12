@@ -37,14 +37,19 @@ library, and the names inside it may move without that being a breaking change.
   message, and a source re-sending the same content every few minutes would
   otherwise switch a hidden message back on every time it did.
 
-- **`on_expiry` decides what a `ttl_seconds` does when it passes.** The default,
-  `delete`, is what a deadline has always done and hands the slot back.
-  `deactivate` hides the message and keeps the slot, for anything that comes back
+- **`delete_on_expiry` decides what a `ttl_seconds` does when it passes.** The
+  default, `true`, is what a deadline has always done and hands the slot back.
+  `false` hides the message and keeps the slot, for anything that comes back
   later rather than being finished with. An expiry that hides clears the deadline
   with it, so a message shown again does not vanish at the next sweep.
 
+  A boolean rather than a word with two accepted spellings: the caller picks
+  between the same two behaviours without having to find out which words the
+  field takes, and a typo is a 422 naming the field rather than a value the
+  service has to explain.
+
   Both fields appear in `GET /messages` and in the client, which grew the
-  endpoint and a true/false field for it.
+  endpoint and a true/false field for each.
 
 ## [0.5.1] - 2026-09-11
 

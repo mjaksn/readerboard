@@ -11,6 +11,7 @@ from apiclient.request import (
     API_KEY_HEADER,
     InvalidRequest,
     as_curl,
+    as_text,
     build,
     build_body,
     coerce,
@@ -49,6 +50,22 @@ def test_an_empty_path_parameter_is_refused_because_the_url_would_collapse():
     operation = catalogue.BY_ID["get_message"]
     with pytest.raises(InvalidRequest):
         fill_path(operation, {"key": "   "})
+
+
+def test_a_boolean_is_written_the_way_json_spells_it():
+    # A boolean field is a closed list of exactly these two, so the Python
+    # spelling would match nothing in it and the field would silently keep
+    # whatever it already held.
+    assert as_text(True) == "true"
+    assert as_text(False) == "false"
+    assert coerce("bool", as_text(True)) is True
+    assert coerce("bool", as_text(False)) is False
+
+
+def test_anything_else_is_written_as_itself_and_a_missing_value_as_nothing():
+    assert as_text("deactivate") == "deactivate"
+    assert as_text(12) == "12"
+    assert as_text(None) == ""
 
 
 def test_a_number_that_parses_is_sent_as_a_number():

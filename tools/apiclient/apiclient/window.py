@@ -393,7 +393,8 @@ class OperationForm(QWidget):
             # turns the text into a real JSON boolean.
             combo = QComboBox()
             combo.addItems(["true", "false"])
-            combo.setCurrentText(str(item.prefill) if item.prefill is not None else "true")
+            prefilled = request_module.as_text(item.prefill)
+            combo.setCurrentText(prefilled if item.prefill is not None else "true")
             self._body[item.name] = combo
             return combo
 
@@ -557,8 +558,7 @@ class OperationForm(QWidget):
                 continue
             if item.name not in payload:
                 continue
-            value = payload[item.name]
-            _set_text(widget, "" if value is None else str(value))
+            _set_text(widget, request_module.as_text(payload[item.name]))
 
     def path_values(self) -> dict[str, str]:
         """Return what has been typed into the path parameters."""

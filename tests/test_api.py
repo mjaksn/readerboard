@@ -269,12 +269,12 @@ class TestMessages:
         ).json()
 
         assert body["active"] is True
-        assert body["on_expiry"] == "delete"
+        assert body["delete_on_expiry"] is True
 
-    def test_an_unknown_on_expiry_is_422(self, client):
+    def test_a_delete_on_expiry_that_is_not_a_boolean_is_422(self, client):
         response = client.put(
             "/messages/one",
-            json={"message": "HI", "on_expiry": "burn"},
+            json={"message": "HI", "delete_on_expiry": "burn"},
             headers=HEADERS,
         )
         assert response.status_code == 422

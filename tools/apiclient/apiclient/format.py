@@ -392,7 +392,11 @@ def _slot(payload: object) -> list[Block]:
                     "expires",
                     when(payload["expires_at"]) if payload.get("expires_at") else "never",
                 ),
-                Row("on expiry", str(payload.get("on_expiry", "")), "what the deadline does"),
+                Row(
+                    "delete on expiry",
+                    yes_no(payload.get("delete_on_expiry")),
+                    "what the deadline does; no means it is hidden and kept",
+                ),
                 Row("updated", when(payload.get("updated_at"))),
             ),
         )

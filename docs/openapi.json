@@ -256,6 +256,12 @@
         "additionalProperties": false,
         "description": "A message registered into a slot.",
         "properties": {
+          "delete_on_expiry": {
+            "default": true,
+            "description": "what happens when ttl_seconds passes. True gives the slot back. False keeps the message registered and takes it off the display, clearing the deadline with it, so it can be shown again without being sent afresh. Nothing without a ttl_seconds",
+            "title": "Delete On Expiry",
+            "type": "boolean"
+          },
           "display_mode": {
             "default": "HOLD",
             "description": "how the sign presents the message",
@@ -267,12 +273,6 @@
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
-            "type": "string"
-          },
-          "on_expiry": {
-            "default": "delete",
-            "description": "what happens when ttl_seconds passes: delete gives the slot back, and deactivate keeps it registered but takes it off the display, so it can be shown again without being sent afresh. Nothing without a ttl_seconds",
-            "title": "On Expiry",
             "type": "string"
           },
           "order": {
@@ -304,7 +304,7 @@
                 "type": "null"
               }
             ],
-            "description": "act on the message this many seconds from now, deleting or hiding it according to on_expiry; omit to keep it showing until it is replaced",
+            "description": "act on the message this many seconds from now, deleting or hiding it according to delete_on_expiry; omit to keep it showing until it is replaced",
             "title": "Ttl Seconds"
           }
         },
@@ -401,6 +401,11 @@
             "title": "Active",
             "type": "boolean"
           },
+          "delete_on_expiry": {
+            "description": "whether ttl_seconds gives the slot back, or only hides the message",
+            "title": "Delete On Expiry",
+            "type": "boolean"
+          },
           "display_mode": {
             "title": "Display Mode",
             "type": "string"
@@ -428,11 +433,6 @@
           },
           "message": {
             "title": "Message",
-            "type": "string"
-          },
-          "on_expiry": {
-            "description": "what ttl_seconds does when it passes",
-            "title": "On Expiry",
             "type": "string"
           },
           "order": {
@@ -463,7 +463,7 @@
           "display_mode",
           "order",
           "active",
-          "on_expiry",
+          "delete_on_expiry",
           "source",
           "expires_at",
           "updated_at"

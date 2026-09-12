@@ -353,7 +353,7 @@ class TestExpiry:
     async def test_a_deadline_can_hide_a_slot_instead_of_dropping_it(
         self, registry, clock, layout
     ):
-        await add(registry, "bins", "BINS", ttl_seconds=60, on_expiry="deactivate")
+        await add(registry, "bins", "BINS", ttl_seconds=60, delete_on_expiry=False)
 
         clock.advance(61)
         assert await registry.sweep() == ["bins"]
@@ -368,7 +368,7 @@ class TestExpiry:
     async def test_a_hidden_slot_does_not_expire_again(self, registry, clock):
         # The deadline has already done what it was for. Left in place, the
         # slot would be hidden again the moment it was shown.
-        await add(registry, "bins", ttl_seconds=60, on_expiry="deactivate")
+        await add(registry, "bins", ttl_seconds=60, delete_on_expiry=False)
         clock.advance(61)
         await registry.sweep()
 
@@ -380,7 +380,7 @@ class TestExpiry:
 
     async def test_a_hidden_slot_leaves_the_run_sequence(self, registry, clock, transport):
         await add(registry, "kept")
-        await add(registry, "bins", ttl_seconds=60, on_expiry="deactivate")
+        await add(registry, "bins", ttl_seconds=60, delete_on_expiry=False)
         clock.advance(61)
 
         await registry.sweep()
@@ -391,7 +391,7 @@ class TestExpiry:
         self, registry, clock, layout
     ):
         await add(registry, "gone", ttl_seconds=60)
-        await add(registry, "bins", ttl_seconds=60, on_expiry="deactivate")
+        await add(registry, "bins", ttl_seconds=60, delete_on_expiry=False)
 
         clock.advance(61)
         assert sorted(await registry.sweep()) == ["bins", "gone"]

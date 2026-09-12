@@ -195,9 +195,10 @@ OPERATIONS: tuple[Operation, ...] = (
                 description="act on the message this many seconds from now; empty keeps it",
             ),
             Input(
-                name="on_expiry",
-                prefill="delete",
-                description="delete gives the slot back; deactivate keeps it and hides it",
+                name="delete_on_expiry",
+                kind="bool",
+                prefill=True,
+                description="true gives the slot back; false keeps it and hides the message",
             ),
             Input(
                 name="source",

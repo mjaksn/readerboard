@@ -254,7 +254,7 @@ back later, such as a bin day or a school notice:
 curl -X PUT http://localhost:5001/messages/bins \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<green>BINS OUT TONIGHT", "ttl_seconds": 43200,
-          "on_expiry": "deactivate"}'
+          "delete_on_expiry": false}'
 ```
 
 Show a live value. Create the variable first, then a message that calls it:

@@ -172,7 +172,7 @@ which leaves `active` exactly as it found it. Whether a message is showing is no
 part of the message, and the registry's own docstring says why: a source
 re-sending the same content every five minutes would otherwise switch a hidden
 message back on every time it did. A `ttl_seconds` can hide rather than delete,
-which is `on_expiry`.
+which is `delete_on_expiry`.
 
 A **variable** is a value in a STRING file of its own, which a slot's message
 calls with `<var:name>`. Writing one rewrites only that STRING file, and the
