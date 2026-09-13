@@ -20,6 +20,11 @@ services:
   readerboard:
     image: ghcr.io/mjaksn/readerboard:latest
     container_name: readerboard
+    # Comes back after a reboot and after a crash. Note that Compose has no
+    # equivalent of the systemd unit's start limit, so a failure that repeats
+    # for ever, such as a memory pool too big for the sign, restarts for ever
+    # too. The reason is in readerboard.service beside this file; `docker logs`
+    # shows the same message each time round.
     restart: unless-stopped
 
     environment:

@@ -16,6 +16,7 @@ immediately after the ``E``.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from readerboard.protocol import constants as c
@@ -199,12 +200,26 @@ def clear_memory() -> bytes:
 
 
 def memory_claimed(allocations: list[FileAllocation]) -> int:
-    """Bytes of the sign's memory pool a configuration would take.
+    """Bytes of the sign's memory pool a configuration would take."""
+    return memory_claimed_by(entry.capacity for entry in allocations)
 
-    The protocol charges each configured file eleven bytes of directory
-    overhead on top of its own size, and the total has to fit the pool.
+
+def memory_claimed_by(sizes: Iterable[int]) -> int:
+    """Bytes of the sign's memory pool files of these sizes would take.
+
+    The figures are what the sign was measured charging rather than what the
+    document says it charges: thirteen bytes of directory overhead per file
+    rather than eleven, and six bytes once over the whole configuration. See
+    ``MEASURED_FILE_OVERHEAD_BYTES`` in readerboard.protocol.constants for what
+    separates the two, and docs/protocol-notes.md for the readings.
+
+    This takes sizes rather than allocations so that the settings can ask what
+    a pool would cost before there is a layout to build it from.
     """
-    return sum(entry.capacity + c.FILE_OVERHEAD_BYTES for entry in allocations)
+    return (
+        sum(size + c.MEASURED_FILE_OVERHEAD_BYTES for size in sizes)
+        + c.MEASURED_POOL_OVERHEAD_BYTES
+    )
 
 
 def set_memory_config(allocations: list[FileAllocation]) -> bytes:

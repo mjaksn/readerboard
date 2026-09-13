@@ -1,5 +1,6 @@
 """Tests for the HTTP surface."""
 
+import contextlib
 import re
 import time
 from collections.abc import Iterator
@@ -10,18 +11,51 @@ from fastapi.testclient import TestClient
 from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
+from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.services import commands
 from readerboard.sign.controller import RESET_SETTLE_SECONDS, SOUND_SETTLE_SECONDS
+from readerboard.sign.pool import PoolTooLarge
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
 HEADERS = {"X-API-Key": KEY}
 
 
+def general_information(data: bytes) -> bytes:
+    """Frame a general information data field the way the sign frames its answers.
+
+    The checksum is the sum of every byte from STX to ETX as four hex digits,
+    and the EOT after it is what tells the service the answer is complete.
+    """
+    body = c.STX + c.COMMAND_WRITE_SPECIAL + c.SF_GENERAL_INFORMATION + data + c.ETX
+    return (
+        c.NUL * 20
+        + c.SOH
+        + c.SIGN_TYPE_RESPONSE
+        + c.SIGN_ADDRESS_BROADCAST
+        + body
+        + b"%04X" % sum(body)
+        + c.EOT
+    )
+
+
+# A 16 kB pool, which is roomier than the sign this service drives really is and
+# roomier than anything configured in this file needs.
+A_ROOMY_SIGN = b"1044-160B01931433M004000,0BB8"
+
+
 @pytest.fixture
 def sign() -> FakeTransport:
-    return FakeTransport()
+    transport = FakeTransport()
+    # The service asks the sign how big its memory pool is before it allocates
+    # one, and a fake answers nothing it was not told to answer. Without this,
+    # every test here would wait out the read's three second deadline for a sign
+    # that was never going to speak, and then fall back to the assumed figure
+    # anyway. Startup takes this one reply and leaves the queue empty for
+    # whatever a test scripts after it.
+    transport.replies.append(general_information(A_ROOMY_SIGN))
+    return transport
 
 
 @pytest.fixture
@@ -610,14 +644,7 @@ class TestSignCommands:
 class TestSignInformation:
     """The service's only read, and the only place a silent sign is visible."""
 
-    def reply(self, data: bytes) -> bytes:
-        """Frame a data field the way the sign frames its answers.
-
-        The checksum is the sum of every byte from STX to ETX as four hex digits,
-        and the EOT after it is what tells the service the answer is complete.
-        """
-        body = b"\x02" + b"E" + b'"' + data + b"\x03"
-        return b"\x00" * 20 + b"\x01" + b"0" + b"00" + body + b"%04X" % sum(body) + b"\x04"
+    reply = staticmethod(general_information)
 
     def test_it_reports_what_the_sign_says(self, client, sign):
         sign.replies = [self.reply(b"1044-160B01931433M004000,0BB8")]
@@ -685,6 +712,86 @@ class TestSignInformation:
         # One packet, and it is the question. Nothing was written.
         assert sign.packets == [frames.packet(frames.read_general_information())]
         assert client.get("/slots").json()[0]["key"] == "one"
+
+
+class TestTheSignsMemoryPool:
+    """The pool is asked for, not assumed, and only when one is about to be written.
+
+    A BetaBrite Classic has 5482 bytes, which the service knows because it asks.
+    The check matters at exactly one moment: the start that is about to write a
+    memory configuration, which erases every message on the sign.
+    """
+
+    def settings_for(self, tmp_path, **overrides) -> Settings:
+        return Settings(
+            api_key=KEY,
+            state_path=tmp_path / "state.json",
+            serial_url="loop://",
+            inter_packet_delay=0,
+            settle_delays_enabled=False,
+            clock_sync_enabled=False,
+            refresh_interval_seconds=3600,
+            registry_sweep_seconds=3600,
+            **overrides,
+        )
+
+    def test_it_asks_the_sign_before_allocating_a_pool(self, client, sign):
+        # The question goes out first, ahead of the clear and the configuration,
+        # because its answer decides whether those should happen at all.
+        assert sign.packets[0] == frames.packet(frames.read_general_information())
+
+    def test_a_pool_the_sign_cannot_hold_stops_the_service(self, tmp_path, sign):
+        # 26 slots of 190 bytes fits a BetaBrite Classic and does not fit the
+        # 1024 byte sign answering here.
+        sign.replies = [general_information(b"1044-160B01931433M000400,0400")]
+        settings = self.settings_for(tmp_path, slot_count=26, slot_capacity=190, variable_count=0)
+
+        with (
+            pytest.raises(PoolTooLarge, match="the sign has 1024"),
+            TestClient(create_app(settings, transport=sign)),
+        ):
+            pass
+
+    def test_it_stops_rather_than_erasing_the_sign_to_write_a_pool_that_cannot_work(
+        self, tmp_path, sign
+    ):
+        # The whole point of stopping. A configuration is an erase, so one that
+        # was never going to fit must not be sent: the sign keeps what it had.
+        sign.replies = [general_information(b"1044-160B01931433M000400,0400")]
+        settings = self.settings_for(tmp_path, slot_count=26, slot_capacity=190, variable_count=0)
+
+        with contextlib.suppress(PoolTooLarge), TestClient(create_app(settings, transport=sign)):
+            pass
+
+        written = [packet for packet in sign.packets if frames.clear_memory() in packet]
+        assert written == []
+        assert [packet for packet in sign.packets if b"E$A" in packet] == []
+
+    def test_an_ordinary_restart_asks_the_sign_nothing(self, tmp_path, sign):
+        settings = self.settings_for(tmp_path)
+        with TestClient(create_app(settings, transport=sign)):
+            pass
+
+        # Same settings, same state file, so the pool on the sign is already the
+        # pool that is wanted and nothing is going to be reallocated. Asking
+        # would cost the display half a second for an answer nothing would use.
+        again = FakeTransport()
+        with TestClient(create_app(settings, transport=again)):
+            pass
+
+        assert frames.packet(frames.read_general_information()) not in again.packets
+        assert again.replies == []
+
+    def test_a_sign_that_will_not_say_does_not_stop_the_service_starting(self, tmp_path):
+        # Nothing scripted, so this sign answers nothing, which is what a sign
+        # simulator and an unplugged cable both look like from here.
+        silent = FakeTransport()
+        settings = self.settings_for(tmp_path)
+
+        with TestClient(create_app(settings, transport=silent)) as client:
+            assert client.get("/health").status_code == 200
+
+        assert [packet for packet in silent.packets if frames.clear_memory() in packet] != []
 
 
 class TestThereIsNoVerticalPosition:

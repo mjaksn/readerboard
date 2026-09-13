@@ -9,6 +9,11 @@ Nothing here fails to start because the sign is unreachable. A service that
 refused to boot with the sign unplugged would need someone to notice and restart
 it once the sign came back, which is precisely the situation it exists to
 survive.
+
+There is one thing that does stop it, and it is not that. A sign that is
+answering and has less memory than the configured pool needs is a configuration
+somebody has to change, and going ahead would erase every message on the sign to
+write a pool that cannot work. See readerboard.sign.pool.
 """
 
 from __future__ import annotations
@@ -25,10 +30,11 @@ from readerboard import __version__, logging_setup, names
 from readerboard.api import errors, routes
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
-from readerboard.config import Settings
+from readerboard.config import ASSUMED_SIGN_MEMORY_POOL, Settings
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
 from readerboard.services.registry import SlotRegistry
+from readerboard.sign import pool
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
 from readerboard.sign.state import StateStore
@@ -168,6 +174,23 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         app.state.clock = clock
 
         await controller.start()
+
+        # Only when a reconfiguration is due, which is the one moment the pool
+        # can be got wrong and the one moment the sign is about to be erased. An
+        # ordinary restart asks the sign nothing, costs the display nothing, and
+        # behaves exactly as it did before this check existed. Nothing here can
+        # bring on a reallocation either: the only thing it can do is stop one.
+        if layout.needs_reconfiguration(state.layout):
+            budget = await pool.measure(controller, fallback=ASSUMED_SIGN_MEMORY_POOL)
+            try:
+                pool.check_fits(layout, budget)
+            except pool.PoolTooLarge as err:
+                # Logged as well as raised, because the traceback uvicorn prints
+                # around a failed startup buries the one sentence that says what
+                # to do about it.
+                logger.error("refusing to start: %s", err)
+                await controller.stop()
+                raise
 
         # The sign may be unreachable, and that is not a reason to refuse to
         # start. What is put back below happens again on the next reconnect.

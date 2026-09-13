@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from readerboard.protocol import constants as c
+from readerboard.protocol import frames
 from readerboard.protocol.tokens import DISPLAY_MODES
 from signsim.framing import Transmission
 from signsim.spans import Span, SpanKind, annotate, readable
@@ -720,7 +721,7 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
             Span(SpanKind.UNKNOWN, at, remainder, "trailing bytes", "Not a whole entry")
         )
 
-    claimed = sum(entry.capacity + c.FILE_OVERHEAD_BYTES for entry in entries)
+    claimed = frames.memory_claimed_by(entry.capacity for entry in entries)
     return SetMemoryConfig(
         code=code,
         name="Set memory configuration",
@@ -731,8 +732,9 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
             Detail(
                 "Memory claimed",
                 "%d bytes" % claimed,
-                "each file's own size plus %d bytes of directory overhead"
-                % c.FILE_OVERHEAD_BYTES,
+                "each file's own size plus the %d bytes of directory overhead the sign "
+                "was measured charging, and %d more over the configuration"
+                % (c.MEASURED_FILE_OVERHEAD_BYTES, c.MEASURED_POOL_OVERHEAD_BYTES),
             ),
             Detail(
                 "Labels",

@@ -11,6 +11,60 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Changed
+
+- **The size of the sign's memory pool is read from the sign rather than
+  assumed.** It was a constant, 26000 bytes, derived from a remembered claim that
+  a BetaBrite Classic holds around 30000 bytes all told. The sign was asked on
+  2026-09-12 and reported 5482, so the figure the configuration was checked
+  against was nearly five times the pool that exists, so a configuration with no
+  room to exist passed validation and reached the sign. What the sign does with
+  one has never been measured, and the protocol document does not say, which is
+  reason enough not to send one.
+
+  `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity` are now
+  checked twice. Once when the settings are read, against the 5482 bytes a
+  BetaBrite Classic has, because settings are validated on machines with no sign
+  attached. Once again at startup, against the figure the sign itself reports,
+  which wins in both directions: a sign with more memory may use it, and a sign
+  with less is believed.
+
+  **A pool that some sign held before may now be refused.** Eight messages of 256
+  bytes and eight variables of 32, the defaults, take under half the pool and are
+  unaffected. Twenty six variables of 125 bytes no longer fit beside eight
+  messages of 256, which they appeared to while the budget was a guess. The
+  refusal names what was configured, what it needs and what there is.
+
+  The startup check runs only on a start that is about to write a memory
+  configuration, which erases every message on the sign. An ordinary restart asks
+  the sign nothing and is unchanged. A sign that says nothing, says something
+  unreadable, or is a `loop://` URL with nothing behind it does not stop the
+  service starting: the 5482 stands in, at WARNING. That is also what the sign
+  simulator looks like, since it decodes reads and answers none, so a simulator
+  run now waits out the read's three second deadline once and logs that warning
+  before it allocates. A sign that answers clearly and does not have the room is
+  the one thing that does stop the service, because going ahead would erase every
+  message on it to write a pool that could never work.
+
+- **The systemd unit gives up after ten failed starts in five minutes.** It
+  restarted for ever before, which was right while every failure here was
+  transient. The check above adds one that is not: a pool too big for the sign
+  fails the same way every time, and each attempt puts a read on the wire that
+  stalls a scrolling message, so the loop is a sign that twitches every five
+  seconds until somebody logs in, which it needs either way. `systemctl
+  reset-failed readerboard` starts it trying again. Compose has no equivalent
+  and is unchanged; the comment beside `restart: unless-stopped` says so.
+
+- **A configured file is budgeted at the thirteen bytes of overhead the sign
+  charges, not the eleven the protocol document quotes.** Measured in the same
+  session. Two bytes a file was nothing against a pool of 26000 and is most of a
+  variable against one of 5482. The document's figure stays in the protocol layer
+  as the document's, pinned by `tests/test_constant_values.py`;
+  `docs/protocol-notes.md` records the readings, the two models that fit them
+  equally well, and the one measurement that would separate them.
+
 ## [0.6.0] - 2026-09-12
 
 ### Added
@@ -1401,6 +1455,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.6.0...HEAD
 [0.6.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.6.0
 [0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.0

@@ -28,12 +28,19 @@ from pydantic_settings import (
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
-# A BetaBrite Classic holds roughly 30000 bytes of messages and graphics all
-# told. Allocating the whole of it leaves the sign no room for anything else, so
-# the service refuses a pool that claims more than this much of it. The protocol
-# charges eleven bytes of directory overhead per configured file on top of each
-# file's own size, and that is counted too.
-SIGN_MEMORY_BUDGET = 26000
+# What the service assumes the sign's memory pool is when it cannot ask.
+#
+# A BetaBrite Classic reported 5482 bytes on 2026-09-12, read back from the sign
+# itself. An earlier figure here was 26000, taken from a remembered claim that
+# the sign holds around 30000 bytes of messages and graphics; it is nearly five
+# times the pool this hardware actually has, so the check it backed could not do
+# its job: a configuration with no room to exist passed it and went to the sign,
+# where what happens to one has never been measured.
+#
+# This is the first tier of the check rather than the whole of it. The service asks
+# the sign for its own figure at startup and uses that; see readerboard.sign.pool
+# for why the check is in two tiers and why this one cannot ask.
+ASSUMED_SIGN_MEMORY_POOL = 5482
 
 
 def _config_file() -> Path:
@@ -97,7 +104,12 @@ class Settings(BaseSettings):
         default=256,
         ge=16,
         le=4096,
-        description="bytes allocated to each message, after markup has been rendered",
+        description=(
+            "bytes allocated to each message, after markup has been rendered. This and "
+            "the three settings around it come out of the sign's memory pool, which is "
+            "5482 bytes on a BetaBrite Classic, and each file costs thirteen bytes of "
+            "overhead beyond its own size"
+        ),
     )
     variable_count: int = Field(
         default=8,
@@ -199,23 +211,33 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_pool_fits(self) -> Settings:
-        from readerboard.protocol.constants import FILE_OVERHEAD_BYTES
+        """Refuse a pool no BetaBrite Classic could hold.
 
-        slots = self.slot_count * (self.slot_capacity + FILE_OVERHEAD_BYTES)
-        variables = self.variable_count * (self.variable_capacity + FILE_OVERHEAD_BYTES)
-        claimed = slots + variables
-        if claimed > SIGN_MEMORY_BUDGET:
+        This is the tier of the check that runs with no sign present, because
+        it runs wherever settings are read: in the tests, in
+        scripts/dump_openapi.py, and on a machine whose sign is unplugged. So it
+        measures against ``ASSUMED_SIGN_MEMORY_POOL`` rather than against the
+        sign, and the sign is asked at startup instead, where the link is open
+        and its own answer can win. See readerboard.sign.pool.
+        """
+        from readerboard.protocol.frames import memory_claimed_by
+
+        claimed = memory_claimed_by(
+            [self.slot_capacity] * self.slot_count
+            + [self.variable_capacity] * self.variable_count
+        )
+        if claimed > ASSUMED_SIGN_MEMORY_POOL:
             raise ValueError(
                 "slot_count %d at slot_capacity %d and variable_count %d at "
-                "variable_capacity %d claim %d bytes of the sign's memory pool, more "
-                "than the %d this service is willing to take. Lower one of them."
+                "variable_capacity %d need %d bytes of the sign's memory pool, and a "
+                "BetaBrite Classic has %d. Lower one of them."
                 % (
                     self.slot_count,
                     self.slot_capacity,
                     self.variable_count,
                     self.variable_capacity,
                     claimed,
-                    SIGN_MEMORY_BUDGET,
+                    ASSUMED_SIGN_MEMORY_POOL,
                 )
             )
         if self.backoff_max < self.backoff_initial:

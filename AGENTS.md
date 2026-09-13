@@ -90,6 +90,19 @@ therefore destructive on the next start. It is done deliberately, it is logged
 at WARNING, and it must never become something an ordinary message or variable
 update can trigger.
 
+The pool has to fit, and there is less of it than there looks. This sign
+reported 5482 bytes on 2026-09-12, having been budgeted against 26000 since
+before anybody asked it, so a configuration five times too big for it passed
+every check the service had. `Settings` now refuses one no BetaBrite Classic
+could hold, and `readerboard/sign/pool.py` asks the sign for its own figure at
+startup: on the start that is about to reallocate, and on no other, so an
+ordinary restart is untouched and nothing there can bring on an erase that was
+not already coming. A sign that says nothing, answers rubbish or is a `loop://`
+URL falls back to the 5482 at WARNING and starts exactly as before. A sign that
+answers and does not have the room stops the service starting, which is the one
+thing that does, because the alternative is erasing every message on it to write
+a pool that could never work.
+
 Note that the protocol has a second reset which is nothing to do with this one.
 `E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,
 verified on hardware by reading everything back either side of it. It is the
@@ -300,7 +313,11 @@ Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but
 never that the token's byte value is right; `tests/test_constant_values.py` is
 still the only thing that checks that. And it is one way: read commands are
-decoded and shown, and nothing is answered.
+decoded and shown, and nothing is answered. That last one is visible now that
+the service asks how big the memory pool is before allocating one: every
+simulator run waits out the read's three second deadline and logs a warning that
+it is assuming the figure a real sign gave, which is correct and is not a fault
+in either of them.
 
 Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in

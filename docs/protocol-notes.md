@@ -87,10 +87,11 @@ Three consequences that shape the design:
    until a Memory Configuration is written first, unless the file is a Priority TEXT file
    or the default TEXT file A." So a service that only ever writes the priority file can
    work without configuring memory at all, and one that uses the file pool cannot.
-3. **Each file costs eleven bytes of overhead beyond its own size.** "The sum of all the
-   file sizes plus 11 bytes of overhead for each file should not exceed the total amount
-   of available memory in the pool." `Settings` counts that overhead when it checks a
-   configured pool against the sign's capacity.
+3. **Each file costs eleven bytes of overhead beyond its own size, says the document.**
+   "The sum of all the file sizes plus 11 bytes of overhead for each file should not
+   exceed the total amount of available memory in the pool." This sign charges thirteen,
+   measured below, and the service budgets with the measured figure while
+   `constants.FILE_OVERHEAD_BYTES` stays pinned to the document's.
 
 `E$` with nothing after it clears memory outright. `frames.clear_memory` spells that,
 kept separate from `set_memory_config` so an empty list cannot wipe the sign by accident.
@@ -139,6 +140,58 @@ question, and in that run there was no old message: step 1 had written SPIKE to 
 file and released it, so the sign reached step 2 with nothing of its own on the display. A
 "no" from a sign that had nothing to lose says nothing about the blank. The step now asks
 the two separately, so the next run cannot answer them together.
+
+### The memory pool, measured on the sign
+
+On 2026-09-12 the sign was asked what it has, through `F"`, and answered `156A`: **5482
+bytes**, the whole pool. The service had been budgeting against 26000, a figure derived
+from a remembered claim that a BetaBrite Classic holds around 30000 bytes of messages and
+graphics. It is nearly five times the pool this hardware actually has, so the check that
+was supposed to catch an oversized configuration could not: 26 slots of 800 bytes would
+pass validation and reach a sign with room for a fraction of it.
+
+**What the sign does with a configuration bigger than its pool has not been measured.**
+The document says only that the sum "should not exceed the total amount of available
+memory in the pool", and says nothing about what happens when it does. So the service does
+not rely on the sign to refuse one, and the question is settled before the write rather
+than after it. Somebody with a sign and an afternoon could measure it; nothing depends on
+the answer, since the configuration is refused either way.
+
+The same session measured what a file costs on top of its own size:
+
+- A TEXT file allocated on its own cost its size plus **19**.
+- Each further picture file cost its data plus **13**.
+
+Two models fit every reading equally well. Either files of different types cost different
+amounts, a TEXT file 19 and a picture 13; or every file costs 13 and a configuration costs
+6 once, whatever is in it. One session cannot separate them, because a second TEXT file's
+own marginal cost was never measured. **What is certain is that the marginal cost of a
+further file was 13 where it was measured, two more than the document's 11.**
+
+So the service budgets at 13 a file and carries the 6 as a reserve charged once, which is
+exactly right under the second model. Under the first it is optimistic, and by a knowable
+amount: if a TEXT file always costs 19, the budget under-counts by 6 for every slot past
+the first, 150 bytes at the full 26 of them, or under 3% of the pool. Worth knowing before
+configuring a pool that fits with almost nothing to spare, and not worth guarding against
+by charging 19 for files that may well cost 13.
+`constants.MEASURED_FILE_OVERHEAD_BYTES` and `MEASURED_POOL_OVERHEAD_BYTES` are those two
+figures, `FILE_OVERHEAD_BYTES` is still the document's 11, and
+`tests/test_constant_values.py` pins all three, the document's against the document and
+the other two against this section.
+
+**Allocating a second TEXT file and reading the free size back is what would settle it.**
+If the second costs 19 the types differ; if it costs 13 the six belongs to the
+configuration. Nothing in the service depends on the answer, since 6 bytes of a 5482 byte
+pool is a rounding error, but the two models would stop being two.
+
+What the service does with the figure is in `readerboard/sign/pool.py`. It asks the sign
+at startup, and only on a start that is about to write a memory configuration, which is
+the one moment the answer can change anything and the one moment the sign is about to be
+erased anyway. `config.ASSUMED_SIGN_MEMORY_POOL` is 5482 and is what stands in when the
+sign does not answer, answers something unreadable, or is a `loop://` URL with nothing
+behind it. A sign that answers and does not have room stops the service starting, which is
+the one thing that does; see "The one dangerous operation" in AGENTS.md for why erasing a
+sign to write a pool that cannot work is the worse of the two outcomes.
 
 ### The start and stop times
 

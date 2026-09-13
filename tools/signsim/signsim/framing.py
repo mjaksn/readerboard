@@ -33,8 +33,8 @@ EXPECTED_WAKEUP_NULLS = 5
 # bytes stop being stored.
 MAX_STORED_JUNK = 256
 
-# The largest frame worth buffering. The sign's whole memory pool is around
-# 30000 bytes and a single transmission writes a fraction of that, so anything
+# The largest frame worth buffering. The sign's whole memory pool is 5482 bytes,
+# measured on 2026-09-12, and a single transmission writes a fraction of that, so anything
 # past this is not a frame that lost its EOT, it is a peer that will never send
 # one. Without a ceiling the buffer grows for as long as such a peer keeps
 # talking.

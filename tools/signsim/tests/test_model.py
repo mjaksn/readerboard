@@ -79,8 +79,12 @@ class TestMemoryConfiguration:
         assert list(sign.memory_config) == [b"A"]
 
     def test_the_claimed_total_counts_the_per_file_overhead(self, sign):
+        # The overhead the sign was measured charging, not the eleven the
+        # document quotes. See MEASURED_FILE_OVERHEAD_BYTES.
         configure(sign, frames.FileAllocation(b"A", 100), frames.FileAllocation(b"B", 100))
-        assert sign.memory_claimed == 2 * (100 + c.FILE_OVERHEAD_BYTES)
+        assert sign.memory_claimed == 2 * (100 + c.MEASURED_FILE_OVERHEAD_BYTES) + (
+            c.MEASURED_POOL_OVERHEAD_BYTES
+        )
 
     def test_clearing_memory_leaves_no_table_at_all(self, sign):
         configure(sign, frames.FileAllocation(b"A", 64))
