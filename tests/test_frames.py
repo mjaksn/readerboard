@@ -231,6 +231,14 @@ class TestDotsAllocation:
         # the # of pixel columns in the picture".
         assert frames.FileAllocation.dots(b"6", 7, 16).encode() == b"6DU07104000"
 
+    def test_the_row_a_stray_pixel_is_in_is_counted_from_one(self):
+        # As the simulator counts them, and as a person does. "row 0" for the
+        # top row sends somebody to the wrong line.
+        with pytest.raises(frames.ProtocolError, match="row 1 has"):
+            frames.write_dots_file(b"6", ["0X0", "000"])
+        with pytest.raises(frames.ProtocolError, match="row 2 has"):
+            frames.write_dots_file(b"6", ["000", "0X0"])
+
     def test_the_colour_status_sits_where_a_schedule_would(self):
         entry = frames.FileAllocation.dots(b"6", 7, 16, c.DOTS_THREE_COLOUR).encode()
         assert entry.endswith(c.DOTS_THREE_COLOUR)

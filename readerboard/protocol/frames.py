@@ -308,14 +308,17 @@ def write_dots_file(label: bytes, rows: Sequence[str]) -> bytes:
         )
 
     body = bytearray()
-    for index, row in enumerate(rows):
+    # Counted from one, because the rows are counted from one everywhere a
+    # person reads them: the simulator labels the first one "row 1", and a
+    # message naming row 0 for the top row sends somebody to the wrong line.
+    for number, row in enumerate(rows, start=1):
         encoded = row.encode("ascii", errors="replace")
         stray = set(encoded) - set(c.DOTS_PIXEL_CODES)
         if stray:
             raise ProtocolError(
                 "row %d has %s, and a pixel is one of the digits %s from Table 22"
                 % (
-                    index,
+                    number,
                     ", ".join(repr(chr(code)) for code in sorted(stray)),
                     c.DOTS_PIXEL_CODES.decode("ascii"),
                 )
