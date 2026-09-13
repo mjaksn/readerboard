@@ -105,7 +105,9 @@ DEFAULT_API_PORT = 5001
 # The key the service reads, and the one the client fills its key box from.
 # Ordinarily it comes out of the config file; a machine that already exports one
 # for other reasons wins over that, because the service reads the environment
-# ahead of the file and this only reports what it finds and passes it on.
+# ahead of the file and this only reports what it finds and passes it on. Set and
+# empty counts as exported, which is the part that is easy to get wrong; see
+# _resolve_key.
 API_KEY_VARIABLE = "READERBOARD_API_KEY"
 
 # What the config file is written with when there is none. The address is a
@@ -357,9 +359,22 @@ def _resolve_key(settings: dict[str, object]) -> tuple[str, str]:
     the same order rather than reading the file alone. It is both what the client
     is handed and what is printed, and each has to be the key the service is
     actually checking against.
+
+    **An empty variable is not an absent one**, and the difference decides
+    whether every write works or none of them do. :func:`_start_service`
+    deliberately leaves the key alone, so the service inherits whatever is here,
+    and ``Settings`` does not skip an empty environment value: set and empty, it
+    comes back as the key, beating the config file. Measured, not assumed. So an
+    empty variable is the key the service will use, and falling through to the
+    file here would report a key the service is not checking against and fill the
+    client's box with it, which reads as a wrong key rather than as the variable
+    that silenced it.
+
+    Unlike the launcher beside this one, which sets the key for the service
+    itself and is therefore free to treat an empty variable as unset.
     """
-    from_environment = os.environ.get(API_KEY_VARIABLE) or ""
-    if from_environment:
+    from_environment = os.environ.get(API_KEY_VARIABLE)
+    if from_environment is not None:
         return from_environment, API_KEY_VARIABLE
 
     from_file = str(settings.get("api_key") or "")
@@ -378,6 +393,20 @@ def _report_key(api_key: str, source: str) -> None:
     """
     if api_key:
         print("[run] the API key is %s, from %s" % (api_key, source))
+        return
+
+    if source:
+        # Set and empty, which the service takes as its key and which therefore
+        # beats the file. Worth its own line: the file below may hold a perfectly
+        # good key, and the answer is to unset the variable rather than to go
+        # looking for what is wrong with that key.
+        print(
+            "[run] %s is set and empty, and the service reads it ahead of %s, so it "
+            "starts with no key and answers 503 to every write. Unset the variable to "
+            "use the key in that file. Reads and /health still work"
+            % (source, CONFIG_FILE.name),
+            file=sys.stderr,
+        )
         return
 
     print(

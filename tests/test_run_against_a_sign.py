@@ -274,6 +274,22 @@ def test_the_environment_beats_the_config_file(
     )
 
 
+def test_an_empty_variable_is_the_key_rather_than_no_variable_at_all(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The regression this file gained the key section for. _start_service leaves
+    # the key alone so the service inherits the variable, and Settings does not
+    # skip an empty environment value, so set and empty is the key the service
+    # uses and it beats the config file. Falling through to the file here would
+    # print a key the service is not checking against and fill the client's box
+    # with it, and every write would 503 while the box looked right.
+    monkeypatch.setenv(launcher.API_KEY_VARIABLE, "")
+    assert launcher._resolve_key({"api_key": "the-file-key"}) == (
+        "",
+        launcher.API_KEY_VARIABLE,
+    )
+
+
 def test_the_config_file_is_used_when_the_environment_says_nothing(
     launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
 ) -> None:
