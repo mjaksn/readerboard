@@ -342,7 +342,17 @@ PySide6, so they run in CI where Qt is not installed. That leaves one gap, which
 CI covers separately: nothing in either suite ever builds a window, so a signal
 wired to an attribute that does not exist yet would raise only on construction
 and no test would see it. The lint job already installs Qt to type-check the
-tools, so it builds each window once offscreen as well. The one worth knowing
+tools, so it builds each window once offscreen as well.
+
+Building one is not enough for every part of it, and the simulator is built
+twice for that reason. A window given an empty sign fills no panel, so anything
+that draws a row stays unrun: the files panel paints a picture through a
+QPainter, and constructing the window never reaches it. The second build is
+handed a sign holding a picture and asked to redraw, which is the only place
+that code runs before somebody sends a picture to the simulator by hand. A panel
+that draws something no test can assert about wants one of these.
+
+The one worth knowing
 about in the simulator round trips the frame builders above through its
 decoder: whatever the service builds has to read back as the command that built
 it. The one worth knowing about in the client diffs its endpoint catalogue
