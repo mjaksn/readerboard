@@ -754,17 +754,24 @@ def _write_dots(payload: bytes, offset: int) -> Command:
     at = offset + 6
     body = payload[6:]
     # Splitting on the carriage returns gives one more piece than there are of
-    # them, so every piece but the last is followed by one. Walking it that way
-    # rather than skipping the empty pieces is what keeps the offsets right: an
-    # empty row is still a carriage return that occupies a byte, and passing
-    # over it silently would put every span after it one place early and leave
-    # that byte in no span at all.
+    # them, so every piece but the last is followed by one. Each of those is a
+    # row, empty or not: a row with no pixels in it is a malformed picture
+    # rather than an absent one, and dropping it would shift every row after it
+    # up, leaving the bitmap this reports a row shorter than the one that
+    # arrived. Walking the pieces by position also keeps the offsets right,
+    # since an empty row still has a carriage return holding a byte.
+    #
+    # The exception is the piece after a trailing carriage return, which split
+    # invents and which stands for nothing sent. Table 22 makes that last CR
+    # optional, so a picture with no CR at the end has a real row there instead.
     pieces = body.split(c.CR)
     for index, line in enumerate(pieces):
         last = index == len(pieces) - 1
+        if last and not line:
+            continue
+        rows.append(line)
         stray = sorted(set(line) - set(c.DOTS_PIXEL_CODES))
         if line:
-            rows.append(line)
             spans.append(
                 Span(
                     SpanKind.UNKNOWN if stray else SpanKind.TEXT,

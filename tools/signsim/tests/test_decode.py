@@ -291,6 +291,23 @@ class TestComplaints:
         assert [one.data for one in rows] == [b"01"]
         assert result.transmission.raw[rows[0].offset : rows[0].end] == b"01"
 
+    def test_an_empty_row_is_a_row_rather_than_an_absent_one(self):
+        # A picture with a blank row in it is malformed, not a picture one row
+        # shorter. Dropping it would slide every row below it up, so the bitmap
+        # the simulator shows would not be the one that arrived.
+        built = c.COMMAND_WRITE_DOTS + b"6" + b"0302" + b"01" + c.CR + c.CR + b"23" + c.CR
+        result = payload(built)
+        assert [bytes(row) for row in result.command.rows] == [b"01", b"", b"23"]
+        assert any("not all the same width" in one for one in result.complaints)
+
+    def test_a_picture_with_no_carriage_return_after_its_last_row(self):
+        # Table 22 makes that one optional, so nothing here is missing and the
+        # piece split() would invent after a trailing CR is not invented.
+        built = c.COMMAND_WRITE_DOTS + b"6" + b"0202" + b"01" + c.CR + b"23"
+        result = payload(built)
+        assert [bytes(row) for row in result.command.rows] == [b"01", b"23"]
+        assert result.complaints == ()
+
     def test_a_picture_whose_rows_do_not_match_its_size(self):
         # Hand-built rather than through the frame builder, which refuses this.
         result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0704" + b"0123" + c.CR)

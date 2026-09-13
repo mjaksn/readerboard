@@ -496,6 +496,15 @@ class TestPictureFiles:
         notes = send(sign, frames.write_text_file(b"A", c.DOTS_INSERT + b"6"))
         assert "never been written" not in texts(notes)
 
+    def test_a_blank_row_is_kept_so_the_stored_bitmap_is_the_one_that_arrived(self, sign):
+        # Built by hand, since the frame builder refuses a ragged picture.
+        self.configured(sign)
+        send(sign, c.COMMAND_WRITE_DOTS + b"6" + b"0302" + b"01" + c.CR + c.CR + b"23" + c.CR)
+
+        assert [bytes(row) for row in sign.pictures[b"6"].rows] == [b"01", b"", b"23"]
+        assert sign.pictures[b"6"].height == 3
+        assert sign.pictures[b"6"].width == 2
+
     def test_a_memory_configuration_erases_the_pictures_too(self, sign):
         self.configured(sign)
         self.draw(sign)
