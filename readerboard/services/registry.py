@@ -616,10 +616,18 @@ class SlotRegistry:
 
             try:
                 yield _Rendering(self._render_message, draw)
-            except Exception:
+            except BaseException:
                 # The alert did not land, so nothing calls these. They are given
                 # up rather than left holding files against a message that is
                 # not on the sign.
+                #
+                # BaseException rather than Exception, here and at every other
+                # rollback below. A cancelled request raises CancelledError,
+                # which is not an Exception, so a handler that caught only
+                # Exception let a cancellation walk out holding whatever this
+                # had claimed. A client that gives up mid-write is ordinary, and
+                # enough of them emptied a pool that had nothing in it. Each of
+                # these re-raises, so nothing is swallowed by widening it.
                 self._undo_claims(claims)
                 raise
 
@@ -683,7 +691,7 @@ class SlotRegistry:
                 # picture not yet written. Same rule as a variable, and for the
                 # same reason.
                 await self._write_claims(claims.claimed)
-            except Exception:
+            except BaseException:
                 # The slot file has to go back too, and only here. A new key is
                 # given one by ``assign`` a few lines up, and the record that
                 # would own it is not built until after this block, so a failure
@@ -749,7 +757,7 @@ class SlotRegistry:
                         await self._hide(slot)
                     if sequence_changed:
                         await self._apply_run_sequence()
-            except Exception:
+            except BaseException:
                 # The write did not land, so the slot is not on the sign, and
                 # keeping it would promise what the sign is not showing. Put the
                 # registry back exactly as it was, then let the error surface: a
@@ -832,7 +840,7 @@ class SlotRegistry:
                     # cycle to a file that is still empty.
                     await self._write_slot(slot)
                     await self._apply_run_sequence()
-                except Exception:
+                except BaseException:
                     # Nothing landed, so claiming it is showing would be a lie.
                     slot.active = False
                     raise
@@ -996,7 +1004,7 @@ class SlotRegistry:
             self._state.variables[name] = variable
             try:
                 await self._controller.write_string_file(label, data)
-            except Exception:
+            except BaseException:
                 # As in upsert: a value that did not reach the sign must not be
                 # recorded as though it had.
                 if previous is not None:
@@ -1252,7 +1260,7 @@ class SlotRegistry:
                 )
                 if key is not None:
                     claims.claimed.append(key)
-        except Exception:
+        except BaseException:
             self._undo_claims(claims)
             raise
         return claims
