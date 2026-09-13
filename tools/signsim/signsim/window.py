@@ -29,13 +29,16 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass, field
 
-from PySide6.QtCore import QDateTime, QMargins, QModelIndex, Qt, Slot
+from PySide6.QtCore import QDateTime, QMargins, QModelIndex, QSize, Qt, Slot
 from PySide6.QtGui import (
     QAction,
     QCloseEvent,
     QColor,
     QFontDatabase,
+    QIcon,
+    QPainter,
     QPalette,
+    QPixmap,
     QResizeEvent,
 )
 from PySide6.QtWidgets import (
@@ -67,7 +70,7 @@ from signsim.decode import (
     mode_name,
     position_name,
 )
-from signsim.model import Note, NoteLevel, SignState
+from signsim.model import Note, NoteLevel, SignState, StoredPicture
 from signsim.server import SignEndpoint
 from signsim.spans import Span, SpanKind, annotate, readable
 
@@ -402,6 +405,12 @@ class MainWindow(QMainWindow):
         """
         self._sign_view = _FittedBrowser(MAX_SIGN_HEIGHT)
         self._files = _FittedTable(["File", "Bytes", "Size", "Mode", "Position", "Message"])
+        # Room for a picture drawn at the widest a file can be allocated. Qt
+        # scales an icon down to this, so a small one is left at its own size
+        # and nothing is shrunk to the default sixteen pixels square.
+        self._files.setIconSize(
+            QSize(c.DOTS_MAX_ROWS * _DOT_PITCH, c.DOTS_MAX_ROWS * _DOT_PITCH)
+        )
         self._memory = _FittedTable(["File", "Type", "Size", "Keyboard", "Schedule"])
         self._sequence = _FittedTable(["Order", "File", "Allocated", "Holds a message"])
 
@@ -850,17 +859,23 @@ class MainWindow(QMainWindow):
         )
 
     def _refresh_files(self) -> None:
-        """One row per TEXT file the sign is holding, then one per STRING file.
+        """One row per TEXT file the sign is holding, then the STRINGs and the pictures.
 
         A message calling a STRING reads with the value in place, as
         ``{a: 72}``, because what a call draws is the thing worth checking and
-        the file alone does not say it.
+        the file alone does not say it. A picture call reads as its size and the
+        picture itself is drawn in its own row, since a bitmap in a line of text
+        is bytes nobody can check.
         """
         state = self._state
         labels = sorted(state.files)
         strings = sorted(state.strings)
+        pictures = sorted(state.pictures)
         self._files.setRowCount(
-            len(labels) + len(strings) + (1 if state.priority_active else 0)
+            len(labels)
+            + len(strings)
+            + len(pictures)
+            + (1 if state.priority_active else 0)
         )
 
         row = 0
@@ -917,6 +932,29 @@ class MainWindow(QMainWindow):
                     _rendered(value) if value else "empty",
                 ],
             )
+            row += 1
+
+        for label in pictures:
+            picture = state.pictures[label]
+            geometry = state.geometry_of(label)
+            _fill(
+                self._files,
+                row,
+                [
+                    "%s (DOTS)" % label.decode("latin-1"),
+                    "%d by %d" % (picture.height, picture.width),
+                    "?" if geometry is None else "%d by %d" % geometry,
+                    "",
+                    "",
+                    "",
+                ],
+            )
+            drawing = self._files.item(row, 5)
+            if drawing is not None:
+                drawing.setIcon(QIcon(_picture_pixmap(picture)))
+                drawing.setToolTip(
+                    "\n".join(row_bytes.decode("latin-1") for row_bytes in picture.rows)
+                )
             row += 1
 
         self._files_section.set_count(self._files.rowCount())
@@ -1126,6 +1164,63 @@ class _FittedBrowser(QTextBrowser):
         wanted = min(height, self._limit)
         if wanted != self.height():
             self.setFixedHeight(wanted)
+
+
+# How many screen pixels one dot of a picture gets, the panel behind them, and
+# the colour for a pixel code the protocol has no entry for.
+_DOT_PITCH = 5
+_PANEL = "#0c0d0e"
+_UNLIT = "#2b1f18"
+_STRAY = "#ff00ff"
+
+# Table 22's nine pixel codes, as this sign draws them. Code 0 is an unlit dot,
+# which is drawn rather than left out so that the shape of a picture reads even
+# where it is empty. The eight lit ones are the colour tokens in the order the
+# table gives them, which is the order readerboard.icons names its inks in.
+_PIXEL_COLOURS = {
+    ord("0"): _UNLIT,
+    ord("1"): "#ff3a24",
+    ord("2"): "#36e05c",
+    ord("3"): "#ffae00",
+    ord("4"): "#99261c",
+    ord("5"): "#218f40",
+    ord("6"): "#9c5b1f",
+    ord("7"): "#ff761a",
+    ord("8"): "#ffe660",
+}
+
+
+def _picture_pixmap(picture: StoredPicture) -> QPixmap:
+    """Paint a stored picture as the dots it is.
+
+    Drawn rather than listed because a bitmap has no reading as text: a row of
+    ``0313130`` says nothing a person can check, and the same seven rows as dots
+    are either an arrow or they are not. The simulator is already a grid of
+    dots, so this is the sign's own idiom rather than a new one.
+
+    A code the protocol does not have is drawn in magenta rather than skipped.
+    The decoder complains about it too, but the picture is where it shows, and
+    something conspicuous beats a hole that reads as an unlit dot.
+    """
+    width = max(picture.width, 1) * _DOT_PITCH
+    height = max(picture.height, 1) * _DOT_PITCH
+    pixmap = QPixmap(width, height)
+    pixmap.fill(QColor(_PANEL))
+
+    painter = QPainter(pixmap)
+    try:
+        for y, row in enumerate(picture.rows):
+            for x, code in enumerate(row):
+                painter.fillRect(
+                    x * _DOT_PITCH + 1,
+                    y * _DOT_PITCH + 1,
+                    _DOT_PITCH - 1,
+                    _DOT_PITCH - 1,
+                    QColor(_PIXEL_COLOURS.get(code, _STRAY)),
+                )
+    finally:
+        painter.end()
+    return pixmap
 
 
 def _fill(table: QTableWidget, row: int, values: list[str]) -> None:

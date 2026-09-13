@@ -322,11 +322,13 @@ integration. Nothing in the service knows it exists.
 
 It shows each transmission byte by byte, coloured by what each span is and
 annotated with the protocol's own meaning, and it keeps the sign's state: the
-file table, the contents of each file and each STRING file, the run sequence
-and the priority file. The state is what makes it worth having over a packet
-log. It says when a write lands in a file no memory configuration allocated,
-when a message overruns its file, and when the run sequence names a file that
-does not exist.
+file table, the contents of each file, each STRING file and each picture file,
+the run sequence and the priority file. The state is what makes it worth having
+over a packet log. It says when a write lands in a file no memory configuration
+allocated, when a message overruns its file, when the run sequence names a file
+that does not exist, and when a message calls a picture file that is allocated
+but has nothing drawn in it yet. Picture files are drawn as dots rather than
+listed as bytes, because that is the only form a person can check one in.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but

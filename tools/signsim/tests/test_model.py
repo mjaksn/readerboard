@@ -411,3 +411,124 @@ class TestStringFiles:
         notes = configure(sign, frames.FileAllocation(b"A", 64))
         assert sign.strings == {}
         assert "a" in texts(notes)
+
+
+ICON = ("0333330", "3000003", "3088803", "3080803", "3088803", "3000003", "0333330")
+"""Seven rows of pixel codes that fit a 7 by 16 file with room to spare."""
+
+
+class TestPictureFiles:
+    """A third pool beside the messages and the values, and the rules it keeps."""
+
+    def configured(self, sign):
+        configure(
+            sign,
+            frames.FileAllocation(b"A", 64),
+            frames.FileAllocation.dots(b"6", 7, 16),
+        )
+        return sign
+
+    def draw(self, sign, label=b"6", rows=ICON):
+        return send(sign, frames.write_dots_file(label, list(rows)))
+
+    def test_a_picture_is_stored(self, sign):
+        self.configured(sign)
+        assert self.draw(sign) == []
+        assert [row.decode("ascii") for row in sign.pictures[b"6"].rows] == list(ICON)
+
+    def test_a_picture_written_before_any_configuration_is_refused(self, sign):
+        notes = self.draw(sign)
+        assert any(note.level is NoteLevel.VIOLATION for note in notes)
+        assert sign.pictures == {}
+
+    def test_a_picture_write_to_a_text_file_is_refused(self, sign):
+        self.configured(sign)
+        send(sign, frames.write_text_file(b"A", b"KEEP"))
+        notes = self.draw(sign, label=b"A")
+        assert "allocated as a TEXT file" in texts(notes)
+        assert sign.files[b"A"].body == b"KEEP"
+        assert sign.pictures == {}
+
+    def test_a_picture_write_to_nothing_is_refused(self, sign):
+        self.configured(sign)
+        notes = self.draw(sign, label=b"7")
+        assert "not in the sign's memory configuration" in texts(notes)
+
+    def test_a_picture_bigger_than_its_file_is_kept_and_complained_about(self, sign):
+        # Neither refused nor clipped. The service cannot check this either,
+        # because only the caller knows what the file was allocated at.
+        self.configured(sign)
+        notes = self.draw(sign, rows=["0" * 20] * 7)
+        assert any(note.level is NoteLevel.WARNING for note in notes)
+        assert "draws damaged" in texts(notes)
+        assert sign.pictures[b"6"].width == 20
+
+    def test_a_picture_taller_than_its_file_is_complained_about(self, sign):
+        self.configured(sign)
+        notes = self.draw(sign, rows=["0" * 4] * 9)
+        assert "draws damaged" in texts(notes)
+
+    def test_a_message_calling_a_picture_reads_as_its_size(self, sign):
+        # Not as its dots. A bitmap has no reading in a line of text, so the
+        # files panel draws it and this says how big it is.
+        self.configured(sign)
+        self.draw(sign)
+        send(sign, frames.write_text_file(b"A", b"[" + c.DOTS_INSERT + b"6]"))
+        assert sign.drawn(sign.files[b"A"].body) == "[{picture 6: 7 by 7}]"
+
+    def test_a_call_to_a_picture_never_written_is_warned_about(self, sign):
+        # The one way a picture call draws nothing that a STRING call cannot:
+        # the file is allocated and right and simply has no bitmap in it yet.
+        self.configured(sign)
+        notes = send(sign, frames.write_text_file(b"A", c.DOTS_INSERT + b"6"))
+        assert "never been written" in texts(notes)
+        assert sign.drawn(sign.files[b"A"].body) == "{picture 6: nothing}"
+
+    @pytest.mark.parametrize("label", [b"7", b"A"], ids=["unallocated", "a TEXT file"])
+    def test_a_call_to_anything_but_a_picture_file_draws_nothing(self, sign, label):
+        self.configured(sign)
+        notes = send(sign, frames.write_text_file(b"A", c.DOTS_INSERT + label))
+        assert "not an allocated DOTS file" in texts(notes)
+
+    def test_a_written_picture_is_not_complained_about_again(self, sign):
+        self.configured(sign)
+        self.draw(sign)
+        notes = send(sign, frames.write_text_file(b"A", c.DOTS_INSERT + b"6"))
+        assert "never been written" not in texts(notes)
+
+    def test_a_memory_configuration_erases_the_pictures_too(self, sign):
+        self.configured(sign)
+        self.draw(sign)
+        notes = configure(sign, frames.FileAllocation(b"A", 64))
+        assert sign.pictures == {}
+        assert "6" in texts(notes)
+
+    def test_clearing_memory_erases_the_pictures_too(self, sign):
+        self.configured(sign)
+        self.draw(sign)
+        send(sign, frames.clear_memory())
+        assert sign.pictures == {}
+
+    def test_the_run_sequence_skips_a_picture_file(self, sign):
+        # A run sequence names TEXT files. A picture is drawn from inside one.
+        self.configured(sign)
+        send(sign, frames.write_text_file(b"A", b"HI"))
+        send(sign, frames.set_run_sequence([b"A", b"6"]))
+        assert sign.playing == [b"A"]
+
+    def test_a_picture_costs_its_pixels_rather_than_its_size_field(self, sign):
+        # The size field is a geometry: 7 by 16 encodes as 0710, which reads as
+        # 1808. The sign packs two pixels to a byte, so the file's data is 56.
+        # The overheads are the measured ones, which is what the service uses.
+        self.configured(sign)
+        assert sign.memory_claimed == (
+            (64 + c.MEASURED_FILE_OVERHEAD_BYTES)
+            + (56 + c.MEASURED_FILE_OVERHEAD_BYTES)
+            + c.MEASURED_POOL_OVERHEAD_BYTES
+        )
+
+    def test_an_alert_can_call_a_picture(self, sign):
+        self.configured(sign)
+        self.draw(sign)
+        send(sign, frames.write_text_file(c.FILE_PRIORITY, b"SEE " + c.DOTS_INSERT + b"6"))
+        assert sign.drawn(sign.priority) == "SEE {picture 6: 7 by 7}"

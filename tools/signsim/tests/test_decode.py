@@ -94,6 +94,38 @@ class TestRoundTrip:
         assert command.body == body
         assert "<insert string a>" in command.summary
 
+    def test_a_memory_configuration_with_a_picture_file(self):
+        allocations = [
+            frames.FileAllocation(b"A", 256),
+            frames.FileAllocation.dots(b"6", 7, 16),
+        ]
+        entry = payload(frames.set_memory_config(allocations)).command.entries[1]
+        assert entry.label == b"6"
+        assert entry.file_type == c.FILE_TYPE_DOTS
+        assert entry.is_picture
+        # The size field is a geometry rather than a byte count, which is the
+        # one thing about a picture file a reader is most likely to get wrong.
+        assert entry.rows_and_columns == (7, 16)
+        assert entry.pool_bytes == 56
+
+    def test_a_picture_write(self):
+        rows = ["0333330", "3000003", "3088803", "3080803", "3088803", "3000003", "0333330"]
+        result = payload(frames.write_dots_file(b"6", rows))
+        command = result.command
+        assert isinstance(command, decode.WriteDots)
+        assert command.label == b"6"
+        assert command.declared_rows == 7
+        assert command.declared_columns == 7
+        assert [row.decode("ascii") for row in command.rows] == rows
+        assert result.complaints == ()
+        assert command.summary == "Write DOTS picture 6, 7 by 7"
+
+    def test_a_message_calling_a_picture(self):
+        body = render("<icon:sun> FINE", icons={("sun", None): b"6"})
+        command = payload(frames.write_text_file(b"A", body)).command
+        assert command.body == body
+        assert "<insert dots 6>" in command.summary
+
     def test_clear_memory_is_not_a_memory_configuration(self):
         assert isinstance(payload(frames.clear_memory()).command, decode.ClearMemory)
 
@@ -176,6 +208,8 @@ class TestSpansCoverTheFrame:
             frames.write_string_file(b"a", render_value("<green>OK")),
             frames.write_string_file(b"a", b""),
             frames.read_string_file(b"a"),
+            frames.write_dots_file(b"6", ["0123", "4567"]),
+            frames.read_dots_file(b"6"),
         ],
         ids=[
             "write",
@@ -190,6 +224,8 @@ class TestSpansCoverTheFrame:
             "string",
             "empty string",
             "string read",
+            "picture",
+            "picture read",
         ],
     )
     def test_every_byte_of_the_frame_belongs_to_exactly_one_span(self, built):
@@ -201,6 +237,23 @@ class TestComplaints:
     def test_a_string_value_over_the_documents_limit(self):
         result = payload(c.COMMAND_WRITE_STRING + b"a" + b"X" * 126)
         assert any("at most 125" in one for one in result.complaints)
+
+    def test_a_picture_whose_rows_do_not_match_its_size(self):
+        # Hand-built rather than through the frame builder, which refuses this.
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0704" + b"0123" + c.CR)
+        assert any("says 7 pixel rows and 1 followed" in one for one in result.complaints)
+
+    def test_a_picture_whose_rows_are_not_the_declared_width(self):
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"01234" + c.CR)
+        assert any("4 pixel columns and each row carries 5" in one for one in result.complaints)
+
+    def test_a_picture_with_a_pixel_code_the_table_does_not_have(self):
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"019X" + c.CR)
+        assert any("Table 22" in one for one in result.complaints)
+
+    def test_a_picture_cut_off_inside_its_size(self):
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"07")
+        assert any("only 2 byte(s) followed the label" in one for one in result.complaints)
 
     def test_a_string_file_labelled_with_a_question_mark(self):
         result = payload(c.COMMAND_WRITE_STRING + b"?72")

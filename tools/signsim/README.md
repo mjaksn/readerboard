@@ -91,7 +91,11 @@ Every span is coloured by what it is, with the protocol's own meaning beside it:
 for how it is set up, the contents of each file, the memory configuration and
 the run sequence. STRING files are listed among the files, and a message calling
 one reads with the value in place, as `{a: 72}`, here and in the band across the
-top. The four are sections rather than tabs on purpose. A write that
+top. Picture files are listed there too, and those are drawn rather than
+written out: a row of `0313130` says nothing a person can check, and the same
+seven rows as dots are either an arrow or they are not. A message calling a
+picture reads as its size, since a bitmap has no reading in a line of text. The
+four are sections rather than tabs on purpose. A write that
 changes something nobody has open changes nothing a person can see, which is the
 opposite of what this tool is for, so all four are on one scrolling column and a
 write to any of them is visible where it lands. Each header carries its own row
@@ -125,6 +129,15 @@ among others:
   short, so every message calling it shows nothing there;
 - a message calling a STRING file that is not there, which the sign draws as
   nothing at all, not even a space;
+- a Write DOTS picture aimed at a label that is not an allocated picture file,
+  or sent before any memory configuration;
+- a picture bigger than the file it goes in, which is neither refused nor cut
+  short: it draws damaged. The service cannot catch this one, because only the
+  caller knows what the file was allocated at;
+- a message calling a picture file that is not there, and separately one calling
+  a picture file that is allocated and has never been written, which draws
+  nothing until a bitmap goes in. That second one is an ordering mistake rather
+  than a wrong label, so it is worth telling apart;
 - a date insert or a STRING call inside a value, both of which the sign draws
   as a literal character from inside a STRING file;
 - a priority message over the fixed 125 bytes;
