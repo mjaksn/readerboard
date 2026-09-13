@@ -23,6 +23,7 @@ import pytest
 from readerboard import icons
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
+from readerboard.services.alerts import AlertTooLong
 from readerboard.services.registry import (
     IconsDisabled,
     PicturePoolFull,
@@ -285,6 +286,42 @@ class TestTheFullPool:
 
         assert set(state.pictures) == {"sun"}
         assert state.pictures["sun"].label == label
+
+    async def test_an_alert_refused_for_its_length_draws_nothing_over_the_old_one(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # The alert on the sign is calling the sun's file. An alert that is
+        # refused must not have drawn the moon into it on the way: the refusal
+        # happens after the render, so writing first would leave the alert that
+        # is still up showing an icon nobody asked for.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        label = state.pictures["sun"].label
+        transport.clear()
+
+        with pytest.raises(AlertTooLong):
+            await alerts.raise_alert("<icon:moon> " + "X" * 200, mode="HOLD")
+
+        assert picture_writes(transport) == []
+        assert state.pictures["sun"].label == label
+
+    async def test_an_alert_that_fits_does_draw_its_icon(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # The other half of the same change: deferring the write must not lose
+        # it. The picture goes out before the priority file that calls it.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        transport.clear()
+
+        await alerts.raise_alert("<icon:moon> DING", mode="HOLD")
+
+        sent = commands(transport)
+        assert sent.index(c.COMMAND_WRITE_DOTS) < sent.index(c.COMMAND_WRITE_TEXT)
+        assert set(state.pictures) == {"moon"}
 
     async def test_a_released_alerts_icon_can_be_taken(self, registry, alerts):
         alerts.set_rendering(registry.rendering)

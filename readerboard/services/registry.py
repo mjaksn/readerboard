@@ -50,7 +50,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -140,6 +140,40 @@ class _Claims:
 
     claimed: list[str] = field(default_factory=list)
     evicted: list[PictureState] = field(default_factory=list)
+
+
+class _Rendering:
+    """What :meth:`SlotRegistry.rendering` hands the alert service.
+
+    Calling it renders, which is all it used to be. Drawing the icons is a
+    second step on purpose, because the caller has a rule of its own to apply in
+    between: an alert is refused for being too long only after it has rendered,
+    and writing its icons before that refusal would draw them into files the
+    alert still on the sign is calling, leaving it showing the wrong picture
+    until something refreshed it.
+
+    So the order is render, decide, then draw. A caller that never draws has
+    claimed files and put nothing in them, which is why the two paths that
+    re-assert an alert already on the sign are given no message and claim
+    nothing.
+    """
+
+    def __init__(
+        self,
+        render: Callable[..., bytes],
+        draw: Callable[[], Awaitable[None]],
+    ) -> None:
+        """Hold the renderer and the write that has not happened yet."""
+        self._render = render
+        self._draw = draw
+
+    def __call__(self, message: str, *, strict: bool = True) -> bytes:
+        """Render a message, exactly as :meth:`SlotRegistry._render_message` does."""
+        return self._render(message, strict=strict)
+
+    async def draw_icons(self) -> None:
+        """Write the newly claimed pictures to the sign. Call it once, after deciding."""
+        await self._draw()
 
 
 def _utcnow() -> datetime:
@@ -545,7 +579,7 @@ class SlotRegistry:
         return not self._dirty
 
     @contextlib.asynccontextmanager
-    async def rendering(self, message: str | None = None) -> AsyncIterator[Callable[..., bytes]]:
+    async def rendering(self, message: str | None = None) -> AsyncIterator[_Rendering]:
         """Hold the files still while a message calling them is rendered and written.
 
         For the alert service, which writes the priority file itself. It gets
@@ -563,20 +597,25 @@ class SlotRegistry:
         want: those must not claim anything, because failing to would be a
         reason not to put the sign back.
 
-        The renderer takes a message and ``strict``, as :func:`render` does.
+        What is yielded is a :class:`_Rendering`: call it to render, and await
+        its ``draw_icons`` when the alert has been accepted, which is what puts
+        the newly claimed pictures on the sign. The two are separate because the
+        caller refuses an alert too long for the priority file after it renders,
+        and drawing first would put those pictures into files the alert already
+        on the sign is calling.
+
         Nothing that holds this may wait on anything that takes this lock.
         """
         async with self._lock:
             claims = _Claims()
             if message is not None:
                 claims = self._claim_pictures(message, replacing_alert=True)
-                try:
-                    await self._write_claims(claims.claimed)
-                except Exception:
-                    self._undo_claims(claims)
-                    raise
+
+            async def draw() -> None:
+                await self._write_claims(claims.claimed)
+
             try:
-                yield self._render_message
+                yield _Rendering(self._render_message, draw)
             except Exception:
                 # The alert did not land, so nothing calls these. They are given
                 # up rather than left holding files against a message that is
