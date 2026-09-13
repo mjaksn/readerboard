@@ -640,6 +640,29 @@ class TestWritingPicturesUnderAnAlert:
         assert alerts.active is not None
         assert not is_release(priority_writes(transport)[-1])
 
+    async def test_an_alert_replacing_one_puts_it_back_when_its_picture_fails(
+        self, wired, transport, monkeypatch
+    ):
+        # The alert service's own rollback, and the mirror of the registry's.
+        # Handing the sign back for a picture that then fails must not leave the
+        # rotation showing with an alert recorded as holding the display: before
+        # the hand-back existed, a failure here left the old alert up, because
+        # nothing had touched the priority file.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def fail(*args, **kwargs):
+            raise TransportError("the sign went away mid-picture")
+
+        monkeypatch.setattr(alerts._controller, "write_dots_file", fail)
+        with pytest.raises(TransportError):
+            await alerts.raise_alert("<icon:bell> DING", mode="HOLD")
+
+        assert alerts.active is not None
+        assert alerts.active.message == "FIRE"
+        assert not is_release(priority_writes(transport)[-1])
+
     async def test_a_put_back_that_fails_does_not_replace_the_real_failure(
         self, wired, transport, monkeypatch, caplog
     ):

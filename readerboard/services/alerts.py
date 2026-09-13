@@ -49,7 +49,6 @@ from readerboard.protocol.markup import render
 from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign.controller import SignController
 from readerboard.sign.state import AlertState, ServiceState, StateStore
-from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +202,7 @@ class AlertService:
                 else:
                     logger.info(
                         "the alert that was active before the restart is already back "
-                        "on the sign, put there with the pictures it calls"
+                        "on the sign, put back after the pictures were written"
                     )
 
         if not fits:
@@ -308,7 +307,15 @@ class AlertService:
                 await self._put_back(alert, render)
 
     async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> None:
-        """Write a lifted alert to the priority file again. Never raises."""
+        """Write an alert that was lifted off the sign back onto the priority file.
+
+        Never raises, and the breadth of that is deliberate. Every caller is
+        either in a ``finally`` or on a rollback path, so anything raised here
+        would arrive in place of the failure that brought us to it, and a caller
+        told the sign is unreachable when the pool was actually full has been
+        told the wrong thing about its own request. :meth:`reassert` puts the
+        alert back on its own timer, so nothing is lost by swallowing it.
+        """
         if self._state.alert is not alert:
             # Released or replaced while it was lifted. Whoever did that owns
             # the priority file now, and putting this back would undo them.
@@ -337,11 +344,11 @@ class AlertService:
             # priority file holds a release. Without it this would be suppressed
             # as a repeat of the write before the lift.
             await self._write(alert, body, force=True)
-        except TransportError as err:
-            # In a finally, during whatever failure caused it. Raising here would
-            # replace that failure with this one, and the periodic re-assert puts
-            # the alert back on its own.
-            logger.warning("could not put the lifted alert back on the sign: %s", err)
+        except Exception:
+            # Anything at all, for the reason in the docstring. Not
+            # BaseException: a cancellation is the caller going away and has to
+            # keep travelling.
+            logger.exception("could not put the lifted alert back on the sign")
 
     async def raise_alert(
         self,
@@ -405,17 +412,32 @@ class AlertService:
             # above leaves the sign holding whatever it held, icons included;
             # drawing before it would have put this alert's pictures into files
             # the alert already showing is calling.
-            if current is not None and render_message.draws_pictures:
-                # An alert is up and this one brings a picture, which the sign
-                # will not take while a priority message is running. The release
-                # is the alert's own to make, and the write below puts this
-                # alert on the file a moment later, so the rotation shows for
-                # that moment rather than the display going dark. Gated on there
-                # being a picture at all: without one, every alert replacing an
-                # alert would flash for nothing.
+            # The alert this one is replacing, when replacing it means handing
+            # the sign back first. An alert is up and this one brings a picture,
+            # which the sign will not take while a priority message is running.
+            # The release is the alert service's own to make rather than the
+            # registry's, because the registry is called from inside this lock.
+            # Gated on there being a picture at all: without one, every alert
+            # replacing an alert would hand the sign back for nothing.
+            replaced = current if render_message.draws_pictures else None
+            if replaced is not None:
                 await self._controller.clear_priority(force=True)
-            await render_message.draw_icons()
-            await self._write(alert, body)
+
+            try:
+                await render_message.draw_icons()
+                await self._write(alert, body)
+            except BaseException:
+                if replaced is not None:
+                    # The sign was handed back for the picture and this alert
+                    # never made it onto the file, so the display is showing the
+                    # rotation with an alert still recorded as holding it. Put
+                    # the old one back. Without this the hand-back would be a
+                    # regression on its own: before it, a write that failed here
+                    # left the alert that was up still up, because nothing had
+                    # touched the priority file.
+                    await self._put_back(replaced, render_message)
+                raise
+
             self._state.alert = alert
 
         self._store.save(self._state)
