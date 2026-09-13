@@ -731,6 +731,14 @@ the display, which two earlier runs exercised without ever looking.
     ask for a magnitude against the blank a TEXT file write causes rather than for a yes
     or no. Any design that polls the sign by reading is priced on these answers.
 
+    **Every read waits for the operator before it goes out.** Sixteen reads run in that
+    step, and sent back to back at a couple of seconds each nothing can be pinned on any
+    one of them, which is the whole difficulty with this question: the answer that matters
+    is not whether reading disturbs the display but which kind of read does. So each is
+    announced by name, sent on its own, and followed by a question asking which one did
+    it. The prompts that only wait carry no answer and are kept out of the summary, so
+    that sixteen "(no answer)" rows do not bury the observations.
+
     There is no TEXT file read in `readerboard/protocol/frames.py`. The spike builds that
     payload from `COMMAND_READ_TEXT` and the label by hand, the way the STRING spike built
     its own, so that a builder nothing has exercised does not land in the protocol layer

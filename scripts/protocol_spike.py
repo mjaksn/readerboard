@@ -197,6 +197,17 @@ def ask(question: str) -> str:
     return answer
 
 
+def pause(prompt: str) -> None:
+    """Wait for the operator without recording anything.
+
+    Separate from :func:`ask` because these carry no answer, and a run makes
+    enough of them that putting each one in the summary as "(no answer)" would
+    bury the observations that matter.
+    """
+    print()
+    input("  %s [enter] " % prompt)
+
+
 def send(link: serial.Serial, payload: bytes, *, label: str, settle: float) -> None:
     """Transmit one payload."""
     packet = frames.packet(payload)
@@ -232,22 +243,31 @@ def read_back(link: serial.Serial, payload: bytes, *, label: str, wait: float = 
     return reply
 
 
-def four_reads(link: serial.Serial) -> list[tuple[str, bytes]]:
-    """Send the four special function reads and return what each answered.
+def watched_read(link: serial.Serial, payload: bytes, *, label: str) -> bytes:
+    """Wait for the operator, then send one read.
 
-    One helper because step 7 sends them twice, once against a held message and
-    once against a scrolling one, and the comparison is only worth anything if
-    both rounds send exactly the same thing.
+    Every read step 7 asks about goes through here. Sent back to back they take
+    a couple of seconds each and a disturbance cannot be pinned on any one of
+    them; one at a time, with the operator watching before each goes out, the
+    question "which read did it" has an answer.
     """
-    return [
-        (
-            "memory configuration",
-            read_back(link, frames.read_memory_config(), label="read memory config (F$)"),
-        ),
-        ("memory pool size", read_back(link, frames.read_memory_pool_size(), label="read pool size (F#)")),
-        ("run sequence", read_back(link, frames.read_run_sequence(), label="read run sequence (F.)")),
-        ("run time table", read_back(link, frames.read_run_time_table(), label="read run time table (F))")),
-    ]
+    pause("Watch the display, then send the %s read." % label)
+    return read_back(link, payload, label="read %s" % label)
+
+
+def four_reads(link: serial.Serial) -> list[tuple[str, bytes]]:
+    """Send the four special function reads one at a time, and return the answers.
+
+    One helper because step 7 sends them three times over, and the comparison
+    between those rounds is only worth anything if each sends the same four.
+    """
+    reads = (
+        ("memory configuration", frames.read_memory_config(), "memory config (F$)"),
+        ("memory pool size", frames.read_memory_pool_size(), "pool size (F#)"),
+        ("run sequence", frames.read_run_sequence(), "run sequence (F.)"),
+        ("run time table", frames.read_run_time_table(), "run time table (F))"),
+    )
+    return [(name, watched_read(link, payload, label=label)) for name, payload, label in reads]
 
 
 def step_1_transport(url: str, baud: int, settle: float) -> serial.Serial:
@@ -401,7 +421,7 @@ def step_5_empty_file(link: serial.Serial, settle: float) -> None:
     print("\n  Now it is emptied underneath the freeze. Watch the sign from the moment")
     print("  you answer the next question: the write goes out first and the question")
     print("  after it comes %.2gs later, which is long enough to miss a change." % settle)
-    ask("Ready to watch file A be emptied? [enter]")
+    pause("Ready to watch file A be emptied")
     send(link, frames.write_text_file(b"A", b""), label="empty file A", settle=settle)
     print("\n  Give it half a minute. Blank is the answer the service is built on.")
     print("  Still showing ONE means the freeze outlives its own file, and that")
@@ -481,7 +501,6 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
 
     print("\n  The four reads go out back to back and take a few seconds. Watch the")
     print("  whole time rather than glancing at the end.")
-    ask("Ready? [enter]")
 
     replies = dict(four_reads(link))
 
@@ -490,7 +509,7 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
         "If it moved, how did it compare with the blank a TEXT file write causes? "
         "[nothing at all/smaller/about the same/larger]"
     )
-    ask("Did it happen on every read, or only some of them? [every/some/none/could not tell]")
+    ask("Which of the four did it? [all four/name them/none/could not tell]")
 
     # == the same four, against a message that is moving ====================
     print("\n  Now the same four reads against a message that is scrolling. This is")
@@ -508,7 +527,6 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
     )
     ask("Is A scrolling steadily across the display? [y/n]")
     print("\n  Watch the motion itself rather than the text.")
-    ask("Ready? [enter]")
 
     four_reads(link)
 
@@ -517,6 +535,7 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
         "[nothing/stalled and resumed/jumped/started again/blanked/other]"
     )
     ask("If it stalled, roughly how long for? [describe, or none]")
+    ask("Which of the four did it? [all four/name them/none/could not tell]")
 
     # == files the sign is not drawing from =================================
     print("\n  Last, the contents of two files nothing on the display is using. This")
@@ -541,18 +560,17 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
     print("  a value no message calls. Neither is on the display, and ONE is held")
     print("  still in front of you. Watch ONE.")
     ask("Is ONE on the sign by itself, holding still? [y/n]")
-    ask("Ready? [enter]")
 
     # frames.py has no TEXT file read, so this is built from the constants the
     # way the STRING spike built its own payloads. Adding the builder is real
     # work and does not belong in a spike commit.
-    replies["text file B"] = read_back(
-        link, c.COMMAND_READ_TEXT + b"B", label="read text file B (BB)"
+    replies["text file B"] = watched_read(
+        link, c.COMMAND_READ_TEXT + b"B", label="text file B (BB)"
     )
-    replies["STRING file %s" % STRING_POOL[0].decode()] = read_back(
+    replies["STRING file %s" % STRING_POOL[0].decode()] = watched_read(
         link,
         frames.read_string_file(STRING_POOL[0]),
-        label="read STRING %s (H%s)" % (STRING_POOL[0].decode(), STRING_POOL[0].decode()),
+        label="STRING %s, idle (H%s)" % (STRING_POOL[0].decode(), STRING_POOL[0].decode()),
     )
 
     ask("What did ONE do while those two reads went out? [nothing/flicker/blank/other]")
@@ -590,16 +608,15 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
         settle=settle,
     )
     ask("Is the STRING's text scrolling across the display? [y/n]")
-    ask("Ready? [enter]")
 
     four_reads(link)
-    replies["text file A, the wrapper"] = read_back(
-        link, c.COMMAND_READ_TEXT + b"A", label="read text file A (BA)"
+    replies["text file A, the wrapper"] = watched_read(
+        link, c.COMMAND_READ_TEXT + b"A", label="text file A, the wrapper (BA)"
     )
-    replies["STRING %s, on the display" % STRING_POOL[0].decode()] = read_back(
+    replies["STRING %s, on the display" % STRING_POOL[0].decode()] = watched_read(
         link,
         frames.read_string_file(STRING_POOL[0]),
-        label="read STRING %s, in use" % STRING_POOL[0].decode(),
+        label="STRING %s, the one on the display" % STRING_POOL[0].decode(),
     )
 
     ask(
@@ -723,7 +740,7 @@ def step_10_files_that_empty_and_fill(link: serial.Serial, settle: float) -> Non
     print("  the sign does when there is nothing left to give a turn to.")
     print("  2026-09-12 said blank rather than frozen, which is the opposite of what")
     print("  step 4's empty sequence does and is the point of asking both.")
-    ask("Ready to watch A, B and C be emptied one after another? [enter]")
+    pause("Ready to watch A, B and C be emptied one after another")
     for label in POOL:
         send(
             link,
@@ -740,7 +757,7 @@ def step_10_files_that_empty_and_fill(link: serial.Serial, settle: float) -> Non
     print("  disturbances one on top of the other. If a sequence that already names")
     print("  the file picks the text up by itself, the second packet is unnecessary.")
     print("  If it does not, nothing else in this run matters.")
-    ask("Ready to watch A be written, with the sequence untouched? [enter]")
+    pause("Ready to watch A be written, with the sequence untouched")
     send(link, frames.write_text_file(b"A", render("<red>ONE")), label="write file A", settle=settle)
     print("\n  Give it half a minute.")
     ask("Did ONE start showing, with no run sequence write? [y/n]")
