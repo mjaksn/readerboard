@@ -585,6 +585,57 @@ class TestReconfiguring:
 
         assert layout.needs_reconfiguration(moved)
 
+    async def test_a_rotated_label_table_costs_the_service_nothing(
+        self, controller, store, state, clock, monkeypatch, transport
+    ):
+        # End to end, and through the real path rather than a hand-built record:
+        # the labels come from a table in the code, so this edits the table and
+        # starts again. Checking that needs_reconfiguration says yes is not the
+        # same as checking the service acts on it, and acting on it is what puts
+        # the sign's files and the pool back in agreement.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "door", "<icon:lock> LOCKED")
+        assert state.pictures
+
+        rotated = (
+            c.PICTURE_FILE_LABELS[1],
+            c.PICTURE_FILE_LABELS[0],
+            *c.PICTURE_FILE_LABELS[2:],
+        )
+        monkeypatch.setattr(c, "PICTURE_FILE_LABELS", rotated)
+        transport.clear()
+
+        again = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await again.restore()
+
+        # A rotation of the first two is the same set, so nothing is reallocated
+        # and the messages survive.
+        assert frames.packet(frames.clear_memory()) not in transport.packets
+        assert "door" in state.slots
+
+    async def test_the_service_reallocates_when_the_labels_themselves_change(
+        self, controller, store, state, clock, monkeypatch, transport
+    ):
+        # And when the set really does change, the sign is reallocated, which
+        # erases it. That is the expensive answer and the only correct one: the
+        # sign holds the files the old table named, so every write to a new label
+        # would land in a file it never allocated and be discarded in silence.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+
+        different = (b"{", b"|", *c.PICTURE_FILE_LABELS[2:])
+        monkeypatch.setattr(c, "PICTURE_FILE_LABELS", different)
+
+        again = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await again.restore()
+
+        assert frames.packet(frames.clear_memory()) in transport.packets
+        assert state.slots == {}
+        assert state.pictures == {}
+
     def test_the_same_labels_in_a_different_order_cost_nothing(self):
         from readerboard.sign.state import AppliedLayout
 
