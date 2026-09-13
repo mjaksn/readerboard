@@ -25,6 +25,12 @@ library, and the names inside it may move without that being a breaking change.
   releases one runs on a timer, and refusing for something nobody wanted kept
   would make the answer depend on where in the second the call arrived.
 
+- **Load all in the client**, which sends every enumeration read in turn from one
+  press. The client keeps one call in flight, so this is a chain rather than five
+  requests: each set's read goes out from the completion of the one before it,
+  and a failure stops it there rather than stacking a dialog for every set still
+  waiting.
+
 - **A message can draw an icon.** `<icon:name>` puts one of 148 built-in bitmaps
   where the tag sits, and `<icon:name:colour>` retints the ones drawn in a single
   ink: `<icon:lock:red> DOOR LOCKED` costs the message two bytes. The colour words

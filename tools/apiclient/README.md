@@ -31,13 +31,19 @@ drill-down and no wizard: the things that would need a quarter of the window to
 show properly, a set of markup tokens or a call's full detail, open as dialogs
 instead.
 
-**Nothing is hardcoded.** The markup tokens, value tokens, display modes and control
-commands all start empty. Press the button beside a set and the client
+**Nothing is hardcoded.** The markup tokens, value tokens, display modes, control
+commands and icons all start empty. Press the button beside a set and the client
 calls the endpoint for it; the row then says how many arrived, from which
 endpoint and when, and a View button opens the list. Only then do the fields that
 use that set offer it: before that they are free text, and the button that
 inserts a markup token into a message is disabled and says which button to press
 first.
+
+Load all does the lot from one press. It is a chain rather than a handful of
+requests, because the client keeps one call in flight and would turn the rest
+away: each set's read is sent from the completion of the one before it. A failure
+stops the chain there, with one dialog rather than one for every set still
+waiting.
 
 That is the point of the design rather than an inconvenience. A client that ships
 its own copy of the vocabulary is a client that goes on offering a token for a
