@@ -120,6 +120,16 @@ COMMAND_CODES = [
     (c.COMMAND_READ_SPECIAL, b"F", '"F" (46H) = Read SPECIAL FUNCTION command, section 6.2'),
     (c.COMMAND_WRITE_STRING, b"G", '"G" (47H) = Write STRING file, Table 18 page 36'),
     (c.COMMAND_READ_STRING, b"H", '"H" (48H) = Read STRING file, Table 19 page 37'),
+    (
+        c.COMMAND_WRITE_DOTS,
+        b"I",
+        '"I" (49H) = Write SMALL DOTS PICTURE file, Table 22 page 39',
+    ),
+    (
+        c.COMMAND_READ_DOTS,
+        b"J",
+        '"J" (4AH) = Read SMALL DOTS PICTURE file, Table 24 page 41',
+    ),
 ]
 
 
@@ -188,6 +198,26 @@ def test_the_day_of_week_range_starts_at_sunday():
 MEMORY_CONFIG = [
     (c.FILE_TYPE_TEXT, b"A", '"A" 41H = TEXT file, the T field'),
     (c.FILE_TYPE_STRING, b"B", '"B" 42H = STRING file, the T field'),
+    # Table 15 prints "D" 43H against this one, which contradicts itself: 43H is
+    # the character C, and the two types above it follow their characters rather
+    # than their hex. The character is taken as authoritative, and the sign
+    # allocated and listed picture files from it on 2026-09-11.
+    (c.FILE_TYPE_DOTS, b"D", '"D" = DOTS picture file, the T field'),
+    (
+        c.DOTS_MONOCHROME,
+        b"1000",
+        '"1000 = monochrome" in the QQQQ field of a DOTS file, Table 15',
+    ),
+    (
+        c.DOTS_THREE_COLOUR,
+        b"2000",
+        '"2000 = 3-color" in the QQQQ field of a DOTS file, Table 15',
+    ),
+    (
+        c.DOTS_EIGHT_COLOUR,
+        b"4000",
+        '"4000 = 8-color" in the QQQQ field of a DOTS file, Table 15',
+    ),
     (c.FILE_UNLOCKED, b"U", '"U" 55H = Unlocked, the P field'),
     (c.FILE_LOCKED, b"L", '"L" 4CH = Locked, the P field'),
     (c.FILE_PRIORITY, b"0", 'File Label "0" (30H) is the Priority TEXT file, Appendix A'),
@@ -452,6 +482,11 @@ CONTROL_CODES = [
     (c.WIDE_CHARS_ON, b"\x12", "12H Enable wide characters"),
     (c.STRING_FILE_INSERT, b"\x10", "10H Call STRING file, must be followed by a STRING File Label"),
     (c.CURTIME_INSERT, b"\x13", "13H Call Time, time of day will be called up"),
+    (
+        c.DOTS_INSERT,
+        b"\x14",
+        "14H Call DOTS picture, must be followed by a DOTS picture File Label",
+    ),
     (c.SPEED_1, b"\x15", "15H Speed 1 (slowest)"),
     (c.SPEED_2, b"\x16", "16H Speed 2"),
     (c.SPEED_3, b"\x17", "17H Speed 3"),

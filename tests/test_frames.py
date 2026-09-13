@@ -173,6 +173,85 @@ class TestStringFiles:
         assert frames.read_string_file(b"a") == b"Ha"
 
 
+# A heart seven wide in red, the picture the spike drew on the sign first.
+HEART = [
+    "0110110",
+    "1111111",
+    "1111111",
+    "0111110",
+    "0011100",
+    "0001000",
+    "0000000",
+]
+
+
+class TestDotsFiles:
+    def test_the_write_is_i_the_label_the_height_the_width_then_the_rows(self):
+        # Table 22: the command, the file label, two hex digits of height, two
+        # of width, then one row per line each ended with a carriage return.
+        assert frames.write_dots_file(b"6", ["012", "345"]) == b"I60203" + b"012\r345\r"
+
+    def test_the_height_and_width_are_two_hex_digits_each(self):
+        picture = frames.write_dots_file(b"6", ["0" * 16] * 7)
+        assert picture.startswith(b"I6" + b"0710")
+
+    def test_a_row_ends_in_a_carriage_return_including_the_last(self):
+        # Table 22 allows the last one to be left off. It is sent, so that every
+        # row in a packet dump is terminated the same way.
+        assert frames.write_dots_file(b"6", HEART).endswith(b"0000000" + c.CR)
+
+    def test_ragged_rows_are_refused(self):
+        with pytest.raises(frames.ProtocolError, match="same width"):
+            frames.write_dots_file(b"6", ["012", "3456"])
+
+    def test_a_pixel_outside_table_22_is_refused(self):
+        # The sign has nine codes, 0 to 8. A 9 or a letter is a picture nobody
+        # can predict, so it fails here rather than on the wall.
+        with pytest.raises(frames.ProtocolError, match="Table 22"):
+            frames.write_dots_file(b"6", ["019"])
+
+    def test_a_picture_taller_than_the_protocol_allows_is_refused(self):
+        with pytest.raises(frames.ProtocolError, match="at most 31"):
+            frames.write_dots_file(b"6", ["0"] * 32)
+
+    def test_a_picture_with_no_rows_is_refused(self):
+        with pytest.raises(frames.ProtocolError, match="at least one row"):
+            frames.write_dots_file(b"6", [])
+
+    def test_calling_one_is_the_insert_and_the_label(self):
+        assert frames.call_dots_file(b"6") == b"\x146"
+
+    def test_reading_one_is_j_then_the_label(self):
+        assert frames.read_dots_file(b"6") == b"J6"
+
+
+class TestDotsAllocation:
+    def test_the_size_field_carries_the_geometry_not_a_byte_count(self):
+        # Table 15: "the first two bytes = # pixel rows and the last two bytes =
+        # the # of pixel columns in the picture".
+        assert frames.FileAllocation.dots(b"6", 7, 16).encode() == b"6DU07104000"
+
+    def test_the_colour_status_sits_where_a_schedule_would(self):
+        entry = frames.FileAllocation.dots(b"6", 7, 16, c.DOTS_THREE_COLOUR).encode()
+        assert entry.endswith(c.DOTS_THREE_COLOUR)
+
+    def test_eight_colour_is_the_default(self):
+        # Nothing else draws Table 22's full palette on this sign.
+        assert frames.FileAllocation.dots(b"6", 7, 16).schedule == c.DOTS_EIGHT_COLOUR
+
+    def test_the_geometry_reads_back_out_of_the_size_field(self):
+        assert frames.FileAllocation.dots(b"6", 7, 16).rows_and_columns == (7, 16)
+
+    def test_a_colour_status_the_sign_does_not_have_is_refused(self):
+        with pytest.raises(frames.ProtocolError, match="colour status"):
+            frames.FileAllocation.dots(b"6", 7, 16, b"8000")
+
+    @pytest.mark.parametrize("rows,columns", [(0, 16), (32, 16), (7, 0), (7, 256)])
+    def test_a_geometry_the_protocol_cannot_hold_is_refused(self, rows, columns):
+        with pytest.raises(frames.ProtocolError):
+            frames.FileAllocation.dots(b"6", rows, columns)
+
+
 class TestRunSequence:
     def test_labels_appear_in_the_order_given(self):
         assert frames.set_run_sequence([b"A", b"B", b"C"]) == b"E.SUABC"
@@ -285,3 +364,19 @@ class TestMemoryClaimed:
     def test_it_sums_across_the_pool(self):
         pool = [frames.FileAllocation(bytes([label]), 256) for label in b"ABCD"]
         assert frames.memory_claimed(pool) == 4 * (256 + c.FILE_OVERHEAD_BYTES)
+
+    def test_a_picture_is_charged_by_its_pixels_and_not_by_its_size_field(self):
+        # The size field of a seven by sixteen picture reads as 1808, and
+        # charging that would refuse a pool the sign takes without complaint.
+        # Two pixels to a byte is what the sign was measured doing.
+        picture = frames.FileAllocation.dots(b"6", 7, 16)
+        assert picture.capacity == 1808
+        assert picture.pool_bytes == 7 * 16 // 2
+        assert frames.memory_claimed([picture]) == 56 + c.FILE_OVERHEAD_BYTES
+
+    def test_a_text_file_is_charged_by_its_capacity(self):
+        assert frames.FileAllocation(b"A", 256).pool_bytes == 256
+
+    def test_only_a_picture_has_a_geometry(self):
+        with pytest.raises(frames.ProtocolError, match="only a DOTS file"):
+            _ = frames.FileAllocation(b"A", 256).rows_and_columns

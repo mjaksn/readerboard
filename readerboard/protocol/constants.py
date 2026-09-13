@@ -783,6 +783,34 @@ STRING_FILE_CAPACITY = 125
 STRING_SCHEDULE = b"0000"
 
 # ==========================================================================
+# SMALL DOTS PICTURE files
+# ==========================================================================
+# Section 6.4 and Table 22. A picture is a bitmap in a file of its own, drawn
+# inline by a TEXT file calling it with DOTS_INSERT and the picture's label.
+#
+# Where a TEXT file's allocation has a schedule, a picture has a colour status.
+# Table 15: "1000 = monochrome, 2000 = 3-color, 4000 = 8-color". Only the last
+# is worth sending to this sign, which drew Table 22's full palette from an
+# 8-colour file and mapped half the codes onto the other half from either of the
+# others. Measured 2026-09-11; see docs/protocol-notes.md.
+DOTS_MONOCHROME = b"1000"
+DOTS_THREE_COLOUR = b"2000"
+DOTS_EIGHT_COLOUR = b"4000"
+DOTS_COLOUR_STATUSES = (DOTS_MONOCHROME, DOTS_THREE_COLOUR, DOTS_EIGHT_COLOUR)
+
+# The height and width a write carries are two hex digits each, so a picture is
+# at most 255 of either. Table 22 sets the real ceiling lower on the rows: "the
+# maximum size of a SMALL DOTS PICTURE is 31 rows by 255 columns".
+DOTS_MAX_ROWS = 31
+DOTS_MAX_COLUMNS = 255
+
+# The nine pixel codes Table 22 gives, one character a pixel: off, red, green,
+# amber, dim red, dim green, brown, orange and yellow. Nine values need four
+# bits, and the sign was measured taking exactly half a byte of memory pool per
+# pixel, so this is the whole alphabet and not a subset of a wider one.
+DOTS_PIXEL_CODES = b"012345678"
+
+# ==========================================================================
 # What this sign will accept
 # ==========================================================================
 # The compatibility matrix lists the BetaBrite as EZ KEY II and Alpha 1.0 only,

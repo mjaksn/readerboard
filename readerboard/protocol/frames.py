@@ -52,6 +52,76 @@ class FileAllocation:
             schedule=c.STRING_SCHEDULE,
         )
 
+    @classmethod
+    def dots(
+        cls,
+        label: bytes,
+        rows: int,
+        columns: int,
+        colour: bytes = c.DOTS_EIGHT_COLOUR,
+    ) -> FileAllocation:
+        """Describe a SMALL DOTS PICTURE file of ``rows`` by ``columns`` pixels.
+
+        The size field is where this differs from every other file, and it is
+        the difference a caller is most likely to get wrong. Table 15: "the
+        first two bytes = # pixel rows and the last two bytes = the # of pixel
+        columns in the picture". So the same four hex digits a byte count would
+        occupy carry a geometry instead, and the rows go in the high byte.
+
+        Where a TEXT file has its schedule, a picture has a colour status, and
+        the default here is the only one worth using: "1000 = monochrome, 2000 =
+        3-color, 4000 = 8-color", and this sign was measured drawing Table 22's
+        full palette from an 8-colour file and mapping half the codes onto the
+        other half from either of the others.
+        """
+        if not 1 <= rows <= c.DOTS_MAX_ROWS:
+            raise ProtocolError(
+                "a picture is between 1 and %d pixel rows, got %d" % (c.DOTS_MAX_ROWS, rows)
+            )
+        if not 1 <= columns <= c.DOTS_MAX_COLUMNS:
+            raise ProtocolError(
+                "a picture is between 1 and %d pixel columns, got %d"
+                % (c.DOTS_MAX_COLUMNS, columns)
+            )
+        if colour not in c.DOTS_COLOUR_STATUSES:
+            raise ProtocolError(
+                "a picture's colour status is one of %s, got %r"
+                % (
+                    ", ".join(sorted(s.decode("ascii") for s in c.DOTS_COLOUR_STATUSES)),
+                    colour,
+                )
+            )
+        return cls(
+            label,
+            rows << 8 | columns,
+            file_type=c.FILE_TYPE_DOTS,
+            schedule=colour,
+        )
+
+    @property
+    def rows_and_columns(self) -> tuple[int, int]:
+        """The pixel rows and columns a DOTS file's size field encodes."""
+        if self.file_type != c.FILE_TYPE_DOTS:
+            raise ProtocolError("only a DOTS file's size is a geometry")
+        return self.capacity >> 8, self.capacity & 0xFF
+
+    @property
+    def pool_bytes(self) -> int:
+        """What this file's own data takes out of the sign's memory pool.
+
+        For a TEXT or STRING file that is its capacity, because the capacity is
+        a byte count. For a picture it is not: the size field is a geometry, so
+        adding it to a budget charges a seven by sixteen icon 1808 bytes for
+        something that was measured taking 56. The sign packs two pixels to a
+        byte, which is what Table 22's nine pixel codes need, and that halving
+        was exact at 112, 448 and 1984 pixels on 2026-09-12. See "A second run"
+        in docs/protocol-notes.md.
+        """
+        if self.file_type != c.FILE_TYPE_DOTS:
+            return self.capacity
+        rows, columns = self.rows_and_columns
+        return rows * columns // 2
+
     def __post_init__(self) -> None:
         """Reject an allocation the sign could not accept."""
         if len(self.label) != 1:
@@ -162,6 +232,96 @@ def write_string_file(label: bytes, data: bytes) -> bytes:
     return c.COMMAND_WRITE_STRING + label + data
 
 
+def write_dots_file(label: bytes, rows: list[str] | tuple[str, ...]) -> bytes:
+    """Build the payload that draws ``rows`` into the SMALL DOTS PICTURE ``label``.
+
+    Each row is one character a pixel, from Table 22's nine codes. The payload
+    is the command, the label, the height and width as two hex digits each, then
+    the rows, each ended with a carriage return.
+
+    Two things the document says about this are not honoured, and both were
+    settled on the sign rather than argued from the text.
+
+    The pause is not taken. "Following the Width bytes, there should be at least
+    a 100 millisecond delay (not to exceed the timeout period) before sending
+    the Row Bit Pattern." A picture sent in one transmission drew correctly on
+    2026-09-11, so the controller's ordinary write path serves and a picture
+    needs no special pacing.
+
+    The last carriage return is sent. Table 22 makes it optional; sending it
+    costs a byte and means every row is terminated the same way, which is one
+    fewer thing for a reader of a packet dump to wonder about.
+
+    Nothing here can check the picture against its allocation, which only the
+    caller knows. That check matters: a picture wider than the file it goes in
+    is not refused and not clipped, it draws damaged.
+    """
+    if len(label) != 1:
+        raise ProtocolError("a file label is exactly one byte, got %r" % label)
+    if not rows:
+        raise ProtocolError("a picture needs at least one row of pixels")
+
+    height = len(rows)
+    if height > c.DOTS_MAX_ROWS:
+        raise ProtocolError(
+            "a picture is at most %d pixel rows, got %d" % (c.DOTS_MAX_ROWS, height)
+        )
+
+    widths = {len(row) for row in rows}
+    if len(widths) != 1:
+        raise ProtocolError(
+            "every row of a picture is the same width, got %s"
+            % ", ".join(str(width) for width in sorted(widths))
+        )
+    width = widths.pop()
+    if not 1 <= width <= c.DOTS_MAX_COLUMNS:
+        raise ProtocolError(
+            "a picture is between 1 and %d pixel columns, got %d" % (c.DOTS_MAX_COLUMNS, width)
+        )
+
+    body = bytearray()
+    for index, row in enumerate(rows):
+        encoded = row.encode("ascii", errors="replace")
+        stray = set(encoded) - set(c.DOTS_PIXEL_CODES)
+        if stray:
+            raise ProtocolError(
+                "row %d has %s, and a pixel is one of the digits %s from Table 22"
+                % (
+                    index,
+                    ", ".join(repr(chr(code)) for code in sorted(stray)),
+                    c.DOTS_PIXEL_CODES.decode("ascii"),
+                )
+            )
+        body += encoded + c.CR
+
+    return c.COMMAND_WRITE_DOTS + label + b"%02X%02X" % (height, width) + bytes(body)
+
+
+def call_dots_file(label: bytes) -> bytes:
+    """Build the two bytes a TEXT file uses to draw the picture ``label`` inline.
+
+    A call to a picture that was never written, or to a label no memory
+    configuration allocated, draws nothing at all, exactly as a call to a
+    missing STRING does. So this cannot fail and the sign will not say when it
+    has been pointed at nothing.
+    """
+    if len(label) != 1:
+        raise ProtocolError("a file label is exactly one byte, got %r" % label)
+    return c.DOTS_INSERT + label
+
+
+def read_dots_file(label: bytes) -> bytes:
+    """Ask the sign what the SMALL DOTS PICTURE ``label`` holds.
+
+    Nothing in the service sends this. The reply echoes the write command, the
+    label, the height and the width, then the rows, and the display blanks for
+    under a second while the sign answers.
+    """
+    if len(label) != 1:
+        raise ProtocolError("a file label is exactly one byte, got %r" % label)
+    return c.COMMAND_READ_DOTS + label
+
+
 def clear_priority_file() -> bytes:
     """Build the payload that releases a priority takeover.
 
@@ -202,9 +362,17 @@ def memory_claimed(allocations: list[FileAllocation]) -> int:
     """Bytes of the sign's memory pool a configuration would take.
 
     The protocol charges each configured file eleven bytes of directory
-    overhead on top of its own size, and the total has to fit the pool.
+    overhead on top of its own size, and the total has to fit the pool. What
+    counts as "its own size" is not the size field for every file type, which
+    is why this goes through :attr:`FileAllocation.pool_bytes`.
+
+    The eleven is the document's figure. This sign was measured charging
+    thirteen, and its whole pool measured 5482 bytes rather than the 30000
+    assumed in ``readerboard/config.py``. Neither is corrected here, because
+    both belong to the budget rather than to one file, and fixing them is a
+    change to what the service will accept.
     """
-    return sum(entry.capacity + c.FILE_OVERHEAD_BYTES for entry in allocations)
+    return sum(entry.pool_bytes + c.FILE_OVERHEAD_BYTES for entry in allocations)
 
 
 def set_memory_config(allocations: list[FileAllocation]) -> bytes:
