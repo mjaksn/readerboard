@@ -6,6 +6,7 @@ from readerboard.protocol import constants as c
 from readerboard.protocol.markup import (
     THIN_SPACE,
     MarkupError,
+    icon_references,
     references,
     render,
     render_value,
@@ -298,6 +299,91 @@ class TestVariableCalls:
     def test_a_colon_in_an_unknown_tag_is_still_an_unknown_tag(self):
         with pytest.raises(MarkupError, match="unknown markup token"):
             render("<12:30>")
+
+
+class TestIconCalls:
+    """<icon:name> becomes 14H and the label of the picture file it lives in."""
+
+    def test_a_call_becomes_the_call_dots_code_and_the_label(self):
+        built = render("<icon:lock> LOCKED", icons={("lock", None): b"6"})
+        assert built == c.DOTS_INSERT + b"6" + b" LOCKED"
+
+    def test_a_tint_is_a_different_picture_from_the_same_icon(self):
+        # A tint changes the bitmap, so the two want a file each, and the key
+        # carries the tint for exactly that reason.
+        built = render(
+            "<icon:check><icon:check:red>",
+            icons={("check", None): b"6", ("check", "red"): b"7"},
+        )
+        assert built == b"\x146\x147"
+
+    def test_a_call_sits_among_tokens_and_variables(self):
+        built = render(
+            "<green><icon:check> <var:temp>",
+            variables={"temp": b"a"},
+            icons={("check", None): b"6"},
+        )
+        assert built == c.TEXT_COLOR_GREEN + b"\x146 " + c.STRING_FILE_INSERT + b"a"
+
+    def test_an_icon_no_picture_holds_is_refused_when_strict(self):
+        with pytest.raises(MarkupError, match="no picture holding <icon:lock>"):
+            render("<icon:lock>", icons={})
+
+    def test_no_map_at_all_is_a_different_refusal(self):
+        with pytest.raises(MarkupError, match="cannot be used here"):
+            render("<icon:lock>")
+
+    @pytest.mark.parametrize("body", ["Lock", "x" * 33, "lock:Red", "lock:red:blue", ""])
+    def test_a_tag_outside_the_grammar_is_refused(self, body):
+        with pytest.raises(MarkupError, match="is not an icon"):
+            render("<icon:%s>" % body, icons={})
+
+    def test_leniently_a_missing_picture_renders_nothing(self):
+        # The sign draws a call to a picture that is not there as nothing at
+        # all, so a restored message reads the way the sign would show it.
+        assert render("[<icon:gone>]", strict=False, icons={}) == b"[]"
+
+    def test_leniently_no_map_renders_nothing(self):
+        assert render("[<icon:lock>]", strict=False) == b"[]"
+
+    def test_an_icon_cannot_go_in_a_variables_value(self):
+        # 14H inside a STRING has never been put to the sign, and the one
+        # neighbouring code that was drew its own label as a letter.
+        with pytest.raises(MarkupError, match="cannot draw an icon"):
+            render_value("<icon:lock>")
+
+    def test_leniently_an_icon_in_a_value_renders_nothing(self):
+        assert render_value("[<icon:lock>]", strict=False) == b"[]"
+
+
+class TestIconReferences:
+    def test_it_names_each_icon_and_the_tint_it_was_asked_for(self):
+        assert icon_references("<icon:check:red> and <icon:sun>") == [
+            ("check", "red"),
+            ("sun", None),
+        ]
+
+    def test_one_icon_called_twice_is_named_once(self):
+        assert icon_references("<icon:sun> <icon:sun>") == [("sun", None)]
+
+    def test_the_same_icon_in_two_tints_is_two_entries(self):
+        assert icon_references("<icon:dot:green><icon:dot:red>") == [
+            ("dot", "green"),
+            ("dot", "red"),
+        ]
+
+    def test_a_message_with_no_icons_names_none(self):
+        assert icon_references("<red>PLAIN <var:temp>") == []
+
+    def test_a_tag_the_renderer_would_refuse_is_not_named(self):
+        # There is no icon in it to name, and returning something would have
+        # the registry reserve a picture file for a tag that cannot render.
+        assert icon_references("<icon:Lock> <icon:>") == []
+
+    def test_variables_and_icons_do_not_see_each_other(self):
+        message = "<var:temp><icon:sun>"
+        assert references(message) == ["temp"]
+        assert icon_references(message) == [("sun", None)]
         assert render("<12:30>", strict=False) == b"<12:30>"
 
 

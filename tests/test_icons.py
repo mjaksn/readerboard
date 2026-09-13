@@ -17,6 +17,7 @@ import pytest
 from readerboard import icons
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
+from readerboard.protocol.markup import ICON_NAME_PATTERN
 from readerboard.protocol.tokens import MARKUP_BY_TEXT
 
 ALL_ICONS = sorted(icons.ICONS.values(), key=lambda icon: icon.name)
@@ -57,7 +58,9 @@ class TestEveryIcon:
 
     @pytest.mark.parametrize("icon", ALL_ICONS, ids=ids)
     def test_its_name_can_sit_inside_a_tag(self, icon):
-        assert re.match(icons.ICON_NAME_PATTERN, icon.name)
+        # The pattern lives where the tag is parsed. An icon whose name does
+        # not match it is one no message can call.
+        assert re.match(ICON_NAME_PATTERN, icon.name)
 
     @pytest.mark.parametrize("icon", ALL_ICONS, ids=ids)
     def test_it_renders_to_pixel_codes_the_sign_has(self, icon):

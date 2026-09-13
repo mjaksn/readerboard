@@ -4,11 +4,15 @@ The message language is deliberately small: printable text, plus tokens written
 as ``<name>``. ``<red>Hello <degree>`` is a colour change, the word Hello, and a
 degree symbol.
 
-One tag is not a token. ``<var:name>`` calls a variable, which lives in a STRING
-file of its own, and renders as the two bytes that call that file. The renderer
-is told which file each variable name lives in and knows nothing else about
-variables, so the registry that hands the files out stays the one place that
-decides whether a name exists.
+Two tags are not tokens. ``<var:name>`` calls a variable, which lives in a
+STRING file of its own, and ``<icon:name>`` calls an icon, which lives in a
+SMALL DOTS PICTURE file. Each renders as the two bytes that call that file.
+
+Both work the same way here, and the way is deliberate: the renderer is told
+which file each name lives in and knows nothing else about either. It does not
+hold the icon library and cannot say whether an icon exists, so the registry
+that hands the files out stays the one place that decides. That is what stops
+two answers to "is there an icon called that" from drifting apart.
 
 Two rules here are load bearing, and both have an obvious wrong answer.
 
@@ -132,12 +136,24 @@ REPLACEMENT = b"?"
 _TAG_CHARACTERS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:")
 
 VARIABLE_TAG_PREFIX = "<var:"
+ICON_TAG_PREFIX = "<icon:"
 
 # What a variable may be called. Narrower than a slot key on purpose: it has to
 # sit inside a tag, and a name the tag cannot hold is a variable no message can
 # call. The API validates the name in its path against the same pattern.
 VARIABLE_NAME_PATTERN = r"^[a-z0-9_]{1,32}$"
 _VARIABLE_NAME = re.compile(VARIABLE_NAME_PATTERN)
+
+# What an icon may be called, and what may follow it. The name takes a
+# variable's shape for the same reason, and the optional second part is the
+# colour word a tintable icon is drawn in, which is one of the colour tokens'
+# own spellings so that a caller who can write <red> need learn nothing new.
+# Which words are colours, and which icons take one, are the icon library's to
+# know and not this module's. See the note at the top about what the renderer
+# is not told.
+ICON_NAME_PATTERN = r"^[a-z0-9_]{1,32}$"
+ICON_TINT_PATTERN = r"^[a-z]{1,16}$"
+_ICON_TAG = re.compile(r"^([a-z0-9_]{1,32})(?::([a-z]{1,16}))?$")
 
 # Every date insert starts with 0BH. Inside a STRING file the sign drops that
 # byte and draws the selector after it as a literal character, so <week_day> in
@@ -163,6 +179,7 @@ def render(
     *,
     strict: bool = True,
     variables: Mapping[str, bytes] | None = None,
+    icons: Mapping[tuple[str, str | None], bytes] | None = None,
 ) -> bytes:
     """Render ``message`` to sign bytes.
 
@@ -181,16 +198,27 @@ def render(
     called here at all, which is a different refusal from a map that lacks the
     name. When not strict, a call that cannot be made renders nothing, which is
     also what the sign draws for a call to a STRING that is not there.
+
+    ``icons`` is the same arrangement for pictures, keyed by the icon's name and
+    the tint it was asked for, since a tint changes the bitmap and so needs a
+    picture file of its own. ``<icon:check>`` and ``<icon:check:red>`` are two
+    entries. A call to a picture that is not there draws nothing on the sign too.
     """
-    return _render(message, strict=strict, variables=variables, in_value=False)
+    return _render(
+        message, strict=strict, variables=variables, icons=icons, in_value=False
+    )
 
 
 def render_value(value: str, *, strict: bool = True) -> bytes:
     """Render a variable's value, the bytes a STRING file holds.
 
-    The message language again, less the two things the sign cannot draw from
-    inside a STRING: a date insert, which it draws as its selector character,
-    and a call to another variable, which it draws as the label's letter. The
+    The message language again, less the things the sign cannot draw from
+    inside a STRING: a date insert, which it draws as its selector character, a
+    call to another variable, which it draws as the label's letter, and a call
+    to a picture, which nobody has put to the sign. That last one is refused on
+    suspicion rather than on measurement, and deliberately: the one neighbouring
+    code that was tried drew its own label as a letter, and an icon in a value
+    is not worth an unexplained character on a wall. The
     document's own list of what a STRING may hold is narrower than this, and
     wrong: rainbow, flash, the attributes and the extended characters it leaves
     out all worked on the sign.
@@ -199,7 +227,7 @@ def render_value(value: str, *, strict: bool = True) -> bytes:
     carries on into the message after the call, as a character set and a speed
     do, which the caller has to know and this cannot fix.
     """
-    return _render(value, strict=strict, variables=None, in_value=True)
+    return _render(value, strict=strict, variables=None, icons=None, in_value=True)
 
 
 def references(message: str) -> list[str]:
@@ -225,11 +253,42 @@ def references(message: str) -> list[str]:
     return names
 
 
+def icon_references(message: str) -> list[tuple[str, str | None]]:
+    """Return the icons a message calls, each once, in order of first use.
+
+    Each is the icon's name and the tint it was asked for, or None for one drawn
+    in its own colours. The pair is what the caller needs, not the name alone: a
+    tint changes the bitmap, so ``<icon:check>`` and ``<icon:check:red>`` are two
+    different pictures and want a file each.
+
+    Tags are found exactly as :func:`render` finds them, so the two cannot
+    disagree about what counts as a call. A tag whose shape :func:`render` would
+    refuse is left out, since there is no icon there to name.
+    """
+    found: list[tuple[str, str | None]] = []
+    index = 0
+    while index < len(message):
+        if message[index] == "<":
+            tag, after = _read_tag(message, index)
+            if tag is not None:
+                if tag.startswith(ICON_TAG_PREFIX):
+                    match = _ICON_TAG.match(tag[len(ICON_TAG_PREFIX) : -1])
+                    if match is not None:
+                        called = (match.group(1), match.group(2))
+                        if called not in found:
+                            found.append(called)
+                index = after
+                continue
+        index += 1
+    return found
+
+
 def _render(
     message: str,
     *,
     strict: bool,
     variables: Mapping[str, bytes] | None,
+    icons: Mapping[tuple[str, str | None], bytes] | None,
     in_value: bool,
 ) -> bytes:
     out = bytearray()
@@ -254,6 +313,11 @@ def _render(
 
             if tag.startswith(VARIABLE_TAG_PREFIX):
                 out += _call(tag, strict=strict, variables=variables, in_value=in_value)
+                index = after
+                continue
+
+            if tag.startswith(ICON_TAG_PREFIX):
+                out += _draw(tag, strict=strict, icons=icons, in_value=in_value)
                 index = after
                 continue
 
@@ -305,6 +369,48 @@ def _call(
         if label is not None:
             return c.STRING_FILE_INSERT + label
         problem = "there is no variable named %r; create it before a message calls it" % name
+
+    if strict:
+        raise MarkupError(problem)
+    return b""
+
+
+def _draw(
+    tag: str,
+    *,
+    strict: bool,
+    icons: Mapping[tuple[str, str | None], bytes] | None,
+    in_value: bool,
+) -> bytes:
+    """Render one ``<icon:name>`` or ``<icon:name:tint>``, or explain why it cannot be.
+
+    What is checked here is the shape of the tag and whether a picture holds
+    that icon. Whether the icon exists at all, and whether it is one a tint may
+    be asked for, belong to the icon library and to the registry that hands out
+    the picture files, which refuse those in their own words before a message
+    gets this far.
+    """
+    body = tag[len(ICON_TAG_PREFIX) : -1]
+    match = _ICON_TAG.match(body)
+
+    if in_value:
+        problem = (
+            "a variable's value cannot draw an icon; put %s in the message that calls "
+            "the variable instead" % tag
+        )
+    elif match is None:
+        problem = (
+            "%r is not an icon; write <icon:name>, or <icon:name:colour> for one that "
+            "takes a tint" % body
+        )
+    elif icons is None:
+        problem = "%s draws an icon, and icons cannot be used here" % tag
+    else:
+        name, tint = match.group(1), match.group(2)
+        label = icons.get((name, tint))
+        if label is not None:
+            return c.DOTS_INSERT + label
+        problem = "there is no picture holding %s" % tag
 
     if strict:
         raise MarkupError(problem)

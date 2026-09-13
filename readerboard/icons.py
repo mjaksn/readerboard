@@ -80,11 +80,6 @@ TINT_INKS = {
     "yellow": "y",
 }
 
-# What an icon may be called. The same shape a variable name takes, because an
-# icon name has to sit inside a tag too.
-ICON_NAME_PATTERN = r"^[a-z0-9_]{1,32}$"
-
-
 class UnknownIcon(ValueError):
     """An icon was asked for that this service does not have."""
 
