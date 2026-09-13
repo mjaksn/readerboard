@@ -266,6 +266,14 @@ class SlotRegistry:
         is not there, and losing a whole message over one missing value would be
         the harsher outcome. An alert calling one stays too, with a warning of
         its own.
+
+        A picture cannot come back for either of two reasons, and both drop the
+        record rather than the message. Its file may be outside the pool, which
+        the pass below can fix by giving it another. Or the icon it held may not
+        be in this version's library at all, which nothing can fix and which has
+        to be caught here: every picture is written before any message on a
+        restore, so one that cannot be drawn would raise there and take the
+        whole restore with it.
         """
         for name, variable in list(self._state.variables.items()):
             try:
@@ -279,6 +287,27 @@ class SlotRegistry:
                 del self._state.variables[name]
 
         for picture_key, picture in list(self._state.pictures.items()):
+            try:
+                icons.resolve(picture.name, picture.tint)
+            except icons.IconError as err:
+                # The library is data and changes between versions, so a stored
+                # picture can name an icon this one does not have. It has to go
+                # here rather than later: every picture is written before any
+                # message on a restore, and one that cannot be drawn would raise
+                # there and take the whole restore with it, leaving a service
+                # that does not come up. The message calling it stays and draws
+                # nothing for the call, which is what the sign draws for a
+                # picture that is not there.
+                logger.warning(
+                    "picture file %s held icon %r, which this version does not have (%s); "
+                    "the messages calling it will show nothing where it was drawn",
+                    picture.label,
+                    picture_key,
+                    err,
+                )
+                del self._state.pictures[picture_key]
+                continue
+
             try:
                 self._layout.pictures.restore(picture_key, picture.label.encode("latin-1"))
             except ValueError:

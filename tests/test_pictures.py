@@ -16,6 +16,7 @@ hidden slot and the alert hold their icons as firmly as a visible message does.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 import pytest
 
@@ -404,21 +405,44 @@ class TestAcrossARestart:
         # message calling an icon this version no longer has must not be a start
         # that fails: the service is expected back after a power cut with nobody
         # at the machine.
+        #
+        # Nothing else is wrong here. The label is still a good one and the pool
+        # is the same shape, which is the ordinary upgrade: the only thing that
+        # changed is the library. That matters because every picture is written
+        # before any message, so an icon that cannot be drawn would raise there
+        # and take the whole restore with it.
         registry = SlotRegistry(controller, layout, store, state, now=clock)
         await registry.restore()
         await add(registry, "a", "<icon:sun>")
-        state.pictures["sun"].label = "~"
         monkeypatch.delitem(icons.ICONS, "sun")
 
         with caplog.at_level(logging.WARNING):
-            again = SlotRegistry(
-                controller, Layout(3, 256, 0, 32, 2), store, state, now=clock
-            )
+            again = SlotRegistry(controller, layout, store, state, now=clock)
             await again.restore()
 
-        assert "no picture file for sun" in caplog.text
+        assert "which this version does not have" in caplog.text
+        assert "sun" not in state.pictures
         # The slot keeps its place. The call draws nothing, which is what the
         # sign itself draws for a call to a picture that is not there.
+        assert "a" in state.slots
+
+    async def test_a_tint_a_later_version_dropped_goes_the_same_way(
+        self, controller, layout, store, state, clock, monkeypatch
+    ):
+        # An icon that stops taking a tint is the other half of the same change,
+        # and resolve refuses it rather than ignoring the tint, so it has to be
+        # caught in the same place.
+        registry = SlotRegistry(controller, layout, store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:check:red>")
+        monkeypatch.setitem(
+            icons.ICONS, "check", replace(icons.ICONS["check"], tint=None)
+        )
+
+        again = SlotRegistry(controller, layout, store, state, now=clock)
+        await again.restore()
+
+        assert "check:red" not in state.pictures
         assert "a" in state.slots
 
 
