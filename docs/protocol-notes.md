@@ -700,10 +700,31 @@ the display, which two earlier runs exercised without ever looking.
     into whatever message calls it, while these four ask the sign about its own tables and
     touch no file a message is drawing. They could differ in either direction.
 
-    Step 7 now asks. It puts the display on one held message first, because a disturbance
-    this small vanishes into a rotation changing by itself, and then asks for a magnitude
-    against the blank a TEXT file write causes rather than for a yes or no. Any design that
-    polls the sign by reading is priced on this answer.
+    Step 7 now asks, and asks it four ways, because there is no reason to expect one
+    answer to cover them all:
+
+    - the four special function reads against a **held** message;
+    - the same four against a **scrolling** one, which is where the 2026-09-10
+      observation came from and which can show damage a held message cannot: a stall, a
+      jump, or a restart from the right-hand edge rather than simply a blank;
+    - a **TEXT file read** of a file that holds text but is not named in the run
+      sequence;
+    - a **STRING file read** of a value no message calls.
+
+    The last two are the reads a reconciliation scheme would actually make, and they ask
+    about files the sign is not drawing from, so they may well cost nothing even though a
+    STRING read of a file in use does not. Step 2 allocates one STRING file for this and
+    no step displays it.
+
+    Throughout, the display is put on one message and held still first, because a
+    disturbance this small vanishes into a rotation changing by itself, and the questions
+    ask for a magnitude against the blank a TEXT file write causes rather than for a yes
+    or no. Any design that polls the sign by reading is priced on these answers.
+
+    There is no TEXT file read in `readerboard/protocol/frames.py`. The spike builds that
+    payload from `COMMAND_READ_TEXT` and the label by hand, the way the STRING spike built
+    its own, so that a builder nothing has exercised does not land in the protocol layer
+    ahead of the measurement that would justify it.
 
 ### The change those three were asked for, and why it was dropped
 
