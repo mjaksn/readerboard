@@ -29,6 +29,8 @@ the rotation resumes.
   time it draws the message, with no blank and no restart. One variable can appear in
   any number of messages, and a value that stops arriving can be made to go stale.
 - **Alerts.** Take the display over, optionally with a deadline, then hand it back.
+  A caller that must not overwrite somebody else's alert can ask to be refused
+  instead.
 - **It keeps the sign's clock right**, at startup, hourly, and whenever the link comes
   back. That last trigger is the one that matters: a sign returning from a power cut
   does so at no particular minute. The sign is set one minute fast on purpose: the

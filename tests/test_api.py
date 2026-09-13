@@ -451,6 +451,33 @@ class TestAlerts:
         assert client.get("/alerts").json() is None
         assert client.get("/health").json()["alert_active"] is False
 
+    def test_an_alert_replaces_the_one_already_up(self, client):
+        client.post("/alerts", json={"message": "FIRST"}, headers=HEADERS)
+        response = client.post("/alerts", json={"message": "SECOND"}, headers=HEADERS)
+
+        assert response.status_code == 200
+        assert response.json()["message"] == "SECOND"
+
+    def test_asking_not_to_replace_an_alert_is_409(self, client):
+        client.post("/alerts", json={"message": "FIRST"}, headers=HEADERS)
+        response = client.post(
+            "/alerts",
+            json={"message": "SECOND", "fail_if_active": True},
+            headers=HEADERS,
+        )
+
+        assert response.status_code == 409
+        assert "fail_if_active" in response.json()["detail"]
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_asking_not_to_replace_is_fine_when_nothing_is_up(self, client):
+        response = client.post(
+            "/alerts", json={"message": "ONLY", "fail_if_active": True}, headers=HEADERS
+        )
+
+        assert response.status_code == 200
+        assert client.get("/alerts").json()["message"] == "ONLY"
+
     def test_an_unknown_markup_token_in_an_alert_is_400(self, client):
         # An alert renders twice: once here, to decide whether to accept it, and
         # again on the re-assert path, which renders leniently so that an alert

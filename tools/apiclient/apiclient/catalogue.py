@@ -367,6 +367,12 @@ OPERATIONS: tuple[Operation, ...] = (
                 kind="float",
                 description="release the sign this many seconds from now; empty means hold it",
             ),
+            Input(
+                name="fail_if_active",
+                kind="bool",
+                prefill=False,
+                description="true refuses with a 409 when an alert is already up",
+            ),
         ),
         formatter="alert",
         note="An alert suppresses every other message until it is released.",

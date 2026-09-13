@@ -23,7 +23,7 @@ import pytest
 from readerboard import icons
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
-from readerboard.services.alerts import AlertTooLong
+from readerboard.services.alerts import AlertAlreadyActive, AlertTooLong
 from readerboard.services.registry import (
     IconsDisabled,
     PicturePoolFull,
@@ -306,6 +306,27 @@ class TestTheFullPool:
             await alerts.raise_alert("<icon:moon> " + "X" * 200, mode="HOLD")
 
         assert picture_writes(transport) == []
+        assert state.pictures["sun"].label == label
+
+    async def test_an_alert_refused_for_being_second_claims_no_picture(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # fail_if_active is checked inside the rendering, so the refusal takes
+        # back whatever the new alert's icons were given on the way in. With one
+        # picture file and the sun holding it, a moon that is refused must not
+        # leave the pool full or the sun's file handed away.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        label = state.pictures["sun"].label
+        transport.clear()
+
+        with pytest.raises(AlertAlreadyActive):
+            await alerts.raise_alert("<icon:moon>", mode="HOLD", fail_if_active=True)
+
+        assert picture_writes(transport) == []
+        assert list(state.pictures) == ["sun"]
         assert state.pictures["sun"].label == label
 
     async def test_an_alert_that_fits_does_draw_its_icon(

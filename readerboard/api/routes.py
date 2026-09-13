@@ -2,8 +2,9 @@
 
 Status codes mean what they say here: 400 for a message or value the sign cannot
 render, 401 for a missing key, 404 for a slot or variable that does not exist,
-409 when a pool is full or a variable still in use is deleted, and 503 when the
-sign is unreachable. Which exception means which lives in
+409 when a pool is full, a variable still in use is deleted, or an alert is
+raised over one the caller asked not to replace, and 503 when the sign is
+unreachable. Which exception means which lives in
 ``readerboard.api.errors``, and these routes read no part of that table
 themselves: they let the exception through and the handler registered from it
 turns the failure into a status code and a ``detail`` body.
@@ -262,11 +263,18 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     the alert without restarting it, as it does in a message. A variable the
     alert calls cannot be deleted until the alert is released or replaced, and a
     call to a variable that does not exist is a 400.
+
+    This replaces whatever alert is already up, which is what a caller wants
+    when its alert is the more important one. Send `fail_if_active` and it is a
+    409 instead, for a caller that is one of several and has no business
+    overwriting somebody else's alert. An alert past its deadline does not count
+    as holding the sign.
     """
     alert = await alerts.raise_alert(
         body.message,
         mode=body.display_mode,
         ttl_seconds=body.ttl_seconds,
+        fail_if_active=body.fail_if_active,
     )
     return AlertResponse.of(alert)
 

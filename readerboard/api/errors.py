@@ -18,7 +18,7 @@ from readerboard.protocol.frames import ProtocolError
 from readerboard.protocol.markup import MarkupError
 from readerboard.protocol.replies import ReplyError
 from readerboard.services import commands
-from readerboard.services.alerts import AlertTooLong
+from readerboard.services.alerts import AlertAlreadyActive, AlertTooLong
 from readerboard.services.registry import (
     IconsDisabled,
     MessageTooLong,
@@ -64,6 +64,10 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     # slot pool and unlike a bad icon name, this is the state of the sign rather
     # than anything wrong with the request.
     (PicturePoolFull, status.HTTP_409_CONFLICT),
+    # An alert is already up and the caller asked to be refused rather than
+    # replace it. The same request would have been accepted a moment earlier, so
+    # it is the state of the sign that decides this and not the body.
+    (AlertAlreadyActive, status.HTTP_409_CONFLICT),
     (TransportError, status.HTTP_503_SERVICE_UNAVAILABLE),
     # A sign that answers with something unreadable is as unusable as one
     # that does not answer, and neither is the caller's doing. The route
