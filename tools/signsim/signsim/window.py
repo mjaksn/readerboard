@@ -405,11 +405,15 @@ class MainWindow(QMainWindow):
         """
         self._sign_view = _FittedBrowser(MAX_SIGN_HEIGHT)
         self._files = _FittedTable(["File", "Bytes", "Size", "Mode", "Position", "Message"])
-        # Room for a picture drawn at the widest a file can be allocated. Qt
-        # scales an icon down to this, so a small one is left at its own size
-        # and nothing is shrunk to the default sixteen pixels square.
+        # A cap rather than a reservation: Qt scales a picture down to fit this
+        # and leaves a smaller one at its own size, so without it every icon
+        # would be squeezed into the default sixteen pixels square. The cap is
+        # the largest picture the protocol allows, 31 rows by 255 columns, so
+        # nothing the sign could be sent is shrunk. Rows and columns are not
+        # interchangeable here and reading one for the other is the mistake this
+        # is written out to avoid.
         self._files.setIconSize(
-            QSize(c.DOTS_MAX_ROWS * _DOT_PITCH, c.DOTS_MAX_ROWS * _DOT_PITCH)
+            QSize(c.DOTS_MAX_COLUMNS * _DOT_PITCH, c.DOTS_MAX_ROWS * _DOT_PITCH)
         )
         self._memory = _FittedTable(["File", "Type", "Size", "Keyboard", "Schedule"])
         self._sequence = _FittedTable(["Order", "File", "Allocated", "Holds a message"])
