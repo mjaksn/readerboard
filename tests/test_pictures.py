@@ -716,10 +716,14 @@ class TestWritingPicturesUnderAnAlert:
         # The property, rather than one path to it. After a refused alert there
         # are two states worth having and one worth refusing. Either the old
         # alert is back calling its file and that file was redrawn for it, or it
-        # is not calling a picture at all and the refresh repairs it. What must
-        # never happen is the old alert calling a file that another icon's
-        # bitmap is sitting in, which is a wrong picture on the display rather
+        # is not calling a picture at all and the next refresh repairs it. What
+        # must never happen is the old alert calling a file that another icon's
+        # bitmap is sitting in, which puts a wrong picture on the display rather
         # than a missing one.
+        #
+        # So this is the awkward half-failure that produces it: the redraw is
+        # refused and the priority write is not. Everything succeeding is the
+        # test above; everything failing writes nothing and proves nothing.
         registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
         await registry.restore()
         alerts = AlertService(controller, store, state, now=clock)
@@ -730,20 +734,44 @@ class TestWritingPicturesUnderAnAlert:
         sun = state.pictures["sun"].label
         transport.clear()
 
-        # The sign goes away for good after the moon's picture lands, so the
-        # redraw and the put-back both fail too.
-        async def gone(*args, **kwargs):
-            raise TransportError("the sign went away")
+        real_dots = controller.write_dots_file
+        drawn: list[int] = []
 
-        controller.write_priority = gone  # type: ignore[method-assign]
-        with pytest.raises(TransportError):
-            await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+        async def refuse_the_redraw(*args, **kwargs):
+            drawn.append(1)
+            # The moon goes out, which is what takes the file off the sun. The
+            # redraw that would give it back does not.
+            if len(drawn) > 1:
+                raise TransportError("refused the redraw")
+            return await real_dots(*args, **kwargs)
 
-        priority = [p for p in priority_writes(transport) if not is_release(p)]
-        calls_the_sun = [p for p in priority if c.DOTS_INSERT + sun.encode("latin-1") in p]
-        assert not calls_the_sun, (
-            "the old alert was put back calling a file the moon had been drawn into"
+        real_priority = controller.write_priority
+        priority_calls: list[int] = []
+
+        async def fail_only_the_new_alert(*args, **kwargs):
+            priority_calls.append(1)
+            if len(priority_calls) == 1:
+                raise TransportError("the new alert never landed")
+            return await real_priority(*args, **kwargs)
+
+        controller.write_dots_file = refuse_the_redraw  # type: ignore[method-assign]
+        controller.write_priority = fail_only_the_new_alert  # type: ignore[method-assign]
+        try:
+            with pytest.raises(TransportError):
+                await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+        finally:
+            controller.write_dots_file = real_dots  # type: ignore[method-assign]
+            controller.write_priority = real_priority  # type: ignore[method-assign]
+
+        # The put-back did happen, so this is the dangerous shape and not a
+        # vacuous pass.
+        takeovers = [p for p in priority_writes(transport) if not is_release(p)]
+        assert takeovers, "nothing was put back, so this proves nothing"
+        assert c.DOTS_INSERT + sun.encode("latin-1") not in takeovers[-1], (
+            "the old alert was put back calling a file the moon is still drawn in"
         )
+        # And the service stopped claiming a file it could not fill.
+        assert "sun" not in state.pictures
 
     async def test_a_put_back_that_fails_on_its_own_is_reported(
         self, wired, transport, monkeypatch

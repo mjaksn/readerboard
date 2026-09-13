@@ -678,21 +678,42 @@ class SlotRegistry:
 
             async def revert() -> None:
                 self._undo_claims(claims)
+                # Taken and emptied before a single write, so that the handler
+                # below finds nothing left to give back however this goes. It
+                # runs when the failure reaches it, and undoing the same claims
+                # twice would release files this has just handed back.
+                evicted = list(claims.evicted)
+                claims.claimed.clear()
+                claims.evicted.clear()
+
                 # The record coming back is not enough on its own. The file
                 # holds whatever this message's icon drew into it, so an evicted
                 # picture has to be drawn again or its owner is left calling a
                 # file showing somebody else's bitmap.
-                for picture in claims.evicted:
-                    if self._state.pictures.get(picture.key) is picture:
-                        # Only the ones that actually came back. _undo_claims
-                        # logs and skips a file it could not reclaim, and
-                        # drawing into one of those would write over whatever
-                        # holds it now.
+                for picture in evicted:
+                    if self._state.pictures.get(picture.key) is not picture:
+                        # _undo_claims logs and skips a file it could not
+                        # reclaim, and drawing into one of those would write
+                        # over whatever holds it now.
+                        continue
+                    try:
                         await self._write_picture(picture)
-                # Emptied so that the handler below, which runs when this
-                # failure reaches it, finds nothing left to give back.
-                claims.claimed.clear()
-                claims.evicted.clear()
+                    except Exception:
+                        # The bitmap did not go back, so stop saying the file
+                        # holds it. Whoever renders next then leaves the icon
+                        # out, which is what the sign draws for a picture that
+                        # is not there, instead of calling a file with another
+                        # icon's bitmap sitting in it. That second one is the
+                        # only outcome here worth refusing: it puts a wrong
+                        # picture on the display rather than a missing one.
+                        logger.warning(
+                            "could not draw icon %r again after a refused write, so "
+                            "its file goes back to the pool",
+                            picture.key,
+                        )
+                        self._state.pictures.pop(picture.key, None)
+                        self._layout.pictures.release(picture.key)
+                        self._dirty = True
 
             try:
                 yield _Rendering(
