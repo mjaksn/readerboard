@@ -187,7 +187,7 @@ pool is a rounding error, but the two models would stop being two.
 What the service does with the figure is in `readerboard/sign/pool.py`. It asks the sign
 at startup, and only on a start that is about to write a memory configuration, which is
 the one moment the answer can change anything and the one moment the sign is about to be
-erased anyway. `config.ASSUMED_SIGN_MEMORY_POOL` is 5482 and is what stands in when the
+erased anyway. `readerboard.sign.pool.ASSUMED_SIGN_MEMORY_POOL` is 5482 and is what stands in when the
 sign does not answer, answers something unreadable, or is a `loop://` URL with nothing
 behind it. A sign that answers and does not have room stops the service starting, which is
 the one thing that does; see "The one dangerous operation" in AGENTS.md for why erasing a
