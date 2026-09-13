@@ -4,7 +4,7 @@ import pytest
 
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
-from readerboard.services.alerts import AlertService, AlertTooLong
+from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
 from readerboard.sign.controller import SignController
 
 
@@ -34,6 +34,57 @@ class TestTakeover:
     async def test_an_alert_exactly_filling_the_priority_file_is_allowed(self, alerts):
         await raise_alert(alerts, "X" * 125)
         assert alerts.active is not None
+
+
+class TestRefusingToReplace:
+    """``fail_if_active``: refuse rather than take the sign off another alert."""
+
+    async def test_an_alert_replaces_one_already_up_by_default(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await raise_alert(alerts, "SECOND")
+
+        assert alerts.active is not None
+        assert alerts.active.message == "SECOND"
+
+    async def test_refusing_leaves_the_alert_that_is_up_exactly_as_it_was(
+        self, alerts, transport
+    ):
+        await raise_alert(alerts, "FIRST")
+        transport.clear()
+
+        with pytest.raises(AlertAlreadyActive):
+            await raise_alert(alerts, "SECOND", fail_if_active=True)
+
+        assert alerts.active is not None
+        assert alerts.active.message == "FIRST"
+        # Nothing was sent, so the sign is still drawing the first alert rather
+        # than a blank priority file written on the way to the refusal.
+        assert transport.packets == []
+
+    async def test_it_is_raised_when_nothing_is_holding_the_sign(self, alerts):
+        alert = await raise_alert(alerts, "ONLY", fail_if_active=True)
+        assert alert.message == "ONLY"
+
+    async def test_an_alert_past_its_deadline_does_not_count_as_holding_the_sign(
+        self, alerts, clock
+    ):
+        # The sweep that releases an expired alert runs on a timer, so one that
+        # ran out a moment ago is still recorded. Refusing for it would make the
+        # answer depend on where in the second the call arrived.
+        await raise_alert(alerts, "FIRST", ttl_seconds=30)
+        clock.advance(31)
+
+        await raise_alert(alerts, "SECOND", fail_if_active=True)
+
+        assert alerts.active is not None
+        assert alerts.active.message == "SECOND"
+
+    async def test_an_alert_still_inside_its_deadline_does_count(self, alerts, clock):
+        await raise_alert(alerts, "FIRST", ttl_seconds=30)
+        clock.advance(29)
+
+        with pytest.raises(AlertAlreadyActive, match="fail_if_active"):
+            await raise_alert(alerts, "SECOND", fail_if_active=True)
 
 
 class TestRelease:

@@ -16,10 +16,12 @@ and every transmission it makes appears decoded in the simulator window.
 three come up from one command. It is off by default because the client is a
 window you may not want, and because starting it writes the base URL into the
 settings the client remembers between runs, replacing whatever was there. The
-client asks for the API key itself and takes none from a command line, so the
-key in use is printed here for pasting. Closing the client leaves the other two
-running, which closing either of them does not: the service writing to a
-simulator that has gone away is broken, and a closed client is only closed.
+client takes no API key from a command line either; it is handed the key in use
+through the environment and starts with it already in its box. The key is
+printed here as well, for a curl command or the Authorize button on the
+documentation page. Closing the client leaves the other two running, which
+closing either of them does not: the service writing to a simulator that has
+gone away is broken, and a closed client is only closed.
 
 The key itself has a development default, so writes work with nothing set up.
 ``READERBOARD_API_KEY`` in the environment is taken ahead of that default when
@@ -70,12 +72,13 @@ DEFAULT_API_PORT = 5001
 DEFAULT_API_KEY = "local-development-key"
 
 # The key the service reads, which is also where this looks before falling back to
-# the development default above. Taking it from the environment is what lets a
-# machine run with a key of its own: the flag below would have to be written into
-# a launch configuration, and those are tracked, shared, and rewritten in place by
-# an editor that drops the comment explaining them. A key on a command line is
-# also a key in the shell history, which is the same reason the client has no
-# option for one.
+# the development default above, and what the client is given so that its key box
+# starts out filled in. Taking it from the environment is what lets a machine run
+# with a key of its own: the flag below would have to be written into a launch
+# configuration, and those are tracked, shared, and rewritten in place by an
+# editor that drops the comment explaining them. A key on a command line is also a
+# key in the shell history, which is the same reason the client has no option for
+# one and is handed this variable instead.
 API_KEY_VARIABLE = "READERBOARD_API_KEY"
 DEFAULT_STATE = _ROOT / ".local-state.json"
 
@@ -139,10 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-client",
         action="store_true",
         help="start the client too, pointed at the service, so all three come up "
-        "from one command. It asks for the API key itself rather than taking one "
-        "from a command line, so the key in use is printed for pasting. Starting "
-        "it this way also writes the base URL into the settings the client "
-        "remembers between runs, replacing whatever was there",
+        "from one command. It takes no API key from a command line either, and is "
+        "handed the key in use through the environment, so it starts with the key "
+        "already in its box. Starting it this way also writes the base URL into "
+        "the settings the client remembers between runs, replacing whatever was "
+        "there",
     )
     parser.add_argument(
         "--keep-state",
@@ -199,11 +203,15 @@ def main(argv: list[str] | None = None) -> int:
     ]
 
     if args.with_client:
-        client = _start_client(base_url)
+        client = _start_client(base_url, args.api_key)
         children["client"] = client
         streams.append(_supervise.stream(client.stdout, "client"))
-        print("[run] client pointed at %s, and the API key to paste is %s"
-              % (base_url, args.api_key))
+        print("[run] client pointed at %s, with the API key already in its box"
+              % base_url)
+        # Printed as well as handed over, because the client is not the only
+        # thing that needs it: a curl command and the Authorize button on the
+        # documentation page both want it typed in.
+        print("[run] the API key is %s" % args.api_key)
 
     print("[run] Ctrl+C stops everything")
 
@@ -283,12 +291,21 @@ def _start_service(args: argparse.Namespace, address: str) -> subprocess.Popen[s
     )
 
 
-def _start_client(base_url: str) -> subprocess.Popen[str]:
-    """Start the client, pointed at the service that is already up."""
+def _start_client(base_url: str, api_key: str) -> subprocess.Popen[str]:
+    """Start the client, pointed at the service that is already up and holding its key.
+
+    The key goes through the environment rather than a command line, which the
+    client has no option for and should not: a key on a command line is a key in
+    the shell history. Set explicitly rather than left to be inherited, because
+    the usual case is nothing set on this machine and the development default
+    being used, and inheriting that would hand the client nothing.
+    """
     # After the service rather than before it. The client asks an address for
     # its /openapi.json the first time that address answers anything, and
     # starting it last keeps a connection refused from being the first thing it
     # ever sees on this one.
+    env = _supervise.child_env()
+    env[API_KEY_VARIABLE] = api_key
     return subprocess.Popen(
         [sys.executable, str(_CLIENT), "--base-url", base_url],
         cwd=_ROOT,
@@ -296,7 +313,7 @@ def _start_client(base_url: str) -> subprocess.Popen[str]:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        env=_supervise.child_env(),
+        env=env,
     )
 
 

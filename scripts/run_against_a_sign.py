@@ -39,6 +39,11 @@ the service starts, so there is always a key: writing one is the first thing
 done when there is none, and the key in it is generated rather than a default
 anybody could guess.
 
+The client is handed that same key through its environment, so it starts with
+the key already in its box rather than with a line of this output to copy across.
+That is the environment and not a command line for the reason above, and the
+client still has no option for one.
+
 The state file, and the one dangerous operation
 ===============================================
 
@@ -97,10 +102,12 @@ DEFAULT_STATE = _ROOT / ".local-sign-state.json"
 
 DEFAULT_API_PORT = 5001
 
-# The key the service reads. Ordinarily it comes out of the config file; a
-# machine that already exports one for other reasons wins over that, because the
-# service reads the environment ahead of the file and this only reports what it
-# finds.
+# The key the service reads, and the one the client fills its key box from.
+# Ordinarily it comes out of the config file; a machine that already exports one
+# for other reasons wins over that, because the service reads the environment
+# ahead of the file and this only reports what it finds and passes it on. Set and
+# empty counts as exported, which is the part that is easy to get wrong; see
+# _resolve_key.
 API_KEY_VARIABLE = "READERBOARD_API_KEY"
 
 # What the config file is written with when there is none. The address is a
@@ -131,9 +138,10 @@ _STARTER_CONFIG = '''# readerboard, pointed at the sign attached to this machine
 serial_url = "%(serial_url)s"
 
 # Generated when this file was written. Every write to the service carries it in
-# an X-API-Key header, and the client asks for it at the top of its window. It is
-# kept here rather than on a command line, because a launch configuration is a
-# tracked file and a command line is a shell history.
+# an X-API-Key header, and the client takes it at the top of its window, filled
+# in already when the launcher started it. It is kept here rather than on a
+# command line, because a launch configuration is a tracked file and a command
+# line is a shell history.
 api_key = "%(api_key)s"
 
 # Where the service records the memory configuration it applied, so that it
@@ -166,7 +174,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Start the readerboard service against a real sign, with the client "
             "beside it. The sign's address is given here so that it can be edited "
             "in an editor's run configuration dialog; the API key comes from "
-            "config.local.toml, which the repository does not track."
+            "config.local.toml, which the repository does not track, and is "
+            "handed to the client through its environment."
         ),
         epilog=(
             "Ctrl+C stops everything. Unlike run_with_simulator.py this never "
@@ -262,7 +271,8 @@ def main(argv: list[str] | None = None) -> int:
     base_url = "http://%s:%d" % (_api_host(), args.api_port)
     print("[run] service on %s, documentation at /docs" % base_url)
     print("[run] sign at %s" % serial_url)
-    _report_key(settings)
+    api_key, key_source = _resolve_key(settings)
+    _report_key(api_key, key_source)
 
     children = {"api": service}
     streams = [_supervise.stream(service.stdout, "api")]
@@ -280,7 +290,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             _supervise.stop(service)
             return 1
-        client = _start_client(base_url)
+        client = _start_client(base_url, api_key)
         children["client"] = client
         streams.append(_supervise.stream(client.stdout, "client"))
         print("[run] client pointed at %s" % base_url)
@@ -342,26 +352,61 @@ def _write_starter_config(stopping: bool) -> dict[str, object]:
     return {"serial_url": PLACEHOLDER_SERIAL_URL, "api_key": key}
 
 
-def _report_key(settings: dict[str, object]) -> None:
-    """Say which key the client will need, and where it came from.
+def _resolve_key(settings: dict[str, object]) -> tuple[str, str]:
+    """Return the key the service will use and where it came from, or two empty strings.
 
-    The client asks for the key itself rather than taking one from a command
-    line, so it has to be pasted in, and reading it out of a file by hand is the
-    one bit of friction there is no reason to keep.
+    The service reads the environment ahead of the config file, so this looks in
+    the same order rather than reading the file alone. It is both what the client
+    is handed and what is printed, and each has to be the key the service is
+    actually checking against.
+
+    **An empty variable is not an absent one**, and the difference decides
+    whether every write works or none of them do. :func:`_start_service`
+    deliberately leaves the key alone, so the service inherits whatever is here,
+    and ``Settings`` does not skip an empty environment value: set and empty, it
+    comes back as the key, beating the config file. Measured, not assumed. So an
+    empty variable is the key the service will use, and falling through to the
+    file here would report a key the service is not checking against and fill the
+    client's box with it, which reads as a wrong key rather than as the variable
+    that silenced it.
+
+    Unlike the launcher beside this one, which sets the key for the service
+    itself and is therefore free to treat an empty variable as unset.
     """
-    # The service reads the environment ahead of the file, so this reports them
-    # in the same order rather than reporting the file alone.
-    from_environment = os.environ.get(API_KEY_VARIABLE) or ""
-    if from_environment:
-        print(
-            "[run] the API key to paste is %s, from %s"
-            % (from_environment, API_KEY_VARIABLE)
-        )
+    from_environment = os.environ.get(API_KEY_VARIABLE)
+    if from_environment is not None:
+        return from_environment, API_KEY_VARIABLE
+
+    from_file = str(settings.get("api_key") or "")
+    if from_file:
+        return from_file, CONFIG_FILE.name
+
+    return "", ""
+
+
+def _report_key(api_key: str, source: str) -> None:
+    """Say which key is in use and where it came from, or that there is none.
+
+    Still printed now that the client is handed it, because the client is not
+    the only thing that wants it: a curl command and the Authorize button on the
+    documentation page both need it typed in.
+    """
+    if api_key:
+        print("[run] the API key is %s, from %s" % (api_key, source))
         return
 
-    from_file = settings.get("api_key") or ""
-    if from_file:
-        print("[run] the API key to paste is %s, from %s" % (from_file, CONFIG_FILE.name))
+    if source:
+        # Set and empty, which the service takes as its key and which therefore
+        # beats the file. Worth its own line: the file below may hold a perfectly
+        # good key, and the answer is to unset the variable rather than to go
+        # looking for what is wrong with that key.
+        print(
+            "[run] %s is set and empty, and the service reads it ahead of %s, so it "
+            "starts with no key and answers 503 to every write. Unset the variable to "
+            "use the key in that file. Reads and /health still work"
+            % (source, CONFIG_FILE.name),
+            file=sys.stderr,
+        )
         return
 
     print(
@@ -451,8 +496,21 @@ def _start_service(args: argparse.Namespace, serial_url: str) -> subprocess.Pope
     )
 
 
-def _start_client(base_url: str) -> subprocess.Popen[str]:
-    """Start the client, pointed at the service that is already answering."""
+def _start_client(base_url: str, api_key: str) -> subprocess.Popen[str]:
+    """Start the client, pointed at the service and holding the key it will need.
+
+    The key goes through the environment rather than a command line, which the
+    client has no option for and should not: a key on a command line is a key in
+    the shell history. Set explicitly rather than left to be inherited, because
+    the usual case is a key that came out of the config file and never was in
+    this process's environment at all.
+
+    Nothing is set when there is no key, so the client's box is empty and says
+    so, which is the honest answer for a service that will refuse every write.
+    """
+    env = _supervise.child_env()
+    if api_key:
+        env[API_KEY_VARIABLE] = api_key
     return subprocess.Popen(
         [sys.executable, str(_CLIENT), "--base-url", base_url],
         cwd=_ROOT,
@@ -460,7 +518,7 @@ def _start_client(base_url: str) -> subprocess.Popen[str]:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
-        env=_supervise.child_env(),
+        env=env,
     )
 
 

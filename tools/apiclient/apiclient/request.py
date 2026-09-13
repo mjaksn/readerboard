@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from urllib.parse import quote, urlsplit
 
@@ -29,12 +30,35 @@ API_KEY_HEADER = "X-API-Key"
 REDACTED = "<redacted>"
 
 # What the curl command refers to rather than the key itself, everywhere the key
-# would otherwise be written down.
+# would otherwise be written down. It is also where the key box fills itself from
+# and the same name the service reads its own key out of, so one variable covers
+# the service, the client and anything copied out of either.
 API_KEY_VARIABLE = "READERBOARD_API_KEY"
 
 
 class InvalidRequest(Exception):
     """Raised when the inputs cannot be turned into a request at all."""
+
+
+def initial_api_key(environ: Mapping[str, str]) -> str:
+    """Return what the key box should start out holding, from the environment.
+
+    The same variable the service reads its own key from, which is what makes
+    this worth doing: a machine that exports one has already said which key it
+    uses, and both launchers hand the client the key they gave the service, so
+    the box is filled in rather than being a thing to copy across by hand.
+
+    Through the environment rather than an option, which the tool still does not
+    have, because a key on a command line is a key in the shell history. Nothing
+    is written anywhere: this reads a variable and the box is still never saved.
+
+    Taken exactly as it stands, spaces and all. The service reads the same
+    variable into its own setting and compares the header against it byte for
+    byte, stripping nothing off either side, so a client that tidied the value
+    up would fill the box in with a key every write is refused for. That looks
+    like a wrong key rather than like a box that changed one.
+    """
+    return environ.get(API_KEY_VARIABLE, "")
 
 
 @dataclass(frozen=True, slots=True)

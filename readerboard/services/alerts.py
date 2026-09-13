@@ -68,6 +68,18 @@ class AlertTooLong(ValueError):
     """The alert does not fit the sign's fixed size priority file."""
 
 
+class AlertAlreadyActive(Exception):
+    """An alert is holding the sign and the caller asked not to replace one.
+
+    The state of the sign rather than anything wrong with the request, which is
+    what makes it a conflict and not a bad request. Raising an alert replaces
+    whatever is on the priority file, which is what a caller wants when the new
+    alert is the more important one and is exactly what a caller does not want
+    when two sources raise alerts independently and neither knows about the
+    other.
+    """
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
@@ -225,8 +237,17 @@ class AlertService:
         *,
         mode: str,
         ttl_seconds: float | None = None,
+        fail_if_active: bool = False,
     ) -> AlertState:
-        """Take the sign over with an alert."""
+        """Take the sign over with an alert.
+
+        ``fail_if_active`` refuses rather than replaces when the sign is
+        already held. An alert whose deadline has passed does not count as
+        holding it: the sweep that releases one runs on a timer, so an alert
+        that expired a moment ago is still recorded, and refusing for something
+        nobody wanted kept would make the answer depend on where in that second
+        the call arrived.
+        """
         # The render, the write and recording the alert all happen inside the
         # rendering. That is what lets the registry refuse to delete a variable
         # the alert calls: it reads the recorded alert under the same lock, so
@@ -240,6 +261,19 @@ class AlertService:
         # from. So the save happens after, where a failure costs the record on
         # disk and nothing on the sign.
         async with self._rendering(message) as render_message, self._lock:
+            # First, so that a refusal renders nothing, writes nothing and takes
+            # nothing from the picture pool. The rendering undoes any claim made
+            # inside it, which is what makes raising this here safe rather than
+            # merely early.
+            current = self._state.alert
+            if fail_if_active and current is not None and not self._has_expired(current):
+                raise AlertAlreadyActive(
+                    "an alert has been holding the sign since %s and this call asked to "
+                    "be refused rather than replace one. Release that alert first, or "
+                    "send this again without fail_if_active."
+                    % current.started_at.isoformat()
+                )
+
             body = render_message(message)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
                 raise AlertTooLong(
@@ -287,14 +321,16 @@ class AlertService:
     async def sweep(self) -> bool:
         """Release the alert if its deadline has passed. Returns whether it did."""
         alert = self._state.alert
-        if alert is None or alert.expires_at is None:
-            return False
-        if alert.expires_at > self._now():
+        if alert is None or not self._has_expired(alert):
             return False
 
         logger.info("alert reached its deadline")
         await self.release()
         return True
+
+    def _has_expired(self, alert: AlertState) -> bool:
+        """Whether an alert's deadline has passed, on the service's own clock."""
+        return alert.expires_at is not None and alert.expires_at <= self._now()
 
     async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> None:
         await self._controller.write_priority(

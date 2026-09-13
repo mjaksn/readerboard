@@ -15,6 +15,31 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Added
 
+- **`fail_if_active` on `POST /alerts`**, for a caller that must not overwrite
+  somebody else's alert. Raising an alert replaces whatever is on the priority
+  file, which is right when the new alert is the more important one and wrong
+  when two sources raise alerts independently and neither knows about the other.
+  Send it and an alert already holding the sign is a 409 rather than a
+  replacement. It defaults to false, so nothing that works today changes. An
+  alert past its deadline does not count as holding the sign: the sweep that
+  releases one runs on a timer, and refusing for something nobody wanted kept
+  would make the answer depend on where in the second the call arrived.
+
+- **Load all in the client**, which sends every enumeration read in turn from one
+  press. The client keeps one call in flight, so this is a chain rather than five
+  requests: each set's read goes out from the completion of the one before it,
+  and a failure stops it there rather than stacking a dialog for every set still
+  waiting.
+
+- **The client fills its API key box from `READERBOARD_API_KEY`.** The same
+  variable the service reads its own key from and the one the curl command it
+  copies already refers to, so a machine that exports a key once has the box
+  filled in for it. Both launch scripts now hand the client the key they gave the
+  service, through its environment rather than a command line, so starting the
+  client beside the service no longer means copying a key out of the log. The
+  client still has no option for one, still saves nothing, and an empty box is
+  still what a service with no key configured gets.
+
 - **A message can draw an icon.** `<icon:name>` puts one of 148 built-in bitmaps
   where the tag sits, and `<icon:name:colour>` retints the ones drawn in a single
   ink: `<icon:lock:red> DOOR LOCKED` costs the message two bytes. The colour words

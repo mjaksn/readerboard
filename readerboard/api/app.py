@@ -76,8 +76,9 @@ message or value too long for its file, markup the sign cannot render, a call to
 a variable that does not exist, an icon nobody has, a colour asked for on an icon
 drawn in fixed colours, or an icon called while icons are switched off, 401 for a
 missing or wrong `X-API-Key`, 404 for a slot or variable that does not exist, 409
-when every slot, every variable or every picture file is already in use or a
-variable something still calls is deleted, 503 when the sign is unreachable,
+when every slot, every variable or every picture file is already in use, a
+variable something still calls is deleted, or an alert is raised with
+`fail_if_active` while one is already up, 503 when the sign is unreachable,
 stops partway through an answer or answers with something the service cannot
 read, or no API key is configured at all, 500 for something the service has no
 code for, and 422 for a body that is not the shape the endpoint declares, which

@@ -310,6 +310,16 @@ class AlertRequest(BaseModel):
             "sign until something releases it explicitly"
         ),
     )
+    fail_if_active: bool = Field(
+        default=False,
+        description=(
+            "refuse with a 409 if an alert is already holding the sign, rather than "
+            "replacing it. For a caller that is one of several raising alerts and has "
+            "no business overwriting somebody else's alert. An alert whose deadline has "
+            "already passed does not count as holding the sign. Release the alert that "
+            "is up, or send the same call without this, to get past a refusal"
+        ),
+    )
 
     _check_mode = field_validator("display_mode")(_normalise_mode)
 

@@ -12,9 +12,10 @@ a claim about the window.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
-from PySide6.QtCore import QMargins, QSettings, Qt
+from PySide6.QtCore import QMargins, QSettings, Qt, QTimer
 from PySide6.QtGui import QGuiApplication, QPalette
 from PySide6.QtWidgets import (
     QComboBox,
@@ -111,7 +112,7 @@ def _muted(theme: fmt.Theme) -> str:
 
 
 class EnumerationPanel(QGroupBox):
-    """The four sets, each empty until somebody presses its button.
+    """Every set the catalogue knows, each empty until somebody presses its button.
 
     This is the only way the client learns the vocabulary. Nothing is compiled
     in, so what the fields offer is always what this service answered, not what
@@ -126,10 +127,11 @@ class EnumerationPanel(QGroupBox):
         self._view: dict[str, QPushButton] = {}
 
         # The rows sit in a scroll area so that this panel's height is not the
-        # window's minimum. The four rows and the intro need about 435 pixels,
-        # and with the response pane and the connection strip that put the
-        # window's minimum past what a 1080p desktop at 150% has above the
-        # taskbar. The bar appears only when the panel is squeezed below what
+        # window's minimum. Four rows and the intro were measured needing about
+        # 435 pixels, and with the response pane and the connection strip that
+        # put the window's minimum past what a 1080p desktop at 150% has above
+        # the taskbar. There are more rows than four now, so the case is only
+        # stronger. The bar appears only when the panel is squeezed below what
         # the rows need, so on a desktop with room this looks as it did.
         rows = QWidget()
         layout = QVBoxLayout(rows)
@@ -138,11 +140,22 @@ class EnumerationPanel(QGroupBox):
 
         intro = QLabel(
             "Nothing is loaded until you ask for it. Load a set and it becomes "
-            "available in the fields that use it."
+            "available in the fields that use it, or load every set at once."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet(_muted(self._window.theme))
         layout.addWidget(intro)
+
+        every = QPushButton("Load all")
+        every.setToolTip(
+            "Send each set's read in turn, one call after another. The client "
+            "keeps one call in flight, so these cannot go out together."
+        )
+        every.clicked.connect(lambda _checked=False: self._window.load_every_set())
+        top = QHBoxLayout()
+        top.addWidget(every)
+        top.addStretch(1)
+        layout.addLayout(top)
 
         for set_key in catalogue.SET_ORDER:
             layout.addWidget(self._build_row(set_key))
@@ -673,6 +686,10 @@ class MainWindow(QMainWindow):
         # checked address is never fetched twice, so a verdict thrown away on a
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
+        # What Load all has left to send. One call is in flight at a time, so
+        # loading every set is a chain rather than five requests: each is sent
+        # from the completion of the one before it.
+        self._queued: list[Operation] = []
         self._pending_keys: tuple[OperationForm, str] | None = None
         self._pending_fill: tuple[OperationForm, str, dict[str, str]] | None = None
         self._started_at = datetime.now()
@@ -728,13 +745,27 @@ class MainWindow(QMainWindow):
         )
         self.base_url.setToolTip("where the service is listening")
 
-        self.api_key = QLineEdit()
+        # Filled in from the environment when this machine sets a key there,
+        # which is what both launch scripts do with the key they gave the
+        # service. Still no command line option and still nothing written down:
+        # see request.initial_api_key.
+        prefilled = request_module.initial_api_key(os.environ)
+        self.api_key = QLineEdit(prefilled)
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("X-API-Key, never saved to disk")
-        self.api_key.setToolTip(
+        explanation = (
             "Sent with the writes that need it. It is not stored between runs and "
             "is redacted everywhere it would otherwise be written down."
         )
+        if prefilled:
+            # A box that arrives full with nothing to say why is a box somebody
+            # stares at wondering whose key is in it.
+            explanation += (
+                " This one was read from %s in the environment, which is where the "
+                "launch scripts put the key they gave the service. Overtype it to "
+                "send a different one." % request_module.API_KEY_VARIABLE
+            )
+        self.api_key.setToolTip(explanation)
 
         health = QPushButton("Health")
         health.setToolTip("GET /health, which like every read needs no key")
@@ -960,6 +991,60 @@ class MainWindow(QMainWindow):
         box.setStyleSheet("QLabel { color: %s }" % self.theme.bad)
         return box.exec() == QMessageBox.StandardButton.Yes
 
+    def load_every_set(self) -> None:
+        """Load every enumeration the catalogue knows, one call after another.
+
+        Not five sends. The caller holds one call in flight and refuses the
+        rest, so four of five would be turned away on the spot. The first goes
+        now and the others wait in ``_queued``, where ``_completed`` picks up
+        the next one.
+        """
+        if self._queued:
+            # A second press mid-chain would restart it and send whatever is
+            # still queued twice.
+            self._set_strip("Still loading the sets. Nothing else was sent.", None)
+            return
+
+        pending = [
+            operation
+            for set_key in catalogue.SET_ORDER
+            for operation in catalogue.loaders_for(set_key)
+        ]
+        if not pending:
+            return
+
+        self._queued = pending[1:]
+        if not self.run(pending[0]):
+            # Refused before it went out: a call already in flight, or a request
+            # that could not be built. Nothing is coming back to drain the rest.
+            self._queued = []
+
+    def _send_next_queued(self) -> None:
+        """Send the next set's read, if Load all has any left.
+
+        Through a timer rather than straight out of ``_completed``, so the reply
+        that triggered this is finished with before its successor is created.
+
+        That timer opens a gap, and the gap is not empty. Send is live again the
+        moment ``_completed`` begins, and every other button that calls
+        :meth:`run` was live throughout, so a press landing in it takes the one
+        call the client allows. Nothing is taken off the queue while that is
+        true: the chain is behind somebody else's call rather than over, and the
+        drain at the end of ``_completed`` runs after every call, so it picks up
+        again when that one answers. Popping first and giving up on the refusal
+        lost both the operation and the rest of the chain, measured as one set
+        loaded out of five, with only :meth:`run`'s own "was not sent" to show
+        for it.
+        """
+        if not self._queued or self._caller.busy:
+            return
+        operation = self._queued.pop(0)
+        if not self.run(operation):
+            # Refused for something waiting will not fix, a base URL that is no
+            # longer a URL being the whole of it. Nothing is in flight to come
+            # back and drain the rest.
+            self._queued = []
+
     def load_keys(self, operation_id: str) -> None:
         """Fetch a list so the key box it serves can offer what exists.
 
@@ -1039,8 +1124,13 @@ class MainWindow(QMainWindow):
         self.response.setHtml(fmt.as_html(rendered, self.theme))
 
         if ok:
-            self._absorb(operation, payload)
+            # Whether the reply was one this client could actually use, which is
+            # not the same question as whether it arrived. A 200 carrying a body
+            # that is not a set this can read is a failure no status code shows,
+            # and Load all has to stop for it exactly as for a 500.
+            taken = self._absorb(operation, payload)
         else:
+            taken = False
             # Required: every failure opens with its full content, not just a colour.
             # The title distinguishes the one failure where no service reported
             # anything, because nothing answered at all.
@@ -1091,10 +1181,34 @@ class MainWindow(QMainWindow):
             if ok and same_service and isinstance(payload, list) and self._form is form:
                 form.offer_keys(listed_by, payload)
 
-    def _absorb(self, operation: Operation, payload: object) -> None:
-        """Take an enumeration into the store, if that is what just came back."""
+        if self._queued:
+            # Last, so that everything above has read this reply before the next
+            # one is asked for.
+            if taken:
+                QTimer.singleShot(0, self._send_next_queued)
+            else:
+                # One failure is one dialog. Carrying on would stack another for
+                # every set still queued, all of them saying the same thing, and
+                # the error is already on screen and in the strip behind it.
+                self._queued = []
+                self._set_strip(
+                    "%s failed, so the rest of the sets were not asked for."
+                    % operation.signature,
+                    False,
+                )
+
+    def _absorb(self, operation: Operation, payload: object) -> bool:
+        """Take an enumeration into the store, if that is what just came back.
+
+        Returns whether the reply was one this client could use, which Load all
+        reads to decide whether to ask for the next set. An operation that loads
+        nothing had nothing to take and answers True, because there was no
+        failure in it. A body that arrived 200 and is not a set this can read
+        answers False, which stops the chain asking four more sets of a service
+        that has just shown it cannot answer one.
+        """
         if operation.loads is None:
-            return
+            return True
         try:
             entries = enums.parse(payload)
         except enums.MalformedEnumeration as err:
@@ -1104,12 +1218,13 @@ class MainWindow(QMainWindow):
                 "%s answered something this client could not read as a set: %s"
                 % (operation.signature, err),
             )
-            return
+            return False
 
         self.store.load(operation.loads, operation.signature, entries)
         self.enumerations.refresh()
         if self._form is not None:
             self._form.refresh_enumerations()
+        return True
 
     def _check_surface(self, address: str) -> None:
         """Ask an address to describe itself, the first time it answers anything."""

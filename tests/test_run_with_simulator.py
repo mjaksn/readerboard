@@ -12,9 +12,14 @@ which in an editor means writing the key into a launch configuration, and those
 are tracked, shared, and rewritten in place by an editor that drops the comments
 explaining them.
 
-So the order below is the fix, and it is the whole of what this checks: the
-option beats the environment, the environment beats the development default, and
-an empty variable counts as unset rather than as a key nobody can guess.
+So the order below is the fix, and most of what this checks: the option beats
+the environment, the environment beats the development default, and an empty
+variable counts as unset rather than as a key nobody can guess.
+
+The rest is where the key goes once it has been settled. The client is handed it
+through its environment so that its key box starts out filled in, and that is the
+environment rather than a command line for the reason the client has no option
+for one: a key on a command line is a key in the shell history.
 
 The script is not importable as a module. It lives in ``scripts/`` with no
 package around it, which is why this loads it by path.
@@ -78,6 +83,45 @@ def test_an_empty_variable_counts_as_unset(
     monkeypatch.setenv(launcher.API_KEY_VARIABLE, "")
     args = launcher.build_parser().parse_args([])
     assert args.api_key == launcher.DEFAULT_API_KEY
+
+
+def test_the_client_is_handed_the_key_through_its_environment(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _capture_popen(launcher, monkeypatch)
+    launcher._start_client("http://127.0.0.1:5001", "the-key-in-use")
+
+    command, env = captured
+    assert env[launcher.API_KEY_VARIABLE] == "the-key-in-use"
+    assert "the-key-in-use" not in command
+
+
+def test_the_key_is_set_even_when_the_machine_has_none(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The usual case: nothing set here, so the development default is in use.
+    # Inheriting the environment would hand the client nothing at all.
+    monkeypatch.delenv(launcher.API_KEY_VARIABLE, raising=False)
+    captured = _capture_popen(launcher, monkeypatch)
+    launcher._start_client("http://127.0.0.1:5001", launcher.DEFAULT_API_KEY)
+
+    _, env = captured
+    assert env[launcher.API_KEY_VARIABLE] == launcher.DEFAULT_API_KEY
+
+
+def _capture_popen(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[str], dict[str, str]]:
+    """Stand in for Popen, and hand back the command and environment it was given."""
+    captured: list = [[], {}]
+
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            captured[0] = list(command)
+            captured[1] = dict(kwargs["env"])
+
+    monkeypatch.setattr(launcher.subprocess, "Popen", FakePopen)
+    return captured  # type: ignore[return-value]
 
 
 def test_the_help_does_not_print_the_key_in_use(
