@@ -663,6 +663,30 @@ class TestWritingPicturesUnderAnAlert:
         assert alerts.active.message == "FIRE"
         assert not is_release(priority_writes(transport)[-1])
 
+    async def test_a_put_back_that_fails_on_its_own_is_reported(
+        self, wired, transport, monkeypatch
+    ):
+        # The picture went out and the write the caller asked for worked, so
+        # nothing is in flight to protect and the sign is the thing left wrong:
+        # the rotation is showing while the service still reports an alert
+        # holding the display. Swallowing this answered the call with a success
+        # over exactly that, and nothing said so until the periodic re-assert a
+        # quarter of an hour later.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def fail(*args, **kwargs):
+            raise TransportError("the sign went away after the picture")
+
+        # Only the put-back. clear_priority builds its own frame and does not go
+        # through this, so the hand-back still happens and the picture is still
+        # written; it is putting the alert back that fails.
+        monkeypatch.setattr(alerts._controller, "write_priority", fail)
+
+        with pytest.raises(TransportError, match="after the picture"):
+            await add(registry, "door", "<icon:lock> LOCKED")
+
     async def test_a_put_back_that_fails_does_not_replace_the_real_failure(
         self, wired, transport, monkeypatch, caplog
     ):

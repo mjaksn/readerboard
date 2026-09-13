@@ -279,12 +279,18 @@ class AlertService:
         Nothing happens at all when no alert is up, which is almost always, and
         that is what keeps an ordinary icon write as cheap as it was.
 
-        The put-back is forced and happens whatever went wrong in between: a
-        write that failed under a lifted alert must not leave the sign showing
-        the rotation with an alert recorded as holding it. A put-back that
-        itself fails is logged rather than raised, because it would replace the
-        failure that brought us here, and :meth:`reassert` repairs exactly this
-        state on its own timer.
+        The put-back is forced and happens either way: a write that failed
+        under a lifted alert must not leave the sign showing the rotation with
+        an alert recorded as holding it.
+
+        What differs is what happens when the put-back *itself* fails, and the
+        two exits want opposite things. If the body raised, that failure is the
+        one worth reporting and this one is logged and swallowed, or a caller
+        whose pool was full would be told the sign is unreachable. If the body
+        succeeded, nothing is in flight to protect and the sign is the thing
+        left wrong, so it travels: answering 200 over a display that is showing
+        the rotation while the service still reports an alert would be the call
+        lying about what it did.
         """
         alert = self._state.alert
         if alert is None:
@@ -303,18 +309,42 @@ class AlertService:
             await self._controller.clear_priority(force=True)
             try:
                 yield
-            finally:
+            except BaseException:
+                await self._put_back_quietly(alert, render)
+                raise
+            else:
                 await self._put_back(alert, render)
+
+    async def _put_back_quietly(
+        self, alert: AlertState, render: Callable[..., bytes]
+    ) -> None:
+        """Put a lifted alert back while another failure is already travelling.
+
+        Never raises. Every caller is on a rollback path, so anything raised
+        here would arrive in place of the failure that brought us to it, and a
+        caller told the sign is unreachable when its pool was actually full has
+        been told the wrong thing about its own request. :meth:`reassert` puts
+        the alert back on its own timer, so the sign is repaired either way.
+        """
+        try:
+            await self._put_back(alert, render)
+        except Exception:
+            # Anything at all, for the reason above. Not BaseException: a
+            # cancellation is the caller going away and has to keep travelling.
+            logger.exception("could not put the lifted alert back on the sign")
 
     async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> None:
         """Write an alert that was lifted off the sign back onto the priority file.
 
-        Never raises, and the breadth of that is deliberate. Every caller is
-        either in a ``finally`` or on a rollback path, so anything raised here
-        would arrive in place of the failure that brought us to it, and a caller
-        told the sign is unreachable when the pool was actually full has been
-        told the wrong thing about its own request. :meth:`reassert` puts the
-        alert back on its own timer, so nothing is lost by swallowing it.
+        Raises what the write raised, which is what the success path wants: the
+        sign has been handed back, this is what puts it right, and a call that
+        reported success over a failure here would leave the rotation showing
+        with an alert still recorded as holding the display and nothing to say
+        so until the periodic re-assert. The rollback paths want the opposite
+        and go through :meth:`_put_back_quietly`.
+
+        The three early returns are decisions rather than failures: the alert is
+        not this one any more, it has expired, or it no longer fits.
         """
         if self._state.alert is not alert:
             # Released or replaced while it was lifted. Whoever did that owns
@@ -330,25 +360,21 @@ class AlertService:
             self._store.save(self._state)
             return
 
-        try:
-            body = render(alert.message, strict=False)
-            if len(body) > c.PRIORITY_FILE_CAPACITY:
-                # See restore() for how a stored alert outgrows the file.
-                logger.warning(
-                    "the lifted alert no longer fits the sign's priority file, so it "
-                    "was not put back. The text was: %r",
-                    alert.message,
-                )
-                return
-            # Forced, because the release above left the controller believing the
-            # priority file holds a release. Without it this would be suppressed
-            # as a repeat of the write before the lift.
-            await self._write(alert, body, force=True)
-        except Exception:
-            # Anything at all, for the reason in the docstring. Not
-            # BaseException: a cancellation is the caller going away and has to
-            # keep travelling.
-            logger.exception("could not put the lifted alert back on the sign")
+        body = render(alert.message, strict=False)
+        if len(body) > c.PRIORITY_FILE_CAPACITY:
+            # See restore() for how a stored alert outgrows the file. Not a
+            # failure to report: there is nothing the caller could do about it
+            # and nothing it did to cause it.
+            logger.warning(
+                "the lifted alert no longer fits the sign's priority file, so it "
+                "was not put back. The text was: %r",
+                alert.message,
+            )
+            return
+        # Forced, because the release above left the controller believing the
+        # priority file holds a release. Without it this would be suppressed as
+        # a repeat of the write before the lift.
+        await self._write(alert, body, force=True)
 
     async def raise_alert(
         self,
@@ -435,7 +461,10 @@ class AlertService:
                     # regression on its own: before it, a write that failed here
                     # left the alert that was up still up, because nothing had
                     # touched the priority file.
-                    await self._put_back(replaced, render_message)
+                    #
+                    # Quietly, because the failure being handled is the one the
+                    # caller asked about and this one is not.
+                    await self._put_back_quietly(replaced, render_message)
                 raise
 
             self._state.alert = alert
