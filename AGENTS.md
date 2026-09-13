@@ -278,7 +278,12 @@ itself. Four things hold it together:
   the sign for that write and goes straight back on. The sign does not take a
   picture while a priority message is running, measured on 2026-09-13 and
   recorded in `docs/protocol-notes.md`, and nothing retries it: the controller
-  believes it sent those bytes. `SlotRegistry._priority_lifted` wraps the
+  believes it sent those bytes. The sign is handed back whether or not an alert
+  is recorded, because the state file is not a reading of the sign: an unclean
+  stop between writing an alert and saving it leaves a takeover nothing knows
+  about, which is why `AlertService.restore` clears the priority file at startup
+  with no alert recorded either. The release is unforced, so it costs one write
+  per run rather than one per picture. `SlotRegistry._priority_lifted` wraps the
   picture writes and nothing else, because the STRING, TEXT and run sequence
   writes around them are all measured landing under an alert. `AlertService`
   does the same for its own case, an alert replacing an alert with a new icon,

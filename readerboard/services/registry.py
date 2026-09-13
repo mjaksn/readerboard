@@ -456,12 +456,19 @@ class SlotRegistry:
         What it covers is the case where a picture loses its file and the
         messages do not, and without it the message calling that icon would draw
         nothing for it for good, since nothing rewrites a message that has not
-        changed. Two things can still leave it that way. A stored picture whose
+        changed. Three things can still leave it that way. A stored picture whose
         label is not in the pool, which ``_reattach_labels`` drops: a changed
         label set reallocates the sign now, so what is left is a state file that
-        disagrees with the pool for some other reason. And a claim that was
-        rolled back after an eviction it could not undo, which
-        :meth:`_undo_claims` logs when it happens.
+        disagrees with the pool for some other reason. A claim that was rolled
+        back after an eviction it could not undo, which :meth:`_undo_claims`
+        logs when it happens. And a rollback that got the file back and could
+        not draw the bitmap into it, which gives the file up rather than leave a
+        record saying it holds a picture it does not; :meth:`rendering`'s revert
+        logs that one.
+
+        Which is why this runs from :meth:`_rewrite_all` rather than from the
+        restart path alone: the third of those happens while the service is
+        running, and the refresh is the next thing along that can repair it.
 
         The refusals it swallows are real rather than defensive, and the likely
         one is not a full pool. The icon library is data and changes between
