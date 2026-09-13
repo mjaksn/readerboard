@@ -23,7 +23,7 @@ import pytest
 from readerboard import icons
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
-from readerboard.services.alerts import AlertAlreadyActive, AlertTooLong
+from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
 from readerboard.services.registry import (
     IconsDisabled,
     PicturePoolFull,
@@ -65,6 +65,39 @@ def picture_writes(transport: FakeTransport) -> list[bytes]:
 
 async def add(registry: SlotRegistry, key: str, message: str, **kwargs):
     return await registry.upsert(key, message, mode="HOLD", **kwargs)
+
+
+def priority_writes(transport: FakeTransport) -> list[bytes]:
+    """Return every write to the priority file, releases included, in order.
+
+    A release is a bare write carrying the label and nothing else, so it is
+    shorter than the two bytes a takeover needs; :func:`is_release` reads that.
+    """
+    return [
+        payload
+        for payload in payloads(transport)
+        if payload[:1] == c.COMMAND_WRITE_TEXT and payload[1:2] == c.FILE_PRIORITY
+    ]
+
+
+def is_release(payload: bytes) -> bool:
+    """Whether a priority write is the bare one that hands the sign back."""
+    return payload == c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY
+
+
+@pytest.fixture
+def wired(registry: SlotRegistry, alerts: AlertService) -> tuple[SlotRegistry, AlertService]:
+    """Wire the two services to each other exactly as ``app.py`` does.
+
+    Both directions, which is the point. The registry renders an alert so a
+    variable it calls cannot be deleted underneath it, and the alert service
+    hands the sign back so the registry can write a picture. Wiring only the
+    first is what the rest of this file does, and it is why none of it sees the
+    priority file move.
+    """
+    alerts.set_rendering(registry.rendering)
+    registry.set_priority_hold(alerts.lifted)
+    return registry, alerts
 
 
 class TestAllocating:
@@ -430,6 +463,240 @@ class TestAlerts:
 
         assert registry._state.pictures == before
         assert picture_writes(transport) == []
+
+
+class TestWritingPicturesUnderAnAlert:
+    """The sign will not take a picture while a priority message is running.
+
+    Measured on 2026-09-13, from a real sign. A slot with icons was covered by
+    an alert, the service was restarted, and the alert was released: the icons
+    were gone, or drawn as a sliver, and they stayed that way until the periodic
+    refresh wrote them again a quarter of an hour later. Every picture write on
+    that restart had landed under the alert the sign kept across it.
+
+    Nothing retries such a write on its own. The controller remembers the bytes
+    it put in each file and declines to send them twice, so a write the sign
+    threw away is one the service believes it made. That is what turned a
+    momentary failure into a display that stayed wrong.
+
+    So a picture write is given the sign to itself: the alert comes off for it
+    and goes straight back on. Everything below is either that happening when it
+    should or, just as important, not happening when it should not.
+    """
+
+    async def test_the_bug_report_a_restart_during_an_alert(
+        self, controller, layout, store, state, clock, transport
+    ):
+        # The whole failure, end to end, in the order it happened. A slot with
+        # an icon, an alert holding the sign, and a restart: what the sign gets
+        # on the way back up has to hand it back before the picture and take it
+        # again after, or the icon is written into a file the sign is ignoring.
+        registry = SlotRegistry(controller, layout, store, state, now=clock)
+        await registry.restore()
+        alerts = AlertService(controller, store, state, now=clock)
+        alerts.set_rendering(registry.rendering)
+        registry.set_priority_hold(alerts.lifted)
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        # A restart: new controller, so nothing is remembered about the sign,
+        # and the sign is still holding the alert from before it.
+        fresh = SignController(transport, inter_packet_delay=0)
+        transport.clear()
+        again = SlotRegistry(fresh, layout, store, state, now=clock)
+        alerts_again = AlertService(fresh, store, state, now=clock)
+        alerts_again.set_rendering(again.rendering)
+        again.set_priority_hold(alerts_again.lifted)
+
+        await again.restore()
+        after_restore = list(payloads(transport))
+        await alerts_again.restore()
+
+        priority = priority_writes(transport)
+        assert is_release(priority[0]), "the sign was not handed back for the picture"
+        assert len(picture_writes(transport)) == 1
+        # The release comes before the picture and the alert comes back after.
+        assert after_restore.index(priority[0]) < after_restore.index(
+            picture_writes(transport)[0]
+        )
+        assert not is_release(priority[1])
+        # And the alert service's own restore adds nothing: the put-back already
+        # sent those bytes, so the write it makes is suppressed rather than
+        # taking the sign off the alert a second time.
+        assert payloads(transport)[len(after_restore) :] == []
+
+    async def test_a_slot_with_a_new_icon_written_under_an_alert(
+        self, wired, transport
+    ):
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        order = [payload[:2] for payload in payloads(transport)]
+        release = c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY
+        assert order[0] == release
+        assert order[1][:1] == c.COMMAND_WRITE_DOTS
+        # Back on the sign before the slot's own file is written, so the alert
+        # is off the display for one picture write and nothing else.
+        assert order[2] == release
+        assert not is_release(priority_writes(transport)[-1])
+
+    async def test_nothing_touches_the_priority_file_when_no_alert_is_up(
+        self, wired, transport
+    ):
+        registry, _ = wired
+        transport.clear()
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert picture_writes(transport)
+        assert priority_writes(transport) == []
+
+    async def test_an_icon_that_already_has_its_file_lifts_nothing(
+        self, wired, transport
+    ):
+        # The common case, and the one that must stay free. A message calling an
+        # icon that is already in the pool claims nothing and writes no picture,
+        # so there is nothing to hand the sign back for.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await add(registry, "gate", "<icon:lock> ALSO LOCKED")
+
+        assert picture_writes(transport) == []
+        assert priority_writes(transport) == []
+
+    async def test_an_alert_replacing_one_with_a_new_icon_hands_the_sign_back(
+        self, wired, transport
+    ):
+        # The alert service's own case. The picture for the new alert is written
+        # while the old alert is still on the priority file, so it needs the
+        # same treatment, and it is the alert service that does it rather than
+        # the registry: the registry is called from inside this lock.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await alerts.raise_alert("<icon:bell> DING", mode="HOLD")
+
+        order = payloads(transport)
+        assert is_release(order[0])
+        assert order[1][:1] == c.COMMAND_WRITE_DOTS
+        assert not is_release(order[2])
+
+    async def test_an_alert_replacing_one_with_no_new_icon_does_not(
+        self, wired, transport
+    ):
+        # Gated on there being a picture. Without that every alert replacing an
+        # alert would hand the sign back and take it again for nothing.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await alerts.raise_alert("FLOOD", mode="HOLD")
+
+        assert picture_writes(transport) == []
+        assert [p for p in priority_writes(transport) if is_release(p)] == []
+
+    async def test_a_refresh_under_an_alert_hands_the_sign_back(self, wired, transport):
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await registry.refresh()
+
+        # A refresh forgets what the sign holds and writes everything again, so
+        # the picture really does go out, and it must not go out under the alert.
+        assert len(picture_writes(transport)) == 1
+        assert is_release(priority_writes(transport)[0])
+        assert not is_release(priority_writes(transport)[-1])
+
+    async def test_a_picture_write_that_fails_still_puts_the_alert_back(
+        self, wired, transport, monkeypatch
+    ):
+        # The one that matters most for the sign in the room. A write that
+        # failed under a lifted alert must not leave the rotation showing with
+        # an alert recorded as holding the display and nothing to put it back
+        # until the refresh a quarter of an hour later.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        real = registry._controller.write_dots_file
+
+        async def fail(*args, **kwargs):
+            raise TransportError("the sign went away mid-picture")
+
+        monkeypatch.setattr(registry._controller, "write_dots_file", fail)
+        with pytest.raises(TransportError):
+            await add(registry, "door", "<icon:lock> LOCKED")
+        monkeypatch.setattr(registry._controller, "write_dots_file", real)
+
+        assert alerts.active is not None
+        assert not is_release(priority_writes(transport)[-1])
+
+    async def test_a_put_back_that_fails_does_not_replace_the_real_failure(
+        self, wired, transport, monkeypatch, caplog
+    ):
+        # The put-back runs in a finally, so an exception from it would arrive
+        # in place of whatever the picture write raised, and the caller would be
+        # told the sign is unreachable when what actually happened was the pool
+        # filling up. It is logged and swallowed instead; the periodic
+        # re-assert is what puts the alert back after a failure like this.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def fail_dots(*args, **kwargs):
+            raise TransportError("the picture write failed")
+
+        async def fail_priority(*args, **kwargs):
+            raise TransportError("and so did putting the alert back")
+
+        monkeypatch.setattr(registry._controller, "write_dots_file", fail_dots)
+        monkeypatch.setattr(registry._controller, "write_priority", fail_priority)
+
+        with (
+            caplog.at_level(logging.WARNING),
+            pytest.raises(TransportError, match="the picture write failed"),
+        ):
+            await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert "could not put the lifted alert back" in caplog.text
+
+    async def test_an_alert_that_expired_while_lifted_is_not_put_back(
+        self, wired, transport, clock
+    ):
+        # Its deadline passed while the sign was being written to. Putting it
+        # back would show it again for as long as it takes the sweep to come
+        # round, which is an alert appearing after it was over.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD", ttl_seconds=30)
+        transport.clear()
+        clock.advance(31)
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert alerts.active is None
+        assert is_release(priority_writes(transport)[0])
+        assert [p for p in priority_writes(transport) if not is_release(p)] == []
+
+    async def test_the_registry_writes_as_it_always_did_with_no_alert_service(
+        self, registry, transport
+    ):
+        # Nothing wired in, which is most of this file and every test that uses
+        # the registry on its own. The hook is optional so that those keep
+        # working rather than needing an alert service they have no use for.
+        transport.clear()
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert len(picture_writes(transport)) == 1
+        assert priority_writes(transport) == []
 
 
 class TestAcrossARestart:

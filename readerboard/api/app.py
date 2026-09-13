@@ -172,6 +172,12 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
         alerts.set_rendering(registry.rendering)
+        # And the other way: the registry hands the sign back before it writes a
+        # picture, because the sign will not take one while a priority message
+        # is running. Both directions are wired here rather than either service
+        # reaching for the other, and the lock order is what the two of them
+        # have to agree on: the registry's first, then this one's.
+        registry.set_priority_hold(alerts.lifted)
         clock = ClockService(
             controller,
             interval_seconds=settings.clock_sync_interval_seconds,

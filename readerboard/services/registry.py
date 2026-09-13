@@ -51,6 +51,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -162,10 +163,25 @@ class _Rendering:
         self,
         render: Callable[..., bytes],
         draw: Callable[[], Awaitable[None]],
+        *,
+        draws_pictures: bool = False,
     ) -> None:
         """Hold the renderer and the write that has not happened yet."""
         self._render = render
         self._draw = draw
+        self._draws_pictures = draws_pictures
+
+    @property
+    def draws_pictures(self) -> bool:
+        """Whether :meth:`draw_icons` has anything to write.
+
+        The alert service reads it to decide whether the sign has to be handed
+        back before that write. A picture is not taken while a priority message
+        is running, and an alert replacing an alert draws under the one still
+        up; without this every alert that replaced another would hand the sign
+        back and take it again for no picture at all.
+        """
+        return self._draws_pictures
 
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message, exactly as :meth:`SlotRegistry._render_message` does."""
@@ -178,6 +194,13 @@ class _Rendering:
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+# What :meth:`SlotRegistry.set_priority_hold` takes: something that hands the
+# sign back for the duration, given the renderer to put the alert back with.
+# The alert service's own lock is below this registry's, so the renderer has to
+# be passed in rather than reached for; see :meth:`AlertService.lifted`.
+PriorityHold = Callable[[Callable[..., bytes]], AbstractAsyncContextManager[None]]
 
 
 class SlotRegistry:
@@ -200,6 +223,17 @@ class SlotRegistry:
         self._now = now
         self._lock = asyncio.Lock()
         self._dirty = False
+        self._priority_hold: PriorityHold | None = None
+
+    def set_priority_hold(self, hold: PriorityHold) -> None:
+        """Give the registry a way to hand the sign back while it writes a picture.
+
+        :meth:`AlertService.lifted` in the service. Without one, a picture
+        written while an alert is up is lost, which is what this exists for;
+        with none set the registry writes as it always did, which is what the
+        tests that have no alert service want.
+        """
+        self._priority_hold = hold
 
     # == reading ============================================================
 
@@ -468,8 +502,16 @@ class SlotRegistry:
         # Pictures and variables first, so that no message is ever drawn calling
         # a file that is not written yet, then the messages, then the run
         # sequence that starts playing them.
-        for picture in self._state.pictures.values():
-            await self._write_picture(picture)
+        #
+        # The pictures, and only the pictures, are written with the sign handed
+        # back. This is the path the bug was found on: a restart during an alert
+        # rewrites everything while the sign is still showing the alert it kept
+        # across the restart, so every picture write landed under a priority
+        # message and none of them took.
+        if self._state.pictures:
+            async with self._priority_lifted():
+                for picture in self._state.pictures.values():
+                    await self._write_picture(picture)
         for variable in self.list_variables():
             await self._write_variable(variable)
         for slot in self.list_slots():
@@ -617,7 +659,9 @@ class SlotRegistry:
                 await self._write_claims(claims.claimed)
 
             try:
-                yield _Rendering(self._render_message, draw)
+                yield _Rendering(
+                    self._render_message, draw, draws_pictures=bool(claims.claimed)
+                )
             except BaseException:
                 # The alert did not land, so nothing calls these. They are given
                 # up rather than left holding files against a message that is
@@ -692,7 +736,13 @@ class SlotRegistry:
                 # them, so the sign is never drawing a file that points at a
                 # picture not yet written. Same rule as a variable, and for the
                 # same reason.
-                await self._write_claims(claims.claimed)
+                # Only when there is a picture to write. An empty claim list
+                # is the common case, a message whose icons already have their
+                # files included, and lifting an alert for it would take the
+                # sign off an alert to write nothing.
+                if claims.claimed:
+                    async with self._priority_lifted():
+                        await self._write_claims(claims.claimed)
             except BaseException:
                 # The slot file has to go back too, and only here. A new key is
                 # given one by ``assign`` a few lines up, and the record that
@@ -1305,9 +1355,42 @@ class SlotRegistry:
         )
 
     async def _write_claims(self, keys: list[str]) -> None:
-        """Draw newly claimed icons into their files, before anything calls them."""
+        """Draw newly claimed icons into their files, before anything calls them.
+
+        The sign has to be handed back for these, and it is not done here. This
+        runs inside :meth:`rendering` as well, which the alert service calls
+        with its own lock already held, so taking that lock here would wait on
+        the caller. Every caller that is not the alert service wraps this in
+        :meth:`_priority_lifted` instead, and the alert service hands the sign
+        back itself.
+        """
         for key in keys:
             await self._write_picture(self._state.pictures[key])
+
+    @contextlib.asynccontextmanager
+    async def _priority_lifted(self) -> AsyncIterator[None]:
+        """Hand the sign back while pictures are written, if an alert is holding it.
+
+        A picture written while a priority message is running is not taken by
+        the sign, measured on 2026-09-13, and nothing retries it: the controller
+        believes it sent those bytes and will not send them again until a
+        refresh forgets. So the alert comes off for the write and goes straight
+        back on.
+
+        Wrapped around the picture writes and nothing else. The STRING, TEXT and
+        run sequence writes that follow are all measured landing under an alert,
+        so including them would lengthen the moment the alert is off the sign
+        for no gain.
+
+        Nothing happens when no alert service was wired in, which is the tests
+        that use the registry on its own.
+        """
+        hold = self._priority_hold
+        if hold is None:
+            yield
+            return
+        async with hold(self._render_message):
+            yield
 
     def _require_variables(self) -> None:
         if not self._layout.variable_count:
