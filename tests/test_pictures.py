@@ -324,6 +324,28 @@ class TestTheFullPool:
         assert sent.index(c.COMMAND_WRITE_DOTS) < sent.index(c.COMMAND_WRITE_TEXT)
         assert set(state.pictures) == {"moon"}
 
+    async def test_a_save_that_fails_leaves_the_live_alert_its_picture(
+        self, controller, store, state, clock, alerts, monkeypatch
+    ):
+        # The alert is on the sign by the time the state is written, so a save
+        # that raises must not be read as "the alert did not land". It used to
+        # be: the failure escaped the rendering, which gave the pictures back,
+        # and the next icon to want a file took the one the alert was drawing.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+
+        def explode(_state):
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(store, "save", explode)
+
+        with pytest.raises(OSError):
+            await alerts.raise_alert("<icon:bell> DING", mode="HOLD")
+
+        assert state.alert is not None
+        assert "bell" in state.pictures
+
     async def test_a_released_alerts_icon_can_be_taken(self, registry, alerts):
         alerts.set_rendering(registry.rendering)
         await add(registry, "a", "<icon:sun>")

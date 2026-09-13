@@ -231,6 +231,14 @@ class AlertService:
         # rendering. That is what lets the registry refuse to delete a variable
         # the alert calls: it reads the recorded alert under the same lock, so
         # it never sees one that is rendered but not yet recorded.
+        #
+        # Persisting it does not. The rendering is a transaction: anything that
+        # escapes it takes the alert's newly claimed pictures back, on the
+        # reading that an alert which did not land calls nothing. Once the
+        # priority file is written that reading is wrong, and a save that failed
+        # inside it would hand away the files the alert on the sign is drawing
+        # from. So the save happens after, where a failure costs the record on
+        # disk and nothing on the sign.
         async with self._rendering(message) as render_message, self._lock:
             body = render_message(message)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
@@ -254,7 +262,8 @@ class AlertService:
             await render_message.draw_icons()
             await self._write(alert, body)
             self._state.alert = alert
-            self._store.save(self._state)
+
+        self._store.save(self._state)
 
         logger.info(
             "alert raised%s",
