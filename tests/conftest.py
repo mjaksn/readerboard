@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from readerboard.protocol import constants as c
 from readerboard.services.alerts import AlertService
 from readerboard.services.registry import SlotRegistry
 from readerboard.sign.controller import SignController
@@ -38,6 +40,51 @@ def clock() -> FrozenClock:
 @pytest.fixture
 def transport() -> FakeTransport:
     return FakeTransport()
+
+
+def _pool_reading(pool_size: bytes) -> bytes:
+    """Build the reply a sign gives when asked how big its memory pool is."""
+    body = (
+        c.STX
+        + c.COMMAND_WRITE_SPECIAL
+        + c.SF_GENERAL_INFORMATION
+        + b"1044-160B01931433M00"
+        + pool_size
+        + b",0BB8"
+        + c.ETX
+    )
+    return (
+        c.NUL * 20
+        + c.SOH
+        + c.SIGN_TYPE_RESPONSE
+        + c.SIGN_ADDRESS_BROADCAST
+        + body
+        + b"%04X" % sum(body)
+        + c.EOT
+    )
+
+
+@pytest.fixture
+def answer_a_pool_reading(transport: FakeTransport) -> Callable[..., None]:
+    """Queue the answer a sign gives when asked how big its memory pool is.
+
+    Every path that writes a memory configuration asks first, and a fake answers
+    nothing it was not told to answer, so a test that reallocates without this
+    waits out the read's three second deadline and then falls back to the
+    assumed figure anyway. The default is roomier than the sign this service
+    drives, so the check passes and the test is about whatever it was about.
+    Queue a smaller one to make the check refuse.
+
+    A fixture rather than a function to import. Three suites are collected in
+    one run and each has a ``conftest`` with no package around it, so ``from
+    conftest import`` resolves to whichever one landed on the path first: it
+    works when ``tests/`` is run alone and fails the moment the whole suite is.
+    """
+
+    def queue(pool_size: bytes = b"4000") -> None:
+        transport.replies.append(_pool_reading(pool_size))
+
+    return queue
 
 
 async def instant_sleep(seconds: float) -> None:

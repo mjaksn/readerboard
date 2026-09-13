@@ -271,16 +271,21 @@ class TestOrderOfWrites:
 
         assert commands(transport) == [b"G", b"A", b"E"]
 
-    async def test_a_reboot_does_the_same_after_the_clear(self, registry, transport):
+    async def test_a_reboot_does_the_same_after_the_clear(
+        self, registry, transport, answer_a_pool_reading
+    ):
         await put(registry, "temp", "72")
         await add(registry, "weather", "T=<var:temp>")
         transport.clear()
+        answer_a_pool_reading()
 
         await registry.reboot()
 
-        # The clear, the memory configuration, then the same order as a refresh.
-        assert commands(transport) == [b"E", b"E", b"G", b"A", b"E"]
-        assert payloads(transport)[1].endswith(b"aBL00100000bBL00100000cBL00100000")
+        # The pool reading first, since a reboot must not clear a sign it is
+        # about to write a configuration too big for. Then the clear, the memory
+        # configuration, then the same order as a refresh.
+        assert commands(transport) == [b"F", b"E", b"E", b"G", b"A", b"E"]
+        assert payloads(transport)[2].endswith(b"aBL00100000bBL00100000cBL00100000")
 
 
 class TestRestart:

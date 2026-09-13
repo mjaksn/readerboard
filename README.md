@@ -179,6 +179,19 @@ again after pulling a new version: your config file and key are left alone.
 your registered messages, so reinstalling puts the sign back as it was. Add `--purge` to
 remove those too.
 
+The unit restarts the service whenever it stops, and gives up after ten failed starts in
+five minutes. Almost nothing here fails permanently, which is what makes the exceptions
+worth stopping for: a memory pool too big for the sign fails identically every time, and
+each attempt puts a read on the wire that stalls a scrolling message. `systemctl status
+readerboard` says which failure it was. Once the configuration is fixed, clearing the
+give-up and starting it again are two commands, because `reset-failed` clears the counter
+and leaves the unit stopped:
+
+```
+sudo systemctl reset-failed readerboard
+sudo systemctl start readerboard
+```
+
 ### With Docker
 
 The image is published to both registries on every release, for `linux/amd64`,
@@ -444,6 +457,25 @@ on it**: `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity`
 service will do it, and say so loudly in the log, but they are not settings to fiddle
 with. With `variable_count` at 0, `variable_capacity` allocates nothing, so changing it
 alone reallocates nothing either.
+
+All four come out of one memory pool, which a BetaBrite Classic reported as 5482 bytes,
+and each file costs thirteen bytes beyond its own size. The defaults take 2518 of that.
+
+That 5482 is a ceiling, and it is checked in two places that do different jobs. A
+configuration bigger than it is refused when the settings are read, on any machine,
+whether or not a sign is attached; that is the ceiling, and no sign can raise it. Then,
+on a start that is about to reallocate the sign's memory and only then, the service asks
+the sign for its own figure, and a sign reporting less than 5482 is believed. So the
+second check can lower the limit and never raise it. A sign with a bigger pool than this
+hardware's would need `ASSUMED_SIGN_MEMORY_POOL` in `readerboard/sign/pool.py` raised
+before it could use the extra.
+
+A sign that answers and does not have the room stops the service starting, with a message
+naming what was configured, what it needs and what there is; that is the one failure that
+does stop it, because the alternative is erasing every message on the sign to write a pool
+that could never work. A sign that says nothing does not stop anything. `POST /sign/reboot`
+asks the same question before it clears the sign, and answers 409 rather than erasing it,
+except when the sign is too wedged to answer, which is the case that endpoint exists for.
 
 ## Security
 

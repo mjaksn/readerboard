@@ -678,6 +678,39 @@ FILE_LOCKED = b"L"
 FILE_UNLOCKED = b"U"
 TEXT_SCHEDULE_ALWAYS = b"FFFF"
 FILE_OVERHEAD_BYTES = 11
+"""What the document says a configured file costs beyond its own size.
+
+Table 15 note 1: "The sum of all the file sizes ... plus 11 bytes of overhead
+for each file should not exceed the total amount of available memory in the
+pool." This is the document's figure and is pinned as such in
+tests/test_constant_values.py. The sign charges more; see below.
+"""
+
+MEASURED_FILE_OVERHEAD_BYTES = 13
+"""What a configured file was measured costing on the sign, beyond its own size.
+
+Measured on a BetaBrite Classic on 2026-09-12: a further picture file added to a
+configuration cost its own data plus thirteen bytes, not the eleven above. The
+service charges it for every file, which is the second of the two models below
+exactly and the first of them by up to six bytes a file too little. Two bytes a
+file is nothing at the pool size the document imagines and is most of a variable
+at this sign's real one, so the budget uses this figure and the document keeps
+its own.
+"""
+
+MEASURED_POOL_OVERHEAD_BYTES = 6
+"""What a configuration was measured costing once, over and above its files.
+
+The same session measured a lone TEXT file taking its size plus nineteen while
+each picture file added after it took its data plus thirteen. Two models fit
+that equally well: files of different types costing different amounts, or every
+file costing thirteen with six more charged once per configuration. One session
+cannot separate them, and a second TEXT file's own marginal cost was never
+measured, so nothing here asserts either. The budget carries the six as a
+reserve, which is exactly right under the second model and six bytes a slot too
+little under the first. docs/protocol-notes.md has what that is worth and what
+would settle it.
+"""
 
 # ==========================================================================
 # Run sequence

@@ -28,14 +28,6 @@ from pydantic_settings import (
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
-# A BetaBrite Classic holds roughly 30000 bytes of messages and graphics all
-# told. Allocating the whole of it leaves the sign no room for anything else, so
-# the service refuses a pool that claims more than this much of it. The protocol
-# charges eleven bytes of directory overhead per configured file on top of each
-# file's own size, and that is counted too.
-SIGN_MEMORY_BUDGET = 26000
-
-
 def _config_file() -> Path:
     override = os.environ.get("READERBOARD_CONFIG_FILE")
     return Path(override) if override else DEFAULT_CONFIG_FILE
@@ -97,7 +89,12 @@ class Settings(BaseSettings):
         default=256,
         ge=16,
         le=4096,
-        description="bytes allocated to each message, after markup has been rendered",
+        description=(
+            "bytes allocated to each message, after markup has been rendered. This and "
+            "the three settings around it come out of the sign's memory pool, which is "
+            "5482 bytes on a BetaBrite Classic, and each file costs thirteen bytes of "
+            "overhead beyond its own size"
+        ),
     )
     variable_count: int = Field(
         default=8,
@@ -199,23 +196,41 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _check_pool_fits(self) -> Settings:
-        from readerboard.protocol.constants import FILE_OVERHEAD_BYTES
+        """Refuse a pool no BetaBrite Classic could hold.
 
-        slots = self.slot_count * (self.slot_capacity + FILE_OVERHEAD_BYTES)
-        variables = self.variable_count * (self.variable_capacity + FILE_OVERHEAD_BYTES)
-        claimed = slots + variables
-        if claimed > SIGN_MEMORY_BUDGET:
+        This is the tier of the check that runs with no sign present, because
+        it runs wherever settings are read: in the tests, in
+        scripts/dump_openapi.py, and on a machine whose sign is unplugged. So it
+        measures against ``ASSUMED_SIGN_MEMORY_POOL`` rather than against the
+        sign, and the sign is asked before it is reconfigured instead, where the
+        link is open.
+
+        This one is a ceiling and the sign's own answer can only lower it. A
+        configuration bigger than the assumption never reaches the sign to be
+        asked about, so a sign with a larger pool cannot permit one. See
+        readerboard.sign.pool for why it is that way round.
+        """
+        from readerboard.protocol.frames import memory_claimed_by
+        from readerboard.sign.pool import ASSUMED_SIGN_MEMORY_POOL
+
+        claimed = memory_claimed_by(
+            [self.slot_capacity] * self.slot_count
+            + [self.variable_capacity] * self.variable_count
+        )
+        if claimed > ASSUMED_SIGN_MEMORY_POOL:
             raise ValueError(
                 "slot_count %d at slot_capacity %d and variable_count %d at "
-                "variable_capacity %d claim %d bytes of the sign's memory pool, more "
-                "than the %d this service is willing to take. Lower one of them."
+                "variable_capacity %d need %d bytes of the sign's memory pool, and a "
+                "BetaBrite Classic has %d. Lower one of them. This is the most any "
+                "sign driven from here may be configured with, whatever a particular "
+                "sign reports."
                 % (
                     self.slot_count,
                     self.slot_capacity,
                     self.variable_count,
                     self.variable_capacity,
                     claimed,
-                    SIGN_MEMORY_BUDGET,
+                    ASSUMED_SIGN_MEMORY_POOL,
                 )
             )
         if self.backoff_max < self.backoff_initial:

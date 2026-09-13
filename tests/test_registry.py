@@ -9,6 +9,7 @@ from readerboard.services.registry import (
     SlotRegistry,
     UnknownSlot,
 )
+from readerboard.sign import pool
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
 from readerboard.sign.state import AlertState
@@ -774,11 +775,12 @@ class TestReboot:
     """
 
     async def test_it_clears_the_sign_then_restores_every_slot(
-        self, registry, layout, transport
+        self, registry, layout, transport, answer_a_pool_reading
     ):
         await add(registry, "one", "ONE")
         await add(registry, "two", "TWO")
         transport.clear()
+        answer_a_pool_reading()
 
         restored = await registry.reboot()
 
@@ -794,9 +796,12 @@ class TestReboot:
         assert len(payloads_starting(transport, b"A")) == 2
         assert run_sequences(transport)
 
-    async def test_it_keeps_each_slot_on_its_own_file(self, registry, layout):
+    async def test_it_keeps_each_slot_on_its_own_file(
+        self, registry, layout, transport, answer_a_pool_reading
+    ):
         await add(registry, "one")
         await add(registry, "two")
+        answer_a_pool_reading()
 
         await registry.reboot()
 
@@ -813,6 +818,36 @@ class TestReboot:
         # The record is untouched, so the slot is still there to restore once
         # the link is back.
         assert [slot.key for slot in registry.list_slots()] == ["one"]
+
+    async def test_a_sign_without_room_is_refused_before_it_is_cleared(
+        self, registry, transport, answer_a_pool_reading
+    ):
+        # The hole this closes: a sign swapped for a smaller one leaves a state
+        # file that still matches the configuration, so startup asks nothing and
+        # its own check never runs. Without this the first reboot would erase the
+        # sign and write a pool it cannot hold.
+        await add(registry, "one")
+        transport.clear()
+        answer_a_pool_reading(b"0100")
+
+        with pytest.raises(pool.PoolTooLarge, match="the sign has 256"):
+            await registry.reboot()
+
+        # The read went out and nothing else did, so the sign still holds what
+        # it held and the record is still there to restore from.
+        assert transport.packets == [frames.packet(frames.read_general_information())]
+        assert [slot.key for slot in registry.list_slots()] == ["one"]
+
+    async def test_a_sign_too_wedged_to_answer_is_rebooted_anyway(
+        self, registry, transport
+    ):
+        # Which is the case the endpoint exists for. The read gets no answer, the
+        # assumed pool stands in, and the recovery goes ahead.
+        await add(registry, "one")
+        transport.clear()
+
+        assert await registry.reboot() == 1
+        assert frames.packet(frames.clear_memory()) in transport.packets
 
 
 class TestAnAlertDoesNotHoldTheRunSequenceBack:

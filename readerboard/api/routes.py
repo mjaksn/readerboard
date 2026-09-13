@@ -395,6 +395,11 @@ async def reboot_sign(registry: RegistryDep, alerts: AlertsDep) -> Response:
 
     503 if the sign cannot be reached, since a sign that is not answering cannot
     be rebooted.
+
+    409 if the sign turns out to have less memory than the configuration needs.
+    The sign is asked just before it would be cleared, so nothing has been
+    written and it is left exactly as it was. A sign too wedged to answer that
+    question is rebooted anyway, which is the case this endpoint exists for.
     """
     await registry.reboot()
     await alerts.reassert()

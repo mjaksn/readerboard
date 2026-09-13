@@ -27,6 +27,7 @@ from readerboard.services.registry import (
     VariableTooLong,
 )
 from readerboard.sign.layout import LayoutFull
+from readerboard.sign.pool import PoolTooLarge
 from readerboard.transport.base import TransportError
 
 STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
@@ -41,6 +42,11 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     (UnknownSlot, status.HTTP_404_NOT_FOUND),
     (UnknownVariable, status.HTTP_404_NOT_FOUND),
     (LayoutFull, status.HTTP_409_CONFLICT),
+    # Only POST /sign/reboot can raise this: the sign has less memory than the
+    # configuration needs, found by asking it just before the reboot would have
+    # erased it. The state of the hardware rather than anything wrong with the
+    # request, which is what makes it a conflict, and nothing was written.
+    (PoolTooLarge, status.HTTP_409_CONFLICT),
     # Deleting a variable a message still calls would leave that message
     # calling a file the next variable could be given. Not the caller's
     # request being malformed, which is what makes it a conflict.

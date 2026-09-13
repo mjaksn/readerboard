@@ -6,6 +6,20 @@ Documentation=https://github.com/mjaksn/readerboard
 After=network-online.target
 Wants=network-online.target
 
+# Stop retrying after ten failed starts in five minutes, which at the five
+# second RestartSec below is under a minute of trying. Almost everything that
+# goes wrong here is transient and Restart=always is what handles it: the
+# service starts with the sign unplugged, reconnects on its own, and comes up
+# even with an unreadable state file. What is left is the handful of failures
+# that will fail identically for ever, a memory pool too big for the sign being
+# one, and those are worth giving up on: each attempt puts a read on the wire,
+# which stalls a scrolling message for about half a second, so a loop that never
+# ends is a sign that twitches every five seconds until somebody logs in. It
+# needs a person either way. `systemctl reset-failed readerboard` clears it once
+# the configuration is fixed.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
 [Service]
 Type=exec
 User=readerboard

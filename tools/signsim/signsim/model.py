@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from readerboard.protocol import constants as c
+from readerboard.protocol import frames
 from signsim import decode
 from signsim.decode import (
     ClearMemory,
@@ -128,11 +129,17 @@ class SignState:
 
     @property
     def memory_claimed(self) -> int:
-        """Bytes of the sign's pool the current configuration takes."""
+        """Bytes of the sign's pool the current configuration takes.
+
+        Costed the way the service costs it, in the figures a BetaBrite Classic
+        was measured charging rather than the eleven bytes a file the document
+        quotes. A simulator that stood in for the sign and charged something the
+        sign does not would be worse than one that could not answer at all.
+        """
         if self.memory_config is None:
             return 0
-        return sum(
-            entry.capacity + c.FILE_OVERHEAD_BYTES for entry in self.memory_config.values()
+        return frames.memory_claimed_by(
+            entry.capacity for entry in self.memory_config.values()
         )
 
     def capacity_of(self, label: bytes) -> int | None:
