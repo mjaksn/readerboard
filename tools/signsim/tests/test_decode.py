@@ -241,6 +241,13 @@ class TestSpansCoverTheFrame:
             c.COMMAND_WRITE_DOTS + b"6" + b"07",
             c.COMMAND_WRITE_DOTS + b"6",
             c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"019X" + c.CR,
+            # An empty row is still a carriage return holding a byte, and the
+            # offsets of everything after it depend on its being counted.
+            c.COMMAND_WRITE_DOTS + b"6" + b"0202" + c.CR + b"01" + c.CR,
+            c.COMMAND_WRITE_DOTS + b"6" + b"0202" + b"01" + c.CR + c.CR + b"23" + c.CR,
+            # Table 22 makes the last carriage return optional, so a picture
+            # that leaves it off is well formed rather than truncated.
+            c.COMMAND_WRITE_DOTS + b"6" + b"0202" + b"01" + c.CR + b"23",
         ],
         ids=[
             "write",
@@ -260,6 +267,9 @@ class TestSpansCoverTheFrame:
             "picture cut off inside its size",
             "picture with no size at all",
             "picture with a pixel code the table lacks",
+            "picture whose first row is empty",
+            "picture with an empty row in the middle",
+            "picture with no carriage return after its last row",
         ],
     )
     def test_every_byte_of_the_frame_belongs_to_exactly_one_span(self, built):
@@ -271,6 +281,15 @@ class TestComplaints:
     def test_a_string_value_over_the_documents_limit(self):
         result = payload(c.COMMAND_WRITE_STRING + b"a" + b"X" * 126)
         assert any("at most 125" in one for one in result.complaints)
+
+    def test_an_empty_row_is_counted_so_the_rows_after_it_read_correctly(self):
+        # Skipping the empty one used to leave its carriage return in no span
+        # and put every later span one byte early, which is the invariant the
+        # hex view is read against.
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0202" + c.CR + b"01" + c.CR)
+        rows = [one for one in result.spans if one.label.startswith("row ")]
+        assert [one.data for one in rows] == [b"01"]
+        assert result.transmission.raw[rows[0].offset : rows[0].end] == b"01"
 
     def test_a_picture_whose_rows_do_not_match_its_size(self):
         # Hand-built rather than through the frame builder, which refuses this.

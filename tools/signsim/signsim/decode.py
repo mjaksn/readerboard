@@ -753,29 +753,36 @@ def _write_dots(payload: bytes, offset: int) -> Command:
     rows: list[bytes] = []
     at = offset + 6
     body = payload[6:]
-    for line in body.split(c.CR):
-        if not line:
-            continue
-        rows.append(line)
+    # Splitting on the carriage returns gives one more piece than there are of
+    # them, so every piece but the last is followed by one. Walking it that way
+    # rather than skipping the empty pieces is what keeps the offsets right: an
+    # empty row is still a carriage return that occupies a byte, and passing
+    # over it silently would put every span after it one place early and leave
+    # that byte in no span at all.
+    pieces = body.split(c.CR)
+    for index, line in enumerate(pieces):
+        last = index == len(pieces) - 1
         stray = sorted(set(line) - set(c.DOTS_PIXEL_CODES))
-        spans.append(
-            Span(
-                SpanKind.UNKNOWN if stray else SpanKind.TEXT,
-                at,
-                line,
-                "row %d" % len(rows),
-                "One row of the picture, one Table 22 pixel code a dot",
+        if line:
+            rows.append(line)
+            spans.append(
+                Span(
+                    SpanKind.UNKNOWN if stray else SpanKind.TEXT,
+                    at,
+                    line,
+                    "row %d" % len(rows),
+                    "One row of the picture, one Table 22 pixel code a dot",
+                )
             )
-        )
-        at += len(line)
-        if at - offset < len(payload):
+            at += len(line)
+        if not last:
             spans.append(
                 Span(
                     SpanKind.FRAMING,
                     at,
                     c.CR,
                     "CR",
-                    "Ends this row of pixels",
+                    "Ends this row of pixels" if line else "Ends a row with no pixels in it",
                 )
             )
             at += 1
