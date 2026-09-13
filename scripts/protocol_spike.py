@@ -87,8 +87,12 @@ Leaving step 2 out erases nothing and takes the sign's existing memory
 configuration on trust, which is the way to re-ask one question without
 flattening the sign. And a run starting above step 3 writes the three files
 step 3 normally leaves behind, because every step above it expects to find
-them. Step 9 is the one step a partial run cannot fully honour: without step 2
-in the same run, nothing can promise its files were never written.
+them. Two steps depend on step 2 for more than that, and both say so rather
+than answering a different question under the same heading. Step 7 reads a
+STRING file, which step 2 is what allocates; it checks the memory configuration
+it reads and skips those rounds if there is no STRING file in the pool. Step 9
+asks what a file nothing has ever written draws, and only step 2 in the same
+run can promise that.
 
 Run it with the sign in front of you. It pauses to ask what you saw, then prints
 a summary to paste into docs/protocol-notes.md.
@@ -478,6 +482,70 @@ def step_6_priority(link: serial.Serial, settle: float) -> None:
     ask("Has the rotation resumed on its own? [y/n]")
 
 
+def string_on_the_display(
+    link: serial.Serial, settle: float, replies: dict[str, bytes]
+) -> None:
+    """Read the STRING file that is the whole of what the sign is drawing.
+
+    Split out of step 7 because it is the one part that cannot run at all
+    without a STRING file allocated, and a run that skipped step 2 may have
+    none. Keeping it separate is what lets step 7 skip it by name rather
+    than write to a file that does not exist.
+    """
+    # == the STRING the sign is actually drawing =============================
+    print("\n  The hardest case, and the one that decides the rest. A is rewritten to")
+    print("  hold nothing but the call to STRING %s, so the whole of what the sign is"
+          % STRING_POOL[0].decode())
+    print("  drawing lives in that STRING file, and it is set scrolling. Then the")
+    print("  same reads go out, the STRING read among them.")
+    print("  What this separates is whether a read costs anything in itself, or only")
+    print("  when it asks about the file the sign is drawing from. The reads just")
+    print("  now were of a text file and a STRING file sitting idle. These are the")
+    print("  same two commands against the file on the display. If the idle ones were")
+    print("  free and these are not, the rule is about what is being drawn rather")
+    print("  than about reading, and a scheme that only ever reads idle files is safe.")
+    send(
+        link,
+        frames.write_string_file(STRING_POOL[0], render(STRING_SCROLL_VALUE)),
+        label="write STRING %s, long" % STRING_POOL[0].decode(),
+        settle=settle,
+    )
+    # Built by hand rather than through the markup, so that A holds the call and
+    # nothing else: no colour, no text of its own, just the insert and a label.
+    send(
+        link,
+        frames.write_text_file(
+            b"A", c.STRING_FILE_INSERT + STRING_POOL[0], mode=c.MODE_ROTATE
+        ),
+        label="write file A as a wrapper",
+        settle=settle,
+    )
+    ask("Is the STRING's text scrolling across the display? [y/n]")
+
+    four_reads(link)
+    replies["text file A, the wrapper"] = watched_read(
+        link, c.COMMAND_READ_TEXT + b"A", label="text file A, the wrapper (BA)"
+    )
+    replies["STRING %s, on the display" % STRING_POOL[0].decode()] = watched_read(
+        link,
+        frames.read_string_file(STRING_POOL[0]),
+        label="STRING %s, the one on the display" % STRING_POOL[0].decode(),
+    )
+
+    ask(
+        "What did the scroll do across all six of those reads? "
+        "[nothing/stalled and resumed/jumped/started again/blanked/other]"
+    )
+    ask(
+        "Which read did it, if you could tell? "
+        "[the STRING read/the text read/one of the four/several/could not tell]"
+    )
+    ask(
+        "Against reading the same STRING while nothing called it, a moment ago: "
+        "[the same/worse now/better now/could not tell]"
+    )
+
+
 def step_7_reads(link: serial.Serial, settle: float) -> None:
     """Find out whether the sign answers read commands, and what asking costs the display."""
     print("\nStep 7: can the sign be asked what it is holding, and at what cost?")
@@ -538,6 +606,19 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
     ask("Which of the four did it? [all four/name them/none/could not tell]")
 
     # == files the sign is not drawing from =================================
+    # Step 2 allocates the STRING file, and a partial run may have skipped it.
+    # The memory configuration was read a moment ago, so ask it rather than
+    # writing to a file that may not be there and then recording what an
+    # unallocated label answers as though it were a measurement.
+    string_ready = STRING_POOL[0] + c.FILE_TYPE_STRING in replies["memory configuration"]
+    if not string_ready:
+        print("\n  The memory configuration just read back allocates no STRING file %s,"
+              % labels_as_text(STRING_POOL))
+        print("  so the two rounds needing one are skipped: there would be nothing to")
+        print("  write a value into and nothing for a message to call. Run with step 2")
+        print("  to allocate it, as --steps 2,7 or as the whole script.")
+        note("STRING rounds of step 7", "skipped, the pool allocates no STRING file")
+
     print("\n  Last, the contents of two files nothing on the display is using. This")
     print("  is the read a reconciliation scheme would actually make: it asks about")
     print("  a file the sign is not drawing from, so there is a fair chance it costs")
@@ -549,12 +630,13 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
         settle=settle,
     )
     send(link, frames.set_run_sequence([b"A"]), label="run sequence A", settle=settle)
-    send(
-        link,
-        frames.write_string_file(STRING_POOL[0], render(STRING_VALUE)),
-        label="write STRING %s" % STRING_POOL[0].decode(),
-        settle=settle,
-    )
+    if string_ready:
+        send(
+            link,
+            frames.write_string_file(STRING_POOL[0], render(STRING_VALUE)),
+            label="write STRING %s" % STRING_POOL[0].decode(),
+            settle=settle,
+        )
     print("\n  B holds TWO and is not named in the sequence. The STRING file %s holds"
           % STRING_POOL[0].decode())
     print("  a value no message calls. Neither is on the display, and ONE is held")
@@ -567,11 +649,12 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
     replies["text file B"] = watched_read(
         link, c.COMMAND_READ_TEXT + b"B", label="text file B (BB)"
     )
-    replies["STRING file %s" % STRING_POOL[0].decode()] = watched_read(
-        link,
-        frames.read_string_file(STRING_POOL[0]),
-        label="STRING %s, idle (H%s)" % (STRING_POOL[0].decode(), STRING_POOL[0].decode()),
-    )
+    if string_ready:
+        replies["STRING file %s" % STRING_POOL[0].decode()] = watched_read(
+            link,
+            frames.read_string_file(STRING_POOL[0]),
+            label="STRING %s, idle (H%s)" % (STRING_POOL[0].decode(), STRING_POOL[0].decode()),
+        )
 
     ask("What did ONE do while those two reads went out? [nothing/flicker/blank/other]")
     ask(
@@ -579,58 +662,8 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
         "[same/the text read was worse/the STRING read was worse/could not tell]"
     )
 
-    # == the STRING the sign is actually drawing =============================
-    print("\n  The hardest case, and the one that decides the rest. A is rewritten to")
-    print("  hold nothing but the call to STRING %s, so the whole of what the sign is"
-          % STRING_POOL[0].decode())
-    print("  drawing lives in that STRING file, and it is set scrolling. Then the")
-    print("  same reads go out, the STRING read among them.")
-    print("  What this separates is whether a read costs anything in itself, or only")
-    print("  when it asks about the file the sign is drawing from. The reads just")
-    print("  now were of a text file and a STRING file sitting idle. These are the")
-    print("  same two commands against the file on the display. If the idle ones were")
-    print("  free and these are not, the rule is about what is being drawn rather")
-    print("  than about reading, and a scheme that only ever reads idle files is safe.")
-    send(
-        link,
-        frames.write_string_file(STRING_POOL[0], render(STRING_SCROLL_VALUE)),
-        label="write STRING %s, long" % STRING_POOL[0].decode(),
-        settle=settle,
-    )
-    # Built by hand rather than through the markup, so that A holds the call and
-    # nothing else: no colour, no text of its own, just the insert and a label.
-    send(
-        link,
-        frames.write_text_file(
-            b"A", c.STRING_FILE_INSERT + STRING_POOL[0], mode=c.MODE_ROTATE
-        ),
-        label="write file A as a wrapper",
-        settle=settle,
-    )
-    ask("Is the STRING's text scrolling across the display? [y/n]")
-
-    four_reads(link)
-    replies["text file A, the wrapper"] = watched_read(
-        link, c.COMMAND_READ_TEXT + b"A", label="text file A, the wrapper (BA)"
-    )
-    replies["STRING %s, on the display" % STRING_POOL[0].decode()] = watched_read(
-        link,
-        frames.read_string_file(STRING_POOL[0]),
-        label="STRING %s, the one on the display" % STRING_POOL[0].decode(),
-    )
-
-    ask(
-        "What did the scroll do across all six of those reads? "
-        "[nothing/stalled and resumed/jumped/started again/blanked/other]"
-    )
-    ask(
-        "Which read did it, if you could tell? "
-        "[the STRING read/the text read/one of the four/several/could not tell]"
-    )
-    ask(
-        "Against reading the same STRING while nothing called it, a moment ago: "
-        "[the same/worse now/better now/could not tell]"
-    )
+    if string_ready:
+        string_on_the_display(link, settle, replies)
 
     # Back to the rotation the following steps expect.
     send(
@@ -911,6 +944,13 @@ def main() -> int:
         print("\nStep 2 is not being run, so nothing is erased and the sign keeps the")
         print("memory configuration it already has. Every step below assumes that")
         print("configuration allocates at least %s." % labels_as_text(pool))
+    if 7 in chosen and 2 not in chosen:
+        print("\nStep 7 reads a STRING file, and step 2 is what allocates it. Without")
+        print("step 2 the sign keeps whatever pool it already has, which may hold no")
+        print("STRING file at all. Step 7 checks the memory configuration it reads and")
+        print("skips the parts that need %s rather than writing to a file that does"
+              % labels_as_text(STRING_POOL))
+        print("not exist and recording what an unallocated label answers.")
     if 9 in chosen and 2 not in chosen:
         print("\nStep 9 asks what a file nothing has ever written draws, and without")
         print("step 2 in the same run nothing can promise that %s" % labels_as_text(spare))
