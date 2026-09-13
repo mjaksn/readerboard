@@ -35,6 +35,10 @@ WHAT IT SETTLES
     under an alert, looked at in the two places separately.
  4. That the same message and the same pictures are right when they are written
     with the sign to itself, which is the control.
+ 5. Why an empty call prints its own label in one place and nothing in another,
+    which the run of 2026-09-13 reproduced and could not explain. Steps 1b and
+    1c put empty calls first, in the middle and last, and then one with a space
+    after it, so position and "nothing follows it" can be told apart.
 
 SAFETY
 
@@ -82,6 +86,13 @@ SLOT = b"A"
 RAIN = b"6"
 BOLT = b"8"
 
+# Two more files, allocated and never written, for the question the message
+# above raises and cannot answer: why one empty call printed its own label and
+# the other printed nothing. Only the position in the message differs, so these
+# put empty calls in every position at once.
+SPARE_ONE = b"7"
+SPARE_TWO = b"9"
+
 # What the picture files hold, from the service's own library rather than
 # invented here, so a wrong answer cannot be the bitmap's fault.
 RAIN_ROWS = icons.resolve("rain", None)
@@ -89,21 +100,45 @@ BOLT_ROWS = icons.resolve("bolt", None)
 
 observations: list[tuple[str, str]] = []
 
+# Only used when there is nothing to read an answer from, so that a run piped
+# somewhere still paces itself instead of racing through the display steps.
+_FALLBACK_SECONDS = 15.0
+
 
 def note(question: str, answer: str) -> None:
     """Record something for the summary at the end."""
     observations.append((question, answer))
 
 
-def look(seconds: float, what: str) -> None:
-    """Hold everything still and say where on the sign to look."""
+def observe(what: str, question: str) -> str:
+    """Hold the display still, say where to look, and wait for what was seen.
+
+    The sign holds whatever was last written, so there is no hurry and no
+    reason to guess how long somebody needs. Every earlier spike here waits on
+    a person the same way, and two of the answers on record were wrong the
+    first time because something brief was missed; a timer is what causes that.
+
+    A run with nothing attached to type into falls back to a pause rather than
+    failing, and records no answer, because an unanswered question must not
+    come out of the summary looking answered.
+    """
     print()
     print("  " + "-" * 74)
-    print("  LOOK AT THE SIGN NOW, for %.0f seconds." % seconds)
+    print("  LOOK AT THE SIGN NOW.")
     for line in what.splitlines():
         print("  %s" % line)
     print("  " + "-" * 74)
-    time.sleep(seconds)
+    try:
+        answer = input("  %s " % question).strip()
+    except EOFError:
+        print(
+            "  (no keyboard attached to this run, so pausing %.0fs and asking nothing)"
+            % _FALLBACK_SECONDS
+        )
+        time.sleep(_FALLBACK_SECONDS)
+        answer = ""
+    note(question, answer or "(not answered)")
+    return answer
 
 
 def dots_allocation(label: bytes) -> frames.FileAllocation:
@@ -170,7 +205,7 @@ class Spike:
         return verdict
 
 
-def run(spike: Spike, look_seconds: float) -> None:
+def run(spike: Spike) -> None:
     """Work through it."""
     body = render(MESSAGE, icons={("rain", None): RAIN, ("bolt", None): BOLT})
 
@@ -184,6 +219,8 @@ def run(spike: Spike, look_seconds: float) -> None:
         frames.FileAllocation(SLOT, 256),
         dots_allocation(RAIN),
         dots_allocation(BOLT),
+        dots_allocation(SPARE_ONE),
+        dots_allocation(SPARE_TWO),
     ]
     # The bare clear first: this sign displays nothing from a configuration that
     # no E$ preceded. See "A clear must come first" in docs/protocol-notes.md.
@@ -196,13 +233,56 @@ def run(spike: Spike, look_seconds: float) -> None:
     spike.send(frames.set_run_sequence([SLOT]), "run sequence %s" % SLOT.decode())
     spike.read_picture(RAIN, RAIN_ROWS, "allocated, never written")
 
+    # == 1b. what an empty picture call draws, by position ====================
+    print("\nStep 1b: what an empty call draws, with every picture file still empty")
+    print("  The message that bit opens with a call and closes with one, and the")
+    print("  two behaved differently. Position is the only thing that differed, so")
+    print("  this puts empty calls first, in the middle and last, all in one line.")
+
+    # 14H and the label, built here rather than rendered, because these call
+    # files no icon is in and the renderer only knows icon names.
+    first = c.DOTS_INSERT + RAIN
+    middle = c.DOTS_INSERT + SPARE_ONE
+    last = c.DOTS_INSERT + BOLT
+    probe = first + b"L" + middle + b"M" + last
+    spike.send(
+        frames.write_text_file(SLOT, probe, mode=c.MODE_HOLD),
+        "TEXT %s = [6]L[7]M[8], every file empty" % SLOT.decode(),
+    )
+    observe(
+        "Read the line out character by character. The letters L and M are drawn\n"
+        "text and will be there; what matters is what sits around them.\n"
+        "  6 L 7 M 8   every empty call prints its label\n"
+        "  6 L 7 M     every call but the last one\n"
+        "  6 L M       only a call that opens the message\n"
+        "  L M         none of them, which is what the notes claim",
+        "What does the line read, character by character?",
+    )
+
+    print("\nStep 1c: an empty call with a space after it, at the end of the line")
+    print("  Separates 'nothing follows it' from 'it is not the first thing'.")
+    spike.send(
+        frames.write_text_file(
+            SLOT, b"N" + c.DOTS_INSERT + SPARE_TWO + b" ", mode=c.MODE_HOLD
+        ),
+        "TEXT %s = N[9] and a space" % SLOT.decode(),
+    )
+    observe(
+        "  N 9   the call prints its label when anything follows it\n"
+        "  N     it does not, so being first is what decides it",
+        "What does the line read?",
+    )
+
     # == 2. take the sign over ================================================
     print("\nStep 2: raise an alert, so a priority message is running")
     spike.send(
         frames.write_text_file(c.FILE_PRIORITY, b"ALERT HOLDING THE SIGN", mode=c.MODE_HOLD),
         "priority file = ALERT HOLDING THE SIGN",
     )
-    look(look_seconds, "The alert should be holding the display on its own.\nNothing else should be visible.")
+    observe(
+        "The alert should be holding the display on its own.\nNothing else should be visible.",
+        "Is the alert holding the display, with nothing else showing? [y/describe]",
+    )
 
     # == 3. write the pictures and the message underneath it ==================
     print("\nStep 3: write both pictures and the message, with the alert still up")
@@ -221,13 +301,13 @@ def run(spike: Spike, look_seconds: float) -> None:
     # == 5. release, and look at the two positions separately =================
     print("\nStep 5: release the alert and look at the message")
     spike.send(frames.clear_priority_file(), "release the priority file")
-    look(
-        look_seconds,
+    observe(
         "The message should read: [rain icon] [time] [bolt icon]\n"
-        "Look at the TWO ICON POSITIONS SEPARATELY and note each:\n"
+        "Look at the TWO ICON POSITIONS SEPARATELY:\n"
         "  LEFT  , where the rain belongs: icon, blank, or a character?\n"
         "  RIGHT , where the bolt belongs: icon, blank, or a character?\n"
         "On 2026-09-13 this showed a literal 6 on the left and nothing on the right.",
+        "Left position, then right position?",
     )
 
     # == 6. and read them again, now that nothing is holding the sign =========
@@ -241,11 +321,11 @@ def run(spike: Spike, look_seconds: float) -> None:
     spike.picture(BOLT, BOLT_ROWS, "picture %s = bolt, no alert" % BOLT.decode())
     spike.read_picture(RAIN, RAIN_ROWS, "written with no alert up")
     spike.read_picture(BOLT, BOLT_ROWS, "written with no alert up")
-    look(
-        look_seconds,
+    observe(
         "The same message again, and this is the control.\n"
         "Both icons should be drawn properly now.\n"
         "If they are, the only difference from step 5 was the alert.",
+        "Are both icons drawn properly? [y/describe]",
     )
 
 
@@ -270,8 +350,9 @@ def main() -> int:
     parser.add_argument(
         "--look",
         type=float,
-        default=12.0,
-        help="seconds to hold still at each point worth watching, default 12",
+        default=15.0,
+        help="seconds to pause at each point worth watching when there is no "
+        "keyboard attached. With one, each of those waits for you instead",
     )
     parser.add_argument(
         "--confirm-erase",
@@ -286,13 +367,17 @@ def main() -> int:
             "anything else that writes to it, then pass --confirm-erase."
         )
 
+    global _FALLBACK_SECONDS
+    _FALLBACK_SECONDS = args.look
+
     print("readerboard picture-under-an-alert spike")
     print("Sign: %s at %d baud" % (args.url, args.baud))
+    print("It stops at each thing worth looking at and waits for you to answer.")
 
     link = Link(args.url, args.baud)
     spike = Spike(link, args.settle)
     try:
-        run(spike, args.look)
+        run(spike)
     finally:
         # However this ended. An alert left holding the sign is the one thing a
         # crash here could strand, since step 2 writes to the priority file.
