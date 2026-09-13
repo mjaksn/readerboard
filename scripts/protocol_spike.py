@@ -52,10 +52,15 @@ asked by step 7 and has no answer yet.
     result has been standing in for every kind of read. It should not: a STRING
     is buffered inline into whatever message calls it, while a special function
     read asks the sign about its own tables and touches no file a message is
-    drawing. Step 7 now asks it four ways, because the answer plausibly differs
+    drawing. Step 7 now asks it five ways, because the answer plausibly differs
     between them: the four special function reads against a held message, the
     same four against a scrolling one, a TEXT file read of a file not named in
-    the run sequence, and a STRING file read of a value no message calls.
+    the run sequence, a STRING file read of a value no message calls, and then
+    every one of those reads again with the display scrolling a message whose
+    whole text lives in that STRING file. The last case is what separates a read
+    costing something in itself from a read costing something only when it asks
+    about the file the sign is drawing from, and the whole question of whether
+    the sign can be polled turns on which of those it is.
 
 Questions 8, 9 and 10 were asked for a change that was then dropped: naming
 every file in the pool all the time, so that creating a message would be one
@@ -127,11 +132,14 @@ LAST_STEP = 11
 # mid-scroll has something to interrupt.
 SCROLL_TEXT = "<green>SCROLLING WHILE THE SIGN IS ASKED WHAT IT IS HOLDING"
 
-# One STRING file, allocated by step 2 and written by step 7. No message calls
-# it, which is the point: it is there to be read while nothing is drawing it.
+# One STRING file, allocated by step 2 and written by step 7, which reads it
+# twice: once while nothing calls it, and once while it is the whole of what the
+# sign is drawing. Capacity is the protocol's own ceiling so the second value
+# can be long enough to scroll.
 STRING_POOL = [b"a"]
-STRING_CAPACITY = 32
+STRING_CAPACITY = c.STRING_FILE_CAPACITY
 STRING_VALUE = "IDLE"
+STRING_SCROLL_VALUE = "<amber>THIS WHOLE MESSAGE LIVES IN A STRING FILE AND IS BEING READ"
 
 observations: list[tuple[str, str]] = []
 
@@ -553,7 +561,67 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
         "[same/the text read was worse/the STRING read was worse/could not tell]"
     )
 
+    # == the STRING the sign is actually drawing =============================
+    print("\n  The hardest case, and the one that decides the rest. A is rewritten to")
+    print("  hold nothing but the call to STRING %s, so the whole of what the sign is"
+          % STRING_POOL[0].decode())
+    print("  drawing lives in that STRING file, and it is set scrolling. Then the")
+    print("  same reads go out, the STRING read among them.")
+    print("  What this separates is whether a read costs anything in itself, or only")
+    print("  when it asks about the file the sign is drawing from. The reads just")
+    print("  now were of a text file and a STRING file sitting idle. These are the")
+    print("  same two commands against the file on the display. If the idle ones were")
+    print("  free and these are not, the rule is about what is being drawn rather")
+    print("  than about reading, and a scheme that only ever reads idle files is safe.")
+    send(
+        link,
+        frames.write_string_file(STRING_POOL[0], render(STRING_SCROLL_VALUE)),
+        label="write STRING %s, long" % STRING_POOL[0].decode(),
+        settle=settle,
+    )
+    # Built by hand rather than through the markup, so that A holds the call and
+    # nothing else: no colour, no text of its own, just the insert and a label.
+    send(
+        link,
+        frames.write_text_file(
+            b"A", c.STRING_FILE_INSERT + STRING_POOL[0], mode=c.MODE_ROTATE
+        ),
+        label="write file A as a wrapper",
+        settle=settle,
+    )
+    ask("Is the STRING's text scrolling across the display? [y/n]")
+    ask("Ready? [enter]")
+
+    four_reads(link)
+    replies["text file A, the wrapper"] = read_back(
+        link, c.COMMAND_READ_TEXT + b"A", label="read text file A (BA)"
+    )
+    replies["STRING %s, on the display" % STRING_POOL[0].decode()] = read_back(
+        link,
+        frames.read_string_file(STRING_POOL[0]),
+        label="read STRING %s, in use" % STRING_POOL[0].decode(),
+    )
+
+    ask(
+        "What did the scroll do across all six of those reads? "
+        "[nothing/stalled and resumed/jumped/started again/blanked/other]"
+    )
+    ask(
+        "Which read did it, if you could tell? "
+        "[the STRING read/the text read/one of the four/several/could not tell]"
+    )
+    ask(
+        "Against reading the same STRING while nothing called it, a moment ago: "
+        "[the same/worse now/better now/could not tell]"
+    )
+
     # Back to the rotation the following steps expect.
+    send(
+        link,
+        frames.write_text_file(b"A", render(MESSAGES[0])),
+        label="restore file A, held",
+        settle=settle,
+    )
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
     ask("Has the ONE, TWO, THREE rotation come back, with ONE held rather than scrolling? [y/n]")
 

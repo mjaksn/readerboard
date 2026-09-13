@@ -700,7 +700,7 @@ the display, which two earlier runs exercised without ever looking.
     into whatever message calls it, while these four ask the sign about its own tables and
     touch no file a message is drawing. They could differ in either direction.
 
-    Step 7 now asks, and asks it four ways, because there is no reason to expect one
+    Step 7 now asks, and asks it five ways, because there is no reason to expect one
     answer to cover them all:
 
     - the four special function reads against a **held** message;
@@ -709,12 +709,22 @@ the display, which two earlier runs exercised without ever looking.
       jump, or a restart from the right-hand edge rather than simply a blank;
     - a **TEXT file read** of a file that holds text but is not named in the run
       sequence;
-    - a **STRING file read** of a value no message calls.
+    - a **STRING file read** of a value no message calls;
+    - and then all of those again **with the STRING file being the display**: A is
+      rewritten to hold nothing but the two-byte call to that STRING, in ROTATE mode, so
+      the whole of what the sign is drawing lives in the file being read.
 
-    The last two are the reads a reconciliation scheme would actually make, and they ask
-    about files the sign is not drawing from, so they may well cost nothing even though a
-    STRING read of a file in use does not. Step 2 allocates one STRING file for this and
-    no step displays it.
+    The middle two are the reads a reconciliation scheme would actually make, of files
+    the sign is not drawing from, so they may cost nothing even though the 2026-09-10
+    STRING read did not. The last is what tells the two apart, and it is the case the
+    whole question turns on: if reading an idle file is free and reading the file on the
+    display is not, then the cost belongs to what is being drawn rather than to reading,
+    and a scheme that only ever reads idle files is safe at any interval. If both cost
+    the same, polling has a price that no amount of care will remove.
+
+    Step 2 allocates one STRING file for this, at the protocol's 125 byte ceiling so the
+    value can be long enough to scroll. No step displays it except the last part of step
+    7, which puts it back afterwards.
 
     Throughout, the display is put on one message and held still first, because a
     disturbance this small vanishes into a rotation changing by itself, and the questions
