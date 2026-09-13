@@ -51,6 +51,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from readerboard import icons
@@ -123,6 +124,22 @@ def _picture_key(name: str, tint: str | None) -> str:
     somebody wrote in a message.
     """
     return name if tint is None else "%s:%s" % (name, tint)
+
+
+@dataclass
+class _Claims:
+    """What one message's icons took from the picture pool, so it can be undone.
+
+    Two lists rather than one, because a claim can cost two things. ``claimed``
+    is the files newly given to this message's icons. ``evicted`` is the
+    pictures that were given up to make room, which is the part that is easy to
+    miss: a write that fails after an eviction would otherwise leave the icon
+    that was evicted with no file and no way back, since nothing rewrites a
+    message whose text has not changed.
+    """
+
+    claimed: list[str] = field(default_factory=list)
+    evicted: list[PictureState] = field(default_factory=list)
 
 
 def _utcnow() -> datetime:
@@ -350,12 +367,25 @@ class SlotRegistry:
         if alert is not None:
             wanted += icon_references(alert.message)
 
+        # Every icon the surviving messages call between them, so that giving a
+        # file to one of them cannot take it from another.
+        keeping = {_picture_key(name, tint) for name, tint in wanted}
         missing: list[str] = []
         for name, tint in wanted:
             if _picture_key(name, tint) in self._state.pictures:
                 continue
             try:
-                self._claim_picture(name, tint)
+                self._claim_picture(
+                    name,
+                    tint,
+                    keeping=keeping,
+                    replacing=None,
+                    replacing_alert=False,
+                    # Nothing here has a write to fail, so there is nothing to
+                    # put back: an eviction on this path is a file passing from
+                    # an icon nothing calls to one something does.
+                    evicted=[],
+                )
             except (RegistryError, icons.IconError):
                 key = _picture_key(name, tint)
                 if key not in missing:
@@ -508,13 +538,13 @@ class SlotRegistry:
         Nothing that holds this may wait on anything that takes this lock.
         """
         async with self._lock:
-            claimed: list[str] = []
+            claims = _Claims()
             if message is not None:
-                claimed = self._claim_pictures(message)
+                claims = self._claim_pictures(message, replacing_alert=True)
                 try:
-                    await self._write_claims(claimed)
+                    await self._write_claims(claims.claimed)
                 except Exception:
-                    self._release_claims(claimed)
+                    self._undo_claims(claims)
                     raise
             try:
                 yield self._render_message
@@ -522,7 +552,7 @@ class SlotRegistry:
                 # The alert did not land, so nothing calls these. They are given
                 # up rather than left holding files against a message that is
                 # not on the sign.
-                self._release_claims(claimed)
+                self._undo_claims(claims)
                 raise
 
     # == changing slots =====================================================
@@ -561,7 +591,7 @@ class SlotRegistry:
             # file's label and cannot invent one. This is also what makes an
             # icon nobody has say so in the icon library's own words rather than
             # as "there is no picture holding it".
-            claimed = self._claim_pictures(message)
+            claims = self._claim_pictures(message, replacing=key)
 
             # Rendered under the lock, because a message that calls a variable
             # renders to that variable's label, and a variable deleted between
@@ -584,9 +614,9 @@ class SlotRegistry:
                 # them, so the sign is never drawing a file that points at a
                 # picture not yet written. Same rule as a variable, and for the
                 # same reason.
-                await self._write_claims(claimed)
+                await self._write_claims(claims.claimed)
             except Exception:
-                self._release_claims(claimed)
+                self._undo_claims(claims)
                 raise
 
             now = self._now()
@@ -669,7 +699,7 @@ class SlotRegistry:
                 # remembers what each file holds, so the next icon given that
                 # file writes over it, and an icon nobody calls sitting in a
                 # file nothing draws from costs nothing until then.
-                self._release_claims(claimed)
+                self._undo_claims(claims)
                 raise
 
             self._save()
@@ -981,28 +1011,56 @@ class SlotRegistry:
 
     # == picture files ======================================================
 
-    def _icon_in_use(self, key: str) -> bool:
+    def _icon_in_use(
+        self, key: str, *, replacing: str | None = None, replacing_alert: bool = False
+    ) -> bool:
         """Whether any slot or the alert still calls the icon this picture holds.
 
         Hidden slots count. A hidden slot is put back on the display by one run
         sequence write and no redraw, and that is only true while the icons its
         message calls still have their files. Evicting one would turn a free
         switch into a picture write, which blanks the display.
+
+        ``replacing`` is the slot whose message is being replaced, and
+        ``replacing_alert`` says the same of the alert. Neither is read, because
+        what is recorded for them is the message on its way out: asking whether
+        the old text still calls an icon would refuse a write whose result fits.
+        A slot moving from ``<icon:sun>`` to ``<icon:moon>`` in a pool with one
+        file is the whole of that case, and it has to be allowed.
         """
         wanted = (self._state.pictures[key].name, self._state.pictures[key].tint)
-        for slot in self._state.slots.values():
+        for slot_key, slot in self._state.slots.items():
+            if slot_key == replacing:
+                continue
             if wanted in icon_references(slot.message):
                 return True
+        if replacing_alert:
+            return False
         alert = self._state.alert
         return alert is not None and wanted in icon_references(alert.message)
 
-    def _claim_picture(self, name: str, tint: str | None) -> str | None:
+    def _claim_picture(
+        self,
+        name: str,
+        tint: str | None,
+        *,
+        keeping: set[str],
+        replacing: str | None,
+        replacing_alert: bool,
+        evicted: list[PictureState],
+    ) -> str | None:
         """Give one icon a picture file, returning its key if the file is newly claimed.
 
         None means the icon already had one, so nothing has to be written. The
         icon itself is resolved first, which is what turns a name nobody has
         into the library's own message rather than into "there is no picture
         holding it", and which is why this cannot be folded into the renderer.
+
+        ``keeping`` is every icon the message being claimed for calls, its own
+        included. Nothing in it may be evicted, or a message asking for more
+        icons than the pool holds would take back a file it had just been given
+        and then fail at the render, reporting a missing picture where the
+        honest answer is a full pool.
         """
         icons.resolve(name, tint)  # raises IconError for a name or a tint we do not have
         if not self._layout.picture_count:
@@ -1018,7 +1076,12 @@ class SlotRegistry:
         try:
             label = self._layout.pictures.assign(key)
         except LayoutFull:
-            if not self._evict_a_picture():
+            if not self._evict_a_picture(
+                keeping=keeping,
+                replacing=replacing,
+                replacing_alert=replacing_alert,
+                evicted=evicted,
+            ):
                 raise PicturePoolFull(
                     "all %d picture files are holding an icon that a message or the alert "
                     "still calls, so there is nowhere to draw <icon:%s>. Stop calling one, "
@@ -1032,7 +1095,14 @@ class SlotRegistry:
         )
         return key
 
-    def _evict_a_picture(self) -> bool:
+    def _evict_a_picture(
+        self,
+        *,
+        keeping: set[str],
+        replacing: str | None,
+        replacing_alert: bool,
+        evicted: list[PictureState],
+    ) -> bool:
         """Give up one picture file nothing calls any more. Returns whether it found one.
 
         This is where the lazy release actually happens, and it is the only
@@ -1047,11 +1117,19 @@ class SlotRegistry:
         when each icon was last drawn, only when its file was claimed, and an
         icon nothing calls is not being drawn at all. Whichever idle file is
         taken costs the same one write when its icon is next called for.
+
+        What it takes is appended to ``evicted``, so that a write which fails
+        after this can put it back. Nothing in ``keeping`` is a candidate.
         """
         for key in list(self._state.pictures):
-            if not self._icon_in_use(key):
+            if key in keeping:
+                continue
+            if not self._icon_in_use(
+                key, replacing=replacing, replacing_alert=replacing_alert
+            ):
                 picture = self._state.pictures.pop(key)
                 self._layout.pictures.release(key)
+                evicted.append(picture)
                 logger.info(
                     "picture file %s gave up icon %r, which nothing calls any more",
                     picture.label,
@@ -1060,28 +1138,73 @@ class SlotRegistry:
                 return True
         return False
 
-    def _claim_pictures(self, message: str) -> list[str]:
-        """Give every icon a message calls a picture file. Returns the keys newly claimed.
+    def _claim_pictures(
+        self, message: str, *, replacing: str | None = None, replacing_alert: bool = False
+    ) -> _Claims:
+        """Give every icon a message calls a picture file.
 
-        The caller writes those to the sign and, if anything after that fails,
-        hands them to :meth:`_release_claims`.
+        The caller writes the claimed ones to the sign and, if anything after
+        that fails, hands the whole record to :meth:`_undo_claims`.
+
+        ``replacing`` names the slot this message is replacing, and
+        ``replacing_alert`` says it is the alert. Whichever it is, its old
+        message is left out of the question "does anything still call this
+        icon", because the old message is the one going away.
         """
-        claimed: list[str] = []
+        wanted = icon_references(message)
+        # Every icon this message calls, whether it already has a file or is
+        # about to be given one. None of them may be evicted for one of the
+        # others.
+        keeping = {_picture_key(name, tint) for name, tint in wanted}
+        claims = _Claims()
         try:
-            for name, tint in icon_references(message):
-                key = self._claim_picture(name, tint)
+            for name, tint in wanted:
+                key = self._claim_picture(
+                    name,
+                    tint,
+                    keeping=keeping,
+                    replacing=replacing,
+                    replacing_alert=replacing_alert,
+                    evicted=claims.evicted,
+                )
                 if key is not None:
-                    claimed.append(key)
+                    claims.claimed.append(key)
         except Exception:
-            self._release_claims(claimed)
+            self._undo_claims(claims)
             raise
-        return claimed
+        return claims
 
-    def _release_claims(self, keys: list[str]) -> None:
-        """Undo claims made for a message that did not make it to the sign."""
-        for key in keys:
+    def _undo_claims(self, claims: _Claims) -> None:
+        """Put the pool back as it was, for a message that did not reach the sign.
+
+        The order is what makes it balance: giving up what was claimed frees
+        exactly the files the evictions paid for, so what was evicted can be
+        put back into them.
+
+        A restored picture's file may hold the wrong bitmap, because the write
+        that failed came after the eviction. That is the same tolerance
+        :meth:`upsert` already relies on: the record says which icon belongs in
+        which file, and the next refresh writes every one of them again.
+        """
+        for key in claims.claimed:
             self._state.pictures.pop(key, None)
             self._layout.pictures.release(key)
+
+        for picture in claims.evicted:
+            try:
+                self._layout.pictures.restore(picture.key, picture.label.encode("latin-1"))
+            except ValueError:
+                # The file is spoken for by something else now, which can only
+                # happen if the pool moved under this. Losing the record is the
+                # same outcome as never having put it back, and it must not
+                # replace whatever failure brought us here.
+                logger.info(
+                    "could not give icon %r its file back after a failed write",
+                    picture.key,
+                )
+                continue
+            self._state.pictures[picture.key] = picture
+            self._dirty = True
 
     async def _write_picture(self, picture: PictureState) -> None:
         await self._controller.write_dots_file(

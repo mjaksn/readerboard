@@ -28,6 +28,7 @@ from readerboard.services.registry import (
     SlotRegistry,
 )
 from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout
+from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
 FRAME_PREFIX = frames.packet(b"")[: -len(c.EOT)]
@@ -226,6 +227,63 @@ class TestTheFullPool:
 
         with pytest.raises(PicturePoolFull):
             await add(registry, "c", "<icon:star>")
+
+    async def test_a_slot_can_swap_its_icon_with_every_file_spoken_for(
+        self, controller, store, state, clock
+    ):
+        # The message going out is not asked whether it still calls its icon,
+        # because it is the one going out. With one file and one slot, moving
+        # from sun to moon is a state that fits, so it has to be allowed.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "weather", "<icon:sun>")
+
+        await add(registry, "weather", "<icon:moon>")
+
+        assert set(state.pictures) == {"moon"}
+
+    async def test_the_alert_can_swap_its_icon_the_same_way(
+        self, controller, store, state, clock, alerts
+    ):
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:bell> DING", mode="HOLD")
+
+        await alerts.raise_alert("<icon:sun> FINE", mode="HOLD")
+
+        assert set(state.pictures) == {"sun"}
+
+    async def test_one_message_wanting_more_icons_than_the_pool_says_the_pool_is_full(
+        self, registry
+    ):
+        # Not "there is no picture holding <icon:sun>", which is what came back
+        # while the third claim could evict the first one made for the same
+        # message. A message cannot take a file away from itself.
+        with pytest.raises(PicturePoolFull, match="raise picture_count"):
+            await add(registry, "a", "<icon:sun><icon:moon><icon:star>")
+
+    async def test_a_failed_write_gives_back_the_file_it_evicted(
+        self, controller, store, state, clock, transport
+    ):
+        # The eviction is paid for by an icon that was not going anywhere, so a
+        # write that then fails must not leave it with no file: nothing rewrites
+        # a message whose text has not changed, and it would draw nothing for
+        # good.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "weather", "<icon:sun>")
+        # Nothing calls the sun now, and its file is kept anyway, which is the
+        # lazy release working. That makes it the file the next icon evicts.
+        await add(registry, "weather", "PLAIN")
+        label = state.pictures["sun"].label
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError):
+            await add(registry, "other", "<icon:moon>")
+
+        assert set(state.pictures) == {"sun"}
+        assert state.pictures["sun"].label == label
 
     async def test_a_released_alerts_icon_can_be_taken(self, registry, alerts):
         alerts.set_rendering(registry.rendering)
