@@ -1024,11 +1024,25 @@ class MainWindow(QMainWindow):
 
         Through a timer rather than straight out of ``_completed``, so the reply
         that triggered this is finished with before its successor is created.
+
+        That timer opens a gap, and the gap is not empty. Send is live again the
+        moment ``_completed`` begins, and every other button that calls
+        :meth:`run` was live throughout, so a press landing in it takes the one
+        call the client allows. Nothing is taken off the queue while that is
+        true: the chain is behind somebody else's call rather than over, and the
+        drain at the end of ``_completed`` runs after every call, so it picks up
+        again when that one answers. Popping first and giving up on the refusal
+        lost both the operation and the rest of the chain, measured as one set
+        loaded out of five, with only :meth:`run`'s own "was not sent" to show
+        for it.
         """
-        if not self._queued:
+        if not self._queued or self._caller.busy:
             return
         operation = self._queued.pop(0)
         if not self.run(operation):
+            # Refused for something waiting will not fix, a base URL that is no
+            # longer a URL being the whole of it. Nothing is in flight to come
+            # back and drain the rest.
             self._queued = []
 
     def load_keys(self, operation_id: str) -> None:
