@@ -123,12 +123,12 @@ COMMAND_CODES = [
     (
         c.COMMAND_WRITE_DOTS,
         b"I",
-        '"I" (49H) = Write SMALL DOTS PICTURE file, Table 22 page 39',
+        '"I" (49H) = Write SMALL DOTS PICTURE file, Table 22',
     ),
     (
         c.COMMAND_READ_DOTS,
         b"J",
-        '"J" (4AH) = Read SMALL DOTS PICTURE file, Table 24 page 41',
+        '"J" (4AH) = Read SMALL DOTS PICTURE file, Table 24',
     ),
 ]
 
@@ -473,6 +473,37 @@ class TestTheDocumentContradictsItself:
 #
 # Section 7.7.1.1, "Control codes (00 - 1FH)", page 80.
 # ===========================================================================
+
+# ===========================================================================
+# SMALL DOTS PICTURE files
+#
+# Table 22, the write and its Row Bit Pattern.
+# ===========================================================================
+
+DOTS_PICTURE = [
+    (
+        c.DOTS_MAX_ROWS,
+        31,
+        "a SMALL DOTS PICTURE is at most 31 pixel rows, Table 22",
+    ),
+    (
+        c.DOTS_MAX_COLUMNS,
+        255,
+        "a SMALL DOTS PICTURE is at most 255 pixel columns, Table 22",
+    ),
+    (
+        c.DOTS_PIXEL_CODES,
+        b"012345678",
+        "Table 22 gives nine pixel codes: 0 off, 1 red, 2 green, 3 amber, "
+        "4 dim red, 5 dim green, 6 brown, 7 orange, 8 yellow",
+    ),
+]
+
+
+@pytest.mark.parametrize("actual,expected,citation", DOTS_PICTURE)
+def test_small_dots_picture_fields(actual, expected, citation):
+    assert actual == expected, citation
+
 
 CONTROL_CODES = [
     (c.NO_HOLD_SPEED, b"\x09", "09H No Hold speed"),

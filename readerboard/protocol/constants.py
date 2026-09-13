@@ -798,9 +798,9 @@ DOTS_THREE_COLOUR = b"2000"
 DOTS_EIGHT_COLOUR = b"4000"
 DOTS_COLOUR_STATUSES = (DOTS_MONOCHROME, DOTS_THREE_COLOUR, DOTS_EIGHT_COLOUR)
 
-# The height and width a write carries are two hex digits each, so a picture is
-# at most 255 of either. Table 22 sets the real ceiling lower on the rows: "the
-# maximum size of a SMALL DOTS PICTURE is 31 rows by 255 columns".
+# The height and width a write carries are two hex digits each, so a picture
+# could be 255 of either as far as the encoding goes. Table 22 sets the rows
+# lower: a SMALL DOTS PICTURE is at most 31 rows by 255 columns.
 DOTS_MAX_ROWS = 31
 DOTS_MAX_COLUMNS = 255
 
