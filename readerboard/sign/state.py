@@ -168,9 +168,15 @@ class PictureState(BaseModel):
 
     Nobody creates one of these. A picture is claimed when a message calls the
     icon and kept until another icon needs the file, so this is a record of what
-    the sign is holding rather than of anything a source asked for. It is
-    persisted so that a restart does not have to rewrite every picture, since a
-    picture write blanks the display.
+    the sign is holding rather than of anything a source asked for.
+
+    What persisting it buys is the pairing, not a saved write. A restart does
+    rewrite every picture, because it builds a new controller whose record of
+    what each file holds is empty and ``SlotRegistry.restore`` rewrites
+    everything. What would be lost without this is which file each icon was in:
+    a message renders to its picture's label as raw bytes, so an icon re-claimed
+    into a different file would leave every stored message pointing at the wrong
+    one, exactly as a variable would.
 
     ``key`` is the icon and its tint written as a message writes them, ``sun``
     or ``check:red``, which is both the pool's key and the most readable thing

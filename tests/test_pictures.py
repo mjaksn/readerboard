@@ -29,6 +29,7 @@ from readerboard.services.registry import (
     PicturePoolFull,
     SlotRegistry,
 )
+from readerboard.sign.controller import SignController
 from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
@@ -389,9 +390,12 @@ class TestAlerts:
 
 
 class TestAcrossARestart:
-    async def test_a_picture_survives_and_is_not_rewritten(
+    async def test_an_icon_comes_back_in_the_file_it_was_in(
         self, controller, layout, store, state, clock, transport
     ):
+        # The pairing is the thing that has to survive. A message renders to its
+        # picture's label as raw bytes, so an icon re-claimed into a different
+        # file would leave the stored message pointing at the wrong one.
         registry = SlotRegistry(controller, layout, store, state, now=clock)
         await registry.restore()
         await add(registry, "door", "<icon:lock> LOCKED")
@@ -401,6 +405,40 @@ class TestAcrossARestart:
         await again.restore()
 
         assert state.pictures["lock"].label == label
+
+    async def test_a_real_restart_does_rewrite_every_picture(
+        self, controller, layout, store, state, clock, transport
+    ):
+        # Worth pinning because it is easy to assume otherwise. Keeping the
+        # record does not save the write: a restart builds a new controller, and
+        # what stops a picture being sent twice is that controller remembering
+        # what it put in each file. A fresh one remembers nothing, so restoring
+        # costs one picture write, and one blank, for every icon on the sign.
+        registry = SlotRegistry(controller, layout, store, state, now=clock)
+        await registry.restore()
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        fresh = SignController(transport, inter_packet_delay=0)
+        transport.clear()
+        again = SlotRegistry(fresh, layout, store, state, now=clock)
+        await again.restore()
+
+        assert len(picture_writes(transport)) == 1
+
+    async def test_the_same_controller_writes_no_picture_twice(
+        self, controller, layout, store, state, clock, transport
+    ):
+        # And the other half: suppression is what makes the ordinary refresh
+        # free, since the controller already holds those exact bytes.
+        registry = SlotRegistry(controller, layout, store, state, now=clock)
+        await registry.restore()
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+
+        again = SlotRegistry(controller, layout, store, state, now=clock)
+        await again.restore()
+
+        assert picture_writes(transport) == []
 
     async def test_a_picture_whose_label_left_the_pool_is_given_another(
         self, controller, layout, store, state, clock
