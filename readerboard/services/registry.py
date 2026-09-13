@@ -445,8 +445,6 @@ class SlotRegistry:
                     name,
                 )
 
-        self._reclaim_pictures()
-
     def _reclaim_pictures(self) -> None:
         """Give a picture file back to every icon the surviving messages call.
 
@@ -517,6 +515,15 @@ class SlotRegistry:
             )
 
     async def _rewrite_all(self) -> None:
+        # Before anything is written, because a message can outlive the picture
+        # file its icon was in and nothing rewrites a message that has not
+        # changed. Here rather than in the restore that used to call it, because
+        # this is the one place all three rewriting paths go through: a refresh
+        # and a reboot need the repair as much as a restart does, and a refresh
+        # is what the rollback in ``rendering`` counts on to give an icon its
+        # file back when it could not redraw the bitmap itself.
+        self._reclaim_pictures()
+
         # Pictures and variables first, so that no message is ever drawn calling
         # a file that is not written yet, then the messages, then the run
         # sequence that starts playing them.
