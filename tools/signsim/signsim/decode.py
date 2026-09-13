@@ -695,6 +695,21 @@ def _write_dots(payload: bytes, offset: int) -> Command:
     declared_rows = declared_columns = 0
 
     if len(geometry) < 4:
+        if geometry:
+            # Whatever arrived of the size still belongs to a span. Every byte
+            # of a frame belongs to exactly one, and the hex view is read
+            # against that invariant: a byte in no span is one the reader is
+            # told nothing about, on the transmission where that matters most.
+            spans.append(
+                Span(
+                    SpanKind.UNKNOWN,
+                    offset + 2,
+                    geometry,
+                    "size, cut short",
+                    "The pixel rows and columns, of which only %d byte(s) arrived"
+                    % len(geometry),
+                )
+            )
         return Unrecognised(
             code=code,
             name="Write DOTS picture",

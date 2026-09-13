@@ -236,6 +236,11 @@ class TestSpansCoverTheFrame:
             frames.read_string_file(b"a"),
             frames.write_dots_file(b"6", ["0123", "4567"]),
             frames.read_dots_file(b"6"),
+            # Malformed, and the invariant holds for those too: the hex view is
+            # read against it, on the transmission where that matters most.
+            c.COMMAND_WRITE_DOTS + b"6" + b"07",
+            c.COMMAND_WRITE_DOTS + b"6",
+            c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"019X" + c.CR,
         ],
         ids=[
             "write",
@@ -252,6 +257,9 @@ class TestSpansCoverTheFrame:
             "string read",
             "picture",
             "picture read",
+            "picture cut off inside its size",
+            "picture with no size at all",
+            "picture with a pixel code the table lacks",
         ],
     )
     def test_every_byte_of_the_frame_belongs_to_exactly_one_span(self, built):
