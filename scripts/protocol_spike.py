@@ -4,8 +4,8 @@
 The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
-RS-232 adapter. Ten things have been genuinely open, and this script is how each
-was put to the sign. All ten are settled now, across sessions on 2026-09-09,
+RS-232 adapter. Eleven things have been genuinely open, and this script is how
+each was put to the sign. All eleven are settled, across sessions on 2026-09-09,
 2026-09-11 and 2026-09-12, and their answers are in docs/protocol-notes.md.
 Running it again re-confirms them on the sign in front of you, which is worth
 doing: two of the answers were recorded wrongly the first time and caught on a
@@ -44,6 +44,19 @@ repeat, and both were about something brief on the display.
 10. What does a sequence of mostly empty files cost? About five seconds of dwell
     on the message before the empty run. A sign holding one message with the
     whole pool named around it pays nothing, since it has nowhere to rotate to.
+11. What does a read cost the display? Nothing while the sign is holding a
+    message still, and about half a second of stall and blank while it is
+    scrolling one. Step 7 had sent all four special function reads to this sign
+    twice over and only ever asked whether a reply came back; on 2026-09-12 it
+    asked five ways what the display did. The four special function reads against
+    a held message, a TEXT file read of a file the sequence does not name, and a
+    STRING file read of a value no message calls all cost that held message
+    nothing. The same four against a scrolling message, and then all six reads
+    again while the sign scrolled a message whose whole text lived in the STRING
+    file being read, each cost about half a second. So the cost belongs to what
+    the display is doing, not to what is asked or to whether the file is the one
+    on screen, and a scheme that polls the sign pays nothing on a sign that
+    holds.
 
 Questions 8, 9 and 10 were asked for a change that was then dropped: naming
 every file in the pool all the time, so that creating a message would be one
@@ -58,11 +71,24 @@ It also measures how long the sign really needs between packets, which the old
 service never did; it just slept two seconds.
 
 This script is destructive. Step 2 writes a memory configuration, and that
-erases every message on the sign. It therefore refuses to run without
+erases every message on the sign. It therefore refuses to run step 2 without
 --confirm-erase. It allocates eight files by default, the service's own
 slot_count, because the last three steps need files that nothing has written;
 steps 3 to 8 use A, B and C exactly as they always have. --pool changes how
 many are allocated, up to the 26 the service allows.
+
+--steps runs part of it: --steps 7, --steps 3-5, --steps 7,9,11, --steps 5- for
+that step onwards. The steps hand state to each other, so two things follow.
+Leaving step 2 out erases nothing and takes the sign's existing memory
+configuration on trust, which is the way to re-ask one question without
+flattening the sign. And a run starting above step 3 writes the three files
+step 3 normally leaves behind, because every step above it expects to find
+them. Two steps depend on step 2 for more than that, and both say so rather
+than answering a different question under the same heading. Step 7 reads a
+STRING file, which step 2 is what allocates; it checks the memory configuration
+it reads and skips those rounds if there is no STRING file in the pool. Step 9
+asks what a file nothing has ever written draws, and only step 2 in the same
+run can promise that.
 
 Run it with the sign in front of you. It pauses to ask what you saw, then prints
 a summary to paste into docs/protocol-notes.md.
@@ -96,12 +122,66 @@ POOL_SIZE_DEFAULT = 8
 SLOT_CAPACITY = 256
 READ_LIMIT_BYTES = 4096
 
+# What those three files hold. Every step from 4 on expects to find them, and
+# names them in its questions, so they are one constant rather than a literal
+# in each place that rewrites them.
+MESSAGES = ("<red>ONE", "<green>TWO", "<amber>THREE")
+LAST_STEP = 11
+
+# Step 7 needs a message long enough to keep moving, so that a read landing
+# mid-scroll has something to interrupt.
+SCROLL_TEXT = "<green>SCROLLING WHILE THE SIGN IS ASKED WHAT IT IS HOLDING"
+
+# One STRING file, allocated by step 2 and written by step 7, which reads it
+# twice: once while nothing calls it, and once while it is the whole of what the
+# sign is drawing. Capacity is the protocol's own ceiling so the second value
+# can be long enough to scroll.
+STRING_POOL = [b"a"]
+STRING_CAPACITY = c.STRING_FILE_CAPACITY
+STRING_VALUE = "IDLE"
+STRING_SCROLL_VALUE = "<amber>THIS WHOLE MESSAGE LIVES IN A STRING FILE AND IS BEING READ"
+
 observations: list[tuple[str, str]] = []
 
 
 def labels_as_text(labels: list[bytes]) -> str:
     """Render file labels for a printed line or a question."""
     return " ".join(label.decode("ascii") for label in labels)
+
+
+def parse_steps(spec: str) -> set[int]:
+    """Turn ``7``, ``3-5``, ``7,9,11`` or ``5-`` into the steps to run.
+
+    Raises :class:`ValueError` with something a person can act on, which the
+    caller hands to ``parser.error``.
+    """
+    chosen: set[int] = set()
+    for piece in (part.strip() for part in spec.split(",")):
+        if not piece:
+            continue
+        if "-" in piece:
+            low, _, high = piece.partition("-")
+            first = _step_number(low or "1")
+            last = _step_number(high) if high.strip() else LAST_STEP
+            if last < first:
+                raise ValueError("%r runs backwards; write it low to high" % piece)
+            chosen.update(range(first, last + 1))
+        else:
+            chosen.add(_step_number(piece))
+    if not chosen:
+        raise ValueError("no steps were named")
+    return chosen
+
+
+def _step_number(text: str) -> int:
+    """Read one step number, refusing anything outside the script."""
+    try:
+        number = int(text.strip())
+    except ValueError:
+        raise ValueError("%r is not a step number" % text.strip()) from None
+    if not 1 <= number <= LAST_STEP:
+        raise ValueError("there is no step %d; they run from 1 to %d" % (number, LAST_STEP))
+    return number
 
 
 def note(question: str, answer: str) -> None:
@@ -115,6 +195,17 @@ def ask(question: str) -> str:
     answer = input("  %s " % question).strip()
     note(question, answer or "(no answer)")
     return answer
+
+
+def pause(prompt: str) -> None:
+    """Wait for the operator without recording anything.
+
+    Separate from :func:`ask` because these carry no answer, and a run makes
+    enough of them that putting each one in the summary as "(no answer)" would
+    bury the observations that matter.
+    """
+    print()
+    input("  %s [enter] " % prompt)
 
 
 def send(link: serial.Serial, payload: bytes, *, label: str, settle: float) -> None:
@@ -152,6 +243,33 @@ def read_back(link: serial.Serial, payload: bytes, *, label: str, wait: float = 
     return reply
 
 
+def watched_read(link: serial.Serial, payload: bytes, *, label: str) -> bytes:
+    """Wait for the operator, then send one read.
+
+    Every read step 7 asks about goes through here. Sent back to back they take
+    a couple of seconds each and a disturbance cannot be pinned on any one of
+    them; one at a time, with the operator watching before each goes out, the
+    question "which read did it" has an answer.
+    """
+    pause("Watch the display, then send the %s read." % label)
+    return read_back(link, payload, label="read %s" % label)
+
+
+def four_reads(link: serial.Serial) -> list[tuple[str, bytes]]:
+    """Send the four special function reads one at a time, and return the answers.
+
+    One helper because step 7 sends them three times over, and the comparison
+    between those rounds is only worth anything if each sends the same four.
+    """
+    reads = (
+        ("memory configuration", frames.read_memory_config(), "memory config (F$)"),
+        ("memory pool size", frames.read_memory_pool_size(), "pool size (F#)"),
+        ("run sequence", frames.read_run_sequence(), "run sequence (F.)"),
+        ("run time table", frames.read_run_time_table(), "run time table (F))"),
+    )
+    return [(name, watched_read(link, payload, label=label)) for name, payload, label in reads]
+
+
 def step_1_transport(url: str, baud: int, settle: float) -> serial.Serial:
     """Open the link and prove a single write reaches the sign."""
     print("\nStep 1: open the transport")
@@ -173,8 +291,12 @@ def step_1_transport(url: str, baud: int, settle: float) -> serial.Serial:
 def step_2_memory(link: serial.Serial, settle: float, pool: list[bytes]) -> None:
     """Allocate the file pool, and confirm that doing so erases the sign."""
     print("\nStep 2: set the memory configuration (this erases the sign)")
-    allocations = [frames.FileAllocation(label, SLOT_CAPACITY) for label in pool]
-    print("  allocating %s" % labels_as_text(pool))
+    allocations = [frames.FileAllocation(label, SLOT_CAPACITY) for label in pool] + [
+        frames.FileAllocation.string(label, STRING_CAPACITY) for label in STRING_POOL
+    ]
+    print("  allocating %s, and STRING %s" % (labels_as_text(pool), labels_as_text(STRING_POOL)))
+    print("  The STRING file is for step 7, which reads one while nothing is calling")
+    print("  it. No step displays it.")
     print("  claiming %d bytes of the memory pool" % frames.memory_claimed(allocations))
     print("  Steps 3 to 8 use A, B and C and nothing else. Everything after them is")
     print("  allocated and then left alone, which is exactly what steps 9 to 11 need:")
@@ -197,18 +319,36 @@ def step_2_memory(link: serial.Serial, settle: float, pool: list[bytes]) -> None
     ask("Did the display blank, however briefly? [y/n/could not tell]")
 
 
-def step_3_rotation(link: serial.Serial, settle: float) -> None:
-    """Confirm the sign rotates several files by itself, without blanking."""
-    print("\nStep 3: write three files and let the sign rotate them itself")
-    for label, text in zip(POOL, ("<red>ONE", "<green>TWO", "<amber>THREE"), strict=True):
+def write_the_three_files(link: serial.Serial, settle: float) -> None:
+    """Put ONE, TWO and THREE back in A, B and C and name all three."""
+    for label, text in zip(POOL, MESSAGES, strict=True):
         send(
             link,
             frames.write_text_file(label, render(text)),
             label="write file %s" % label.decode(),
             settle=settle,
         )
-
     send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+
+
+def establish_baseline(link: serial.Serial, settle: float) -> None:
+    """Leave the sign in the state step 3 normally hands on.
+
+    Only for a partial run that starts above step 3. Every step from 4 up
+    expects to find A, B and C holding ONE, TWO and THREE with the sequence
+    naming all three, because the step before it left them that way.
+    """
+    print("\nPreparing: the steps chosen start above step 3, which is what normally")
+    print("  leaves A, B and C holding ONE, TWO and THREE with all three named.")
+    print("  Writing that now so the steps below start where they expect to.")
+    write_the_three_files(link, settle)
+    ask("Is the sign cycling ONE, TWO, THREE? [y/n]")
+
+
+def step_3_rotation(link: serial.Serial, settle: float) -> None:
+    """Confirm the sign rotates several files by itself, without blanking."""
+    print("\nStep 3: write three files and let the sign rotate them itself")
+    write_the_three_files(link, settle)
     print("\n  Watch the sign for about half a minute. Nothing more is being sent.")
     ask("Does it cycle ONE, TWO, THREE by itself? [y/n]")
     ask("Is the rotation seamless, with no blanking between messages? [y/n]")
@@ -281,7 +421,7 @@ def step_5_empty_file(link: serial.Serial, settle: float) -> None:
     print("\n  Now it is emptied underneath the freeze. Watch the sign from the moment")
     print("  you answer the next question: the write goes out first and the question")
     print("  after it comes %.2gs later, which is long enough to miss a change." % settle)
-    ask("Ready to watch file A be emptied? [enter]")
+    pause("Ready to watch file A be emptied")
     send(link, frames.write_text_file(b"A", b""), label="empty file A", settle=settle)
     print("\n  Give it half a minute. Blank is the answer the service is built on.")
     print("  Still showing ONE means the freeze outlives its own file, and that")
@@ -338,35 +478,206 @@ def step_6_priority(link: serial.Serial, settle: float) -> None:
     ask("Has the rotation resumed on its own? [y/n]")
 
 
-def step_7_reads(link: serial.Serial) -> None:
-    """Find out whether the sign answers read commands through this adapter."""
-    print("\nStep 7: can the sign be asked what it is holding?")
+def string_on_the_display(
+    link: serial.Serial, settle: float, replies: dict[str, bytes]
+) -> None:
+    """Read the STRING file that is the whole of what the sign is drawing.
+
+    Split out of step 7 because it is the one part that cannot run at all
+    without a STRING file allocated, and a run that skipped step 2 may have
+    none. Keeping it separate is what lets step 7 skip it by name rather
+    than write to a file that does not exist.
+    """
+    # == the STRING the sign is actually drawing =============================
+    print("\n  The hardest case, and the one that decides the rest. A is rewritten to")
+    print("  hold nothing but the call to STRING %s, so the whole of what the sign is"
+          % STRING_POOL[0].decode())
+    print("  drawing lives in that STRING file, and it is set scrolling. Then the")
+    print("  same reads go out, the STRING read among them.")
+    print("  What this separates is whether a read costs anything in itself, or only")
+    print("  when it asks about the file the sign is drawing from. The reads just")
+    print("  now were of a text file and a STRING file sitting idle. These are the")
+    print("  same two commands against the file on the display. On 2026-09-12 all")
+    print("  six cost the same half second the four cost while scrolling, so idle")
+    print("  or not made no difference and only the motion did.")
+    send(
+        link,
+        frames.write_string_file(STRING_POOL[0], render(STRING_SCROLL_VALUE)),
+        label="write STRING %s, long" % STRING_POOL[0].decode(),
+        settle=settle,
+    )
+    # Built by hand rather than through the markup, so that A holds the call and
+    # nothing else: no colour, no text of its own, just the insert and a label.
+    send(
+        link,
+        frames.write_text_file(
+            b"A", c.STRING_FILE_INSERT + STRING_POOL[0], mode=c.MODE_ROTATE
+        ),
+        label="write file A as a wrapper",
+        settle=settle,
+    )
+    ask("Is the STRING's text scrolling across the display? [y/n]")
+
+    four_reads(link)
+    replies["text file A, the wrapper"] = watched_read(
+        link, c.COMMAND_READ_TEXT + b"A", label="text file A, the wrapper (BA)"
+    )
+    replies["STRING %s, on the display" % STRING_POOL[0].decode()] = watched_read(
+        link,
+        frames.read_string_file(STRING_POOL[0]),
+        label="STRING %s, the one on the display" % STRING_POOL[0].decode(),
+    )
+
+    ask(
+        "What did the scroll do across all six of those reads? "
+        "[nothing/stalled and resumed/jumped/started again/blanked/other]"
+    )
+    ask(
+        "Which read did it, if you could tell? "
+        "[all six/the STRING read/the text read/one of the four/several/"
+        "could not tell]"
+    )
+    # A comparison against the idle STRING read of a moment ago was asked here
+    # once and could not answer anything: that read went out against a message
+    # held still, so its two arms differed in what the display was doing as well
+    # as in which file was read. Compare within the round instead.
+    ask(
+        "Did any of the six stand out from the others? "
+        "[no, all the same/name it/could not tell]"
+    )
+
+
+def step_7_reads(link: serial.Serial, settle: float) -> None:
+    """Find out whether the sign answers read commands, and what asking costs the display."""
+    print("\nStep 7: can the sign be asked what it is holding, and at what cost?")
     print("  This sign answered all four of these on 2026-09-09, so the adapter")
     print("  carries traffic both ways. Re-proving it is cheap, and divergence")
     print("  could be detected by asking rather than re-pushing on a timer.")
 
-    replies = {
-        "memory configuration": read_back(
-            link, frames.read_memory_config(), label="read memory config (F$)"
-        ),
-        "memory pool size": read_back(
-            link, frames.read_memory_pool_size(), label="read pool size (F#)"
-        ),
-        "run sequence": read_back(
-            link, frames.read_run_sequence(), label="read run sequence (F.)"
-        ),
-        "run time table": read_back(
-            link, frames.read_run_time_table(), label="read run time table (F))"
-        ),
-    }
+    print("\n  What a read costs the display was asked on 2026-09-12 and came")
+    print("  back: nothing while the sign holds a message still, about half a")
+    print("  second of stall and blank while it scrolls one, whichever read goes")
+    print("  out and whatever file it names. The rounds below are how that was")
+    print("  separated out, and re-running them re-confirms it on the sign in")
+    print("  front of you. Two earlier runs asked only whether a reply came back.")
+
+    print("\n  The display is put on one held message first, because a disturbance")
+    print("  this small vanishes into a rotation changing by itself. Watch that")
+    print("  message and nothing else.")
+    send(link, frames.set_run_sequence([b"A"]), label="run sequence A", settle=settle)
+    ask("Is ONE on the sign by itself, holding still? [y/n]")
+
+    print("\n  The four reads go out back to back and take a few seconds. Watch the")
+    print("  whole time rather than glancing at the end.")
+
+    replies = dict(four_reads(link))
+
+    ask("What did ONE do while those four reads went out? [nothing/flicker/blank/other]")
+    ask(
+        "If it moved, how did it compare with the blank a TEXT file write causes? "
+        "[nothing at all/smaller/about the same/larger]"
+    )
+    ask("Which of the four did it? [all four/name them/none/could not tell]")
+
+    # == the same four, against a message that is moving ====================
+    print("\n  Now the same four reads against a message that is scrolling. This is")
+    print("  the case that first raised the question: the STRING read on")
+    print("  2026-09-10 'blanked the display briefly mid-scroll and picked up from")
+    print("  about where it was'. A scroll shows a different kind of damage from a")
+    print("  held message. A held one can only blank; a scroll can also stall,")
+    print("  jump, or start again from the right-hand edge, and a stall is easy to")
+    print("  see precisely because everything else is moving.")
+    send(
+        link,
+        frames.write_text_file(b"A", render(SCROLL_TEXT), mode=c.MODE_ROTATE),
+        label="write file A, scrolling",
+        settle=settle,
+    )
+    ask("Is A scrolling steadily across the display? [y/n]")
+    print("\n  Watch the motion itself rather than the text.")
+
+    four_reads(link)
+
+    ask(
+        "What did the scroll do while those four reads went out? "
+        "[nothing/stalled and resumed/jumped/started again/blanked/other]"
+    )
+    ask("If it stalled, roughly how long for? [describe, or none]")
+    ask("Which of the four did it? [all four/name them/none/could not tell]")
+
+    # == files the sign is not drawing from =================================
+    # Step 2 allocates the STRING file, and a partial run may have skipped it.
+    # The memory configuration was read a moment ago, so ask it rather than
+    # writing to a file that may not be there and then recording what an
+    # unallocated label answers as though it were a measurement.
+    string_ready = STRING_POOL[0] + c.FILE_TYPE_STRING in replies["memory configuration"]
+    if not string_ready:
+        print("\n  The memory configuration just read back allocates no STRING file %s,"
+              % labels_as_text(STRING_POOL))
+        print("  so the two rounds needing one are skipped: there would be nothing to")
+        print("  write a value into and nothing for a message to call. Run with step 2")
+        print("  to allocate it, as --steps 2,7 or as the whole script.")
+        note("STRING rounds of step 7", "skipped, the pool allocates no STRING file")
+
+    print("\n  Last, the contents of two files nothing on the display is using. This")
+    print("  is the read a reconciliation scheme would actually make: it asks about")
+    print("  a file the sign is not drawing from. On 2026-09-12 it cost the held")
+    print("  message nothing, which is what every read cost a held message.")
+    send(
+        link,
+        frames.write_text_file(b"A", render(MESSAGES[0])),
+        label="restore file A, held",
+        settle=settle,
+    )
+    send(link, frames.set_run_sequence([b"A"]), label="run sequence A", settle=settle)
+    if string_ready:
+        send(
+            link,
+            frames.write_string_file(STRING_POOL[0], render(STRING_VALUE)),
+            label="write STRING %s" % STRING_POOL[0].decode(),
+            settle=settle,
+        )
+    print("\n  B holds TWO and is not named in the sequence. The STRING file %s holds"
+          % STRING_POOL[0].decode())
+    print("  a value no message calls. Neither is on the display, and ONE is held")
+    print("  still in front of you. Watch ONE.")
+    ask("Is ONE on the sign by itself, holding still? [y/n]")
+
+    # frames.py has no TEXT file read, so this is built from the constants the
+    # way the STRING spike built its own payloads. Adding the builder is real
+    # work and does not belong in a spike commit.
+    replies["text file B"] = watched_read(
+        link, c.COMMAND_READ_TEXT + b"B", label="text file B (BB)"
+    )
+    if string_ready:
+        replies["STRING file %s" % STRING_POOL[0].decode()] = watched_read(
+            link,
+            frames.read_string_file(STRING_POOL[0]),
+            label="STRING %s, idle (H%s)" % (STRING_POOL[0].decode(), STRING_POOL[0].decode()),
+        )
+
+    ask("What did ONE do while those two reads went out? [nothing/flicker/blank/other]")
+    ask(
+        "Did the two differ from each other? "
+        "[same/the text read was worse/the STRING read was worse/could not tell]"
+    )
+
+    if string_ready:
+        string_on_the_display(link, settle, replies)
+
+    # Back to the rotation the following steps expect.
+    send(
+        link,
+        frames.write_text_file(b"A", render(MESSAGES[0])),
+        label="restore file A, held",
+        settle=settle,
+    )
+    send(link, frames.set_run_sequence(POOL), label="run sequence A B C", settle=settle)
+    ask("Has the ONE, TWO, THREE rotation come back, with ONE held rather than scrolling? [y/n]")
 
     answered = [name for name, reply in replies.items() if reply]
-    if answered:
-        note("Reads that came back", ", ".join(answered))
-        print("\n  The sign answered %d of 4 reads." % len(answered))
-    else:
-        note("Reads that came back", "none")
-        print("\n  The sign answered nothing. Reconciliation stays on the timer.")
+    note("Reads that came back", ", ".join(answered) if answered else "none")
+    print("\n  The sign answered %d of %d reads." % (len(answered), len(replies)))
 
 
 def step_8_timing(link: serial.Serial, settle: float) -> None:
@@ -462,7 +773,7 @@ def step_10_files_that_empty_and_fill(link: serial.Serial, settle: float) -> Non
     print("  the sign does when there is nothing left to give a turn to.")
     print("  2026-09-12 said blank rather than frozen, which is the opposite of what")
     print("  step 4's empty sequence does and is the point of asking both.")
-    ask("Ready to watch A, B and C be emptied one after another? [enter]")
+    pause("Ready to watch A, B and C be emptied one after another")
     for label in POOL:
         send(
             link,
@@ -479,7 +790,7 @@ def step_10_files_that_empty_and_fill(link: serial.Serial, settle: float) -> Non
     print("  disturbances one on top of the other. If a sequence that already names")
     print("  the file picks the text up by itself, the second packet is unnecessary.")
     print("  If it does not, nothing else in this run matters.")
-    ask("Ready to watch A be written, with the sequence untouched? [enter]")
+    pause("Ready to watch A be written, with the sequence untouched")
     send(link, frames.write_text_file(b"A", render("<red>ONE")), label="write file A", settle=settle)
     print("\n  Give it half a minute.")
     ask("Did ONE start showing, with no run sequence write? [y/n]")
@@ -588,16 +899,31 @@ def main() -> int:
         "service allows costs." % (POOL_SIZE_DEFAULT, len(c.TEXT_FILE_LABELS)),
     )
     parser.add_argument(
+        "--steps",
+        default="1-%d" % LAST_STEP,
+        help="which steps to run, as 7, or 3-5, or 7,9,11, or 5- for that one onwards. "
+        "Default is all of them. Step 1 opens the link and always runs. Leave step 2 "
+        "out and the sign keeps the memory configuration it already has, so nothing is "
+        "erased; a run that starts above step 3 writes the three files that step 3 "
+        "normally leaves behind, since every step above it expects to find them.",
+    )
+    parser.add_argument(
         "--confirm-erase",
         action="store_true",
         help="required, because step 2 erases every message on the sign",
     )
     args = parser.parse_args()
 
-    if not args.confirm_erase:
+    try:
+        chosen = parse_steps(args.steps)
+    except ValueError as err:
+        parser.error("--steps %s" % err)
+
+    if 2 in chosen and not args.confirm_erase:
         parser.error(
-            "this spike erases every message on the sign. Stop the service, and "
-            "anything else that writes to it, then pass --confirm-erase."
+            "step 2 erases every message on the sign. Stop the service, and anything "
+            "else that writes to it, then pass --confirm-erase. Or leave step 2 out "
+            "with --steps, which erases nothing."
         )
     if not len(POOL) < args.pool <= len(c.TEXT_FILE_LABELS):
         parser.error(
@@ -612,19 +938,48 @@ def main() -> int:
     print("readerboard protocol spike")
     print("Sign: %s at %d baud" % (args.url, args.baud))
     print("Pool: %d files, %s" % (len(pool), labels_as_text(pool)))
+    print("Steps: %s" % ", ".join(str(number) for number in sorted(chosen)))
+
+    if 2 not in chosen:
+        print("\nStep 2 is not being run, so nothing is erased and the sign keeps the")
+        print("memory configuration it already has. Every step below assumes that")
+        print("configuration allocates at least %s." % labels_as_text(pool))
+    if 7 in chosen and 2 not in chosen:
+        print("\nStep 7 reads a STRING file, and step 2 is what allocates it. Without")
+        print("step 2 the sign keeps whatever pool it already has, which may hold no")
+        print("STRING file at all. Step 7 checks the memory configuration it reads and")
+        print("skips the parts that need %s rather than writing to a file that does"
+              % labels_as_text(STRING_POOL))
+        print("not exist and recording what an unallocated label answers.")
+    if 9 in chosen and 2 not in chosen:
+        print("\nStep 9 asks what a file nothing has ever written draws, and without")
+        print("step 2 in the same run nothing can promise that %s" % labels_as_text(spare))
+        print("were never written. Read its answer as being about empty files rather")
+        print("than untouched ones.")
 
     link = step_1_transport(args.url, args.baud, args.settle)
     try:
-        step_2_memory(link, args.settle, pool)
-        step_3_rotation(link, args.settle)
-        step_4_empty_sequence(link, args.settle)
-        step_5_empty_file(link, args.settle)
-        step_6_priority(link, args.settle)
-        step_7_reads(link)
-        step_8_timing(link, args.settle)
-        step_9_unwritten_files(link, args.settle, spare)
-        step_10_files_that_empty_and_fill(link, args.settle)
-        step_11_long_sequence(link, args.settle, pool)
+        after_2 = sorted(chosen - {1, 2})
+        if 2 in chosen:
+            step_2_memory(link, args.settle, pool)
+        # Step 3 leaves the state every later step starts from, so a partial run
+        # that skips past it has to put that state there itself.
+        if after_2 and after_2[0] > 3:
+            establish_baseline(link, args.settle)
+
+        runners = {
+            3: lambda: step_3_rotation(link, args.settle),
+            4: lambda: step_4_empty_sequence(link, args.settle),
+            5: lambda: step_5_empty_file(link, args.settle),
+            6: lambda: step_6_priority(link, args.settle),
+            7: lambda: step_7_reads(link, args.settle),
+            8: lambda: step_8_timing(link, args.settle),
+            9: lambda: step_9_unwritten_files(link, args.settle, spare),
+            10: lambda: step_10_files_that_empty_and_fill(link, args.settle),
+            11: lambda: step_11_long_sequence(link, args.settle, pool),
+        }
+        for number in after_2:
+            runners[number]()
     finally:
         link.close()
 

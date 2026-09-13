@@ -68,11 +68,14 @@ And being told to, which needs no reason.
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
-under `readerboard/protocol/`. It also lists the ten questions the document
-cannot answer, all of which three sessions with the sign have now settled. Two
-of those answers were wrong the first time and were caught on a repeat run, and
-both were about something brief on the display; the record of how is kept beside
-each answer, because it is the part that generalises.
+under `readerboard/protocol/`. It also lists the eleven questions the document
+cannot answer, all of which three sessions with the sign have now settled. The
+last of them, what a read costs the display, was answered on 2026-09-12: nothing
+while the sign holds a message still, about half a second of stall and blank
+while it scrolls one, whichever read goes out. Two of the settled answers were
+wrong the first time and were caught on a repeat run, and both were about
+something brief on the display; the record of how is kept beside each answer,
+because it is the part that generalises.
 
 ## The one dangerous operation
 
