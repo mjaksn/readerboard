@@ -117,11 +117,17 @@ class FileAllocation:
         byte, which is what Table 22's nine pixel codes need, and that halving
         was exact at 112, 448 and 1984 pixels on 2026-09-12. See "SMALL DOTS
         PICTURE files, measured on the sign" in docs/protocol-notes.md.
+
+        An odd pixel count rounds up, and that is a reading rather than a
+        measurement: all three geometries weighed had an even number of pixels,
+        so what the sign does with the leftover nibble is not known. Rounding up
+        is the only answer that cannot undercount a pool addressed in whole
+        bytes, and rounding down would say a one by one picture costs nothing.
         """
         if self.file_type != c.FILE_TYPE_DOTS:
             return self.capacity
         rows, columns = self.rows_and_columns
-        return rows * columns // 2
+        return (rows * columns + 1) // 2
 
     def __post_init__(self) -> None:
         """Reject an allocation the sign could not accept."""

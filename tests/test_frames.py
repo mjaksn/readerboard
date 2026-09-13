@@ -399,6 +399,19 @@ class TestMemoryClaimed:
             56 + c.MEASURED_FILE_OVERHEAD_BYTES + c.MEASURED_POOL_OVERHEAD_BYTES
         )
 
+    def test_an_odd_pixel_count_rounds_up_rather_than_losing_the_last_nibble(self):
+        # A one by one picture cannot cost nothing out of a pool addressed in
+        # whole bytes. Which way an odd count actually goes was never measured,
+        # so this rounds the way that cannot undercount.
+        assert frames.FileAllocation.dots(b"6", 1, 1).pool_bytes == 1
+        assert frames.FileAllocation.dots(b"6", 1, 3).pool_bytes == 2
+        assert frames.FileAllocation.dots(b"6", 7, 9).pool_bytes == 32
+
+    def test_an_even_pixel_count_is_exactly_half(self):
+        # The three geometries that were weighed on the sign, to the byte.
+        for rows, columns, expected in ((7, 16, 56), (7, 64, 224), (31, 64, 992)):
+            assert frames.FileAllocation.dots(b"6", rows, columns).pool_bytes == expected
+
     def test_a_text_file_is_charged_by_its_capacity(self):
         assert frames.FileAllocation(b"A", 256).pool_bytes == 256
 

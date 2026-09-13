@@ -79,12 +79,15 @@ class MemoryEntry:
         for the same reason: adding a picture's size field to a budget charges a
         seven by sixteen icon 1808 bytes for something measured taking 56. The
         sign packs two pixels to a byte, which is what Table 22's nine pixel
-        codes need.
+        codes need, and an odd pixel count rounds up rather than losing the
+        leftover nibble. It has to be the same arithmetic: a simulator that
+        charged something the service does not would make the two disagree
+        about a configuration neither of them had got wrong.
         """
         if not self.is_picture:
             return self.capacity
         rows, columns = self.rows_and_columns
-        return rows * columns // 2
+        return (rows * columns + 1) // 2
 
     @property
     def always_eligible(self) -> bool:

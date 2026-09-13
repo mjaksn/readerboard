@@ -108,6 +108,15 @@ class TestRoundTrip:
         assert entry.rows_and_columns == (7, 16)
         assert entry.pool_bytes == 56
 
+    def test_the_simulator_charges_a_picture_what_the_service_charges_it(self):
+        # Including an odd pixel count, which rounds up in both. The two sums
+        # disagreeing would make the simulator accuse a configuration the
+        # service built correctly.
+        for rows, columns in ((7, 16), (1, 1), (7, 9), (31, 64)):
+            allocation = frames.FileAllocation.dots(b"6", rows, columns)
+            entry = payload(frames.set_memory_config([allocation])).command.entries[0]
+            assert entry.pool_bytes == allocation.pool_bytes
+
     def test_a_picture_write(self):
         rows = ["0333330", "3000003", "3088803", "3080803", "3088803", "3000003", "0333330"]
         result = payload(frames.write_dots_file(b"6", rows))
