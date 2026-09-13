@@ -26,6 +26,8 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from readerboard.protocol.constants import PICTURE_FILE_LABELS
+
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
 def _config_file() -> Path:
@@ -112,6 +114,18 @@ class Settings(BaseSettings):
         description=(
             "bytes allocated to each variable's value, after markup has been rendered. "
             "The sign allows no more than 125"
+        ),
+    )
+    picture_count: int = Field(
+        default=0,
+        ge=0,
+        le=len(PICTURE_FILE_LABELS),
+        description=(
+            "how many of the built-in icons can be on the sign at once, each a picture "
+            "file of its own that a message draws with <icon:name>. There are 148 icons "
+            "and this is how many fit, not how many exist: a file is claimed by whichever "
+            "icon a message calls and kept until another needs it. 0 turns icons off, and "
+            "is the default because raising it reallocates the sign and clears it"
         ),
     )
 
@@ -211,24 +225,30 @@ class Settings(BaseSettings):
         readerboard.sign.pool for why it is that way round.
         """
         from readerboard.protocol.frames import memory_claimed_by
+        from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS
         from readerboard.sign.pool import ASSUMED_SIGN_MEMORY_POOL
 
         claimed = memory_claimed_by(
             [self.slot_capacity] * self.slot_count
             + [self.variable_capacity] * self.variable_count
+            # A picture's allocated size is a geometry rather than a byte count,
+            # so what it takes out of the pool is its pixels rather than that
+            # field. The sign packs two to a byte, measured on 2026-09-12.
+            + [PICTURE_ROWS * PICTURE_COLUMNS // 2] * self.picture_count
         )
         if claimed > ASSUMED_SIGN_MEMORY_POOL:
             raise ValueError(
-                "slot_count %d at slot_capacity %d and variable_count %d at "
-                "variable_capacity %d need %d bytes of the sign's memory pool, and a "
-                "BetaBrite Classic has %d. Lower one of them. This is the most any "
-                "sign driven from here may be configured with, whatever a particular "
-                "sign reports."
+                "slot_count %d at slot_capacity %d, variable_count %d at "
+                "variable_capacity %d and picture_count %d need %d bytes of the sign's "
+                "memory pool, and a BetaBrite Classic has %d. Lower one of them. This "
+                "is the most any sign driven from here may be configured with, whatever "
+                "a particular sign reports."
                 % (
                     self.slot_count,
                     self.slot_capacity,
                     self.variable_count,
                     self.variable_capacity,
+                    self.picture_count,
                     claimed,
                     ASSUMED_SIGN_MEMORY_POOL,
                 )

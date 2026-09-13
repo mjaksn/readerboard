@@ -30,6 +30,7 @@ from signsim.decode import (
     SetRunSequence,
     SetTime,
     SetTimeFormat,
+    WriteDots,
     WriteString,
     WriteText,
 )
@@ -86,6 +87,29 @@ class StoredFile:
 
 
 @dataclass
+class StoredPicture:
+    """The bitmap in one SMALL DOTS PICTURE file, as the sign would hold it.
+
+    ``rows`` is what was actually sent rather than what the file was allocated
+    for. The two can differ, and keeping what arrived is what lets the window
+    draw the damaged picture a sign draws rather than a tidy one.
+    """
+
+    label: bytes
+    rows: tuple[bytes, ...]
+
+    @property
+    def height(self) -> int:
+        """How many rows of pixels arrived."""
+        return len(self.rows)
+
+    @property
+    def width(self) -> int:
+        """How wide the widest row is."""
+        return max((len(row) for row in self.rows), default=0)
+
+
+@dataclass
 class SignState:
     """Everything the simulated sign holds.
 
@@ -98,6 +122,7 @@ class SignState:
     memory_order: list[bytes] = field(default_factory=list)
     files: dict[bytes, StoredFile] = field(default_factory=dict)
     strings: dict[bytes, bytes] = field(default_factory=dict)
+    pictures: dict[bytes, StoredPicture] = field(default_factory=dict)
     run_sequence: list[bytes] = field(default_factory=list)
     run_sequence_mode: bytes = b""
     run_sequence_locked: bool = False
@@ -135,12 +160,25 @@ class SignState:
         was measured charging rather than the eleven bytes a file the document
         quotes. A simulator that stood in for the sign and charged something the
         sign does not would be worse than one that could not answer at all.
+
+        What a file's own data comes to is not its size field for every type. A
+        picture's is a geometry; ``MemoryEntry.pool_bytes`` has that and the
+        measurement behind it.
         """
         if self.memory_config is None:
             return 0
         return frames.memory_claimed_by(
-            entry.capacity for entry in self.memory_config.values()
+            entry.pool_bytes for entry in self.memory_config.values()
         )
+
+    def geometry_of(self, label: bytes) -> tuple[int, int] | None:
+        """Return the pixel rows and columns a picture file was allocated at."""
+        if self.memory_config is None:
+            return None
+        entry = self.memory_config.get(label)
+        if entry is None or not entry.is_picture:
+            return None
+        return entry.rows_and_columns
 
     def capacity_of(self, label: bytes) -> int | None:
         """Return the configured size of a file, or None if it has none."""
@@ -157,10 +195,21 @@ class SignState:
         A call reads as ``{a: 72}``, the label and what is in it, so both the
         call and its effect are visible. A call to anything that is not a STRING
         file draws nothing on the sign, measured, and reads here as nothing.
+
+        A picture call reads as its size rather than its dots, since a bitmap
+        has no reading in a line of text. The files panel draws it.
         """
         out: list[str] = []
         for span in annotate(body):
-            if span.data[:1] == c.STRING_FILE_INSERT and len(span.data) == 2:
+            if span.data[:1] == c.DOTS_INSERT and len(span.data) == 2:
+                label = span.data[1:2]
+                picture = self.pictures.get(label)
+                out.append(
+                    "{picture %s: %d by %d}" % (_show(label), picture.height, picture.width)
+                    if picture is not None
+                    else "{picture %s: nothing}" % _show(label)
+                )
+            elif span.data[:1] == c.STRING_FILE_INSERT and len(span.data) == 2:
                 label = span.data[1:2]
                 value = self.strings.get(label, b"") if self._is_string_file(label) else b""
                 value = _as_a_string_draws(value)
@@ -181,6 +230,7 @@ class SignState:
         self.memory_order = []
         self.files = {}
         self.strings = {}
+        self.pictures = {}
         self.run_sequence = []
         self.run_sequence_mode = b""
         self.run_sequence_locked = False
@@ -214,6 +264,8 @@ class SignState:
             return self._write_text(command)
         if isinstance(command, WriteString):
             return self._write_string(command)
+        if isinstance(command, WriteDots):
+            return self._write_dots(command)
         if isinstance(command, SetMemoryConfig):
             return self._set_memory_config(command)
         if isinstance(command, ClearMemory):
@@ -407,36 +459,135 @@ class SignState:
         self.strings[label] = command.data
         return []
 
+    def _write_dots(self, command: WriteDots) -> list[Note]:
+        """Draw a bitmap into a picture file, or say why the sign would not have.
+
+        No note for an ordinary write. A picture write is the one thing here
+        that costs the display a blank, but it is also the ordinary way an icon
+        reaches the sign, and a note on every one would bury the writes that
+        went wrong.
+        """
+        label = command.label
+        if self.memory_config is None:
+            return [
+                Note(
+                    NoteLevel.VIOLATION,
+                    "DOTS picture %s was written before any memory configuration. A "
+                    "picture file has to be allocated before it is written, so the sign "
+                    "discards this." % _show(label),
+                )
+            ]
+
+        entry = self.memory_config.get(label)
+        if entry is None or not entry.is_picture:
+            what = (
+                "is not in the sign's memory configuration"
+                if entry is None
+                else "is allocated as a %s file"
+                % decode.FILE_TYPE_NAMES.get(entry.file_type, "an unlisted type")
+            )
+            return [
+                Note(
+                    NoteLevel.VIOLATION,
+                    "File %s %s, and a Write DOTS picture can only fill a DOTS file. The "
+                    "sign discards this." % (_show(label), what),
+                )
+            ]
+
+        self.pictures[label] = StoredPicture(label=label, rows=command.rows)
+
+        rows, columns = entry.rows_and_columns
+        sent = self.pictures[label]
+        if sent.height > rows or sent.width > columns:
+            # Not refused and not clipped. The service cannot check this either,
+            # because only the caller knows what the file was allocated at, so
+            # the simulator is the one place it shows before the sign does.
+            return [
+                Note(
+                    NoteLevel.WARNING,
+                    "This picture is %d by %d and DOTS file %s was allocated %d by %d. A "
+                    "picture bigger than its file is neither refused nor cut short; it "
+                    "draws damaged."
+                    % (sent.height, sent.width, _show(label), rows, columns),
+                )
+            ]
+
+        return []
+
     def _check_calls(self, body: bytes) -> list[Note]:
-        """Warn about each STRING call in a message that has no STRING file to draw.
+        """Warn about each inline call in a message that has nothing to draw.
 
         Measured on the sign: a call to a label never allocated, or to one
-        allocated as a TEXT file, draws nothing at all, not even a space, so a
-        message calling one shows with a gap and no sign of why. Silent before
+        allocated as the wrong type, draws nothing at all, not even a space, so
+        a message calling one shows with a gap and no sign of why. Silent before
         any memory configuration, when every write but two is refused anyway.
+
+        A picture call has a third way to draw nothing that a STRING call does
+        not: the file can be allocated and correct and simply never written.
+        There is no bitmap in it yet, so the call draws nothing, and that one is
+        an ordering mistake rather than a wrong label.
         """
         if self.memory_config is None:
             return []
         missing: list[bytes] = []
+        missing_pictures: list[bytes] = []
+        blank_pictures: list[bytes] = []
         for span in annotate(body):
-            if span.data[:1] == c.STRING_FILE_INSERT and len(span.data) == 2:
-                label = span.data[1:2]
+            if len(span.data) != 2:
+                continue
+            label = span.data[1:2]
+            if span.data[:1] == c.STRING_FILE_INSERT:
                 if not self._is_string_file(label) and label not in missing:
                     missing.append(label)
-        if not missing:
-            return []
-        return [
-            Note(
-                NoteLevel.WARNING,
-                "This message calls %s, which %s not an allocated STRING file. The sign "
-                "draws nothing where %s called."
-                % (
-                    _show_labels(missing),
-                    "is" if len(missing) == 1 else "are",
-                    "it is" if len(missing) == 1 else "they are",
-                ),
+            elif span.data[:1] == c.DOTS_INSERT:
+                if not self._is_dots_file(label):
+                    if label not in missing_pictures:
+                        missing_pictures.append(label)
+                elif label not in self.pictures and label not in blank_pictures:
+                    blank_pictures.append(label)
+
+        notes: list[Note] = []
+        if missing:
+            notes.append(
+                Note(
+                    NoteLevel.WARNING,
+                    "This message calls %s, which %s not an allocated STRING file. The "
+                    "sign draws nothing where %s called."
+                    % (
+                        _show_labels(missing),
+                        "is" if len(missing) == 1 else "are",
+                        "it is" if len(missing) == 1 else "they are",
+                    ),
+                )
             )
-        ]
+        if missing_pictures:
+            notes.append(
+                Note(
+                    NoteLevel.WARNING,
+                    "This message calls picture %s, which %s not an allocated DOTS file. "
+                    "The sign draws nothing where %s called."
+                    % (
+                        _show_labels(missing_pictures),
+                        "is" if len(missing_pictures) == 1 else "are",
+                        "it is" if len(missing_pictures) == 1 else "they are",
+                    ),
+                )
+            )
+        if blank_pictures:
+            notes.append(
+                Note(
+                    NoteLevel.WARNING,
+                    "This message calls picture %s, which %s allocated but %s never been "
+                    "written. The sign draws nothing until a bitmap goes in, so write the "
+                    "picture before the message that calls it."
+                    % (
+                        _show_labels(blank_pictures),
+                        "is" if len(blank_pictures) == 1 else "are",
+                        "has" if len(blank_pictures) == 1 else "have",
+                    ),
+                )
+            )
+        return notes
 
     def _write_priority(self, command: WriteText) -> list[Note]:
         """Take over the sign, or hand it back."""
@@ -489,7 +640,7 @@ class SignState:
         to the run day table, and the PROG key. A memory configuration is not
         one of them, so an alert that is up stays up through a reconfiguration.
         """
-        erased = sorted(set(self.files) | set(self.strings))
+        erased = sorted(set(self.files) | set(self.strings) | set(self.pictures))
         notes: list[Note] = []
 
         if erased:
@@ -531,6 +682,7 @@ class SignState:
         self.memory_order = order
         self.files = {}
         self.strings = {}
+        self.pictures = {}
 
         if order:
             notes.append(
@@ -558,11 +710,12 @@ class SignState:
 
     def _clear_memory(self) -> list[Note]:
         """Wipe the file table and the pool, leaving the priority file alone."""
-        had = len(self.files) + len(self.strings)
+        had = len(self.files) + len(self.strings) + len(self.pictures)
         self.memory_config = None
         self.memory_order = []
         self.files = {}
         self.strings = {}
+        self.pictures = {}
         return [
             Note(
                 NoteLevel.WARNING,
@@ -672,6 +825,13 @@ class SignState:
             return False
         entry = self.memory_config.get(label)
         return entry is not None and entry.file_type == c.FILE_TYPE_STRING
+
+    def _is_dots_file(self, label: bytes) -> bool:
+        """Whether the configuration allocated this label as a DOTS picture file."""
+        if self.memory_config is None:
+            return False
+        entry = self.memory_config.get(label)
+        return entry is not None and entry.is_picture
 
     def _wrong_type(self, label: bytes) -> str | None:
         """Name the type this label was allocated as, when it is not TEXT."""

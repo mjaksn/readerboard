@@ -85,10 +85,15 @@ table is overwritten."
 
 So the service allocates its whole file pool once, records the applied plan in
 its state file, and reconfigures only when the plan itself changes. Changing
-`slot_count`, `slot_capacity`, `variable_count` or `variable_capacity` is
-therefore destructive on the next start. It is done deliberately, it is logged
-at WARNING, and it must never become something an ordinary message or variable
-update can trigger.
+`slot_count`, `slot_capacity`, `variable_count`, `variable_capacity` or
+`picture_count` is therefore destructive on the next start. It is done
+deliberately, it is logged at WARNING, and it must never become something an
+ordinary message, variable or icon update can trigger.
+
+`picture_count` defaults to 0, which is what makes it safe to add: a state file
+written before icons existed describes a configuration with no pictures in it,
+and that is exactly the configuration a service left at the default wants, so
+upgrading reallocates nobody's sign. Turning icons on is one deliberate erase.
 
 The pool has to fit, and there is less of it than there looks. This sign
 reported 5482 bytes on 2026-09-12, having been budgeted against 26000 since
@@ -240,10 +245,47 @@ rules hold it together, and each has a reason that is easy to lose:
   rest of what the sign was measured doing, under "STRING files, measured on
   the sign".
 
+An **icon** is a bitmap from the built-in library, drawn into a SMALL DOTS
+PICTURE file of its own and called from a message with `<icon:name>`, or
+`<icon:name:colour>` for one that takes a tint. That is the third pool of sign
+files, beside the slots and the variables, and it is the one nobody creates: no
+route makes an icon or deletes one, and the registry hands the files out by
+itself. Four things hold it together:
+
+- **A picture file is keyed by the icon and its tint**, since a tint changes the
+  bitmap. `<icon:check:green>` and `<icon:check:red>` are two pictures.
+- **Release is lazy**, which is where this stops being the variable design.
+  A file is given up only when the pool is full and a new icon needs one,
+  because every write to a picture blanks the display and restarts a scroll.
+  Freeing a file the moment its last caller went would spend a blank on
+  tidiness. So a full pool is the resting state, not a warning, and
+  `GET /health` reports it as pictures used.
+- **Every holder counts, not only the visible ones.** A hidden slot counts, or
+  showing it again would stop being one run sequence write, and the alert counts
+  too. `picture_occupancy` and `_icon_in_use` are where that lives.
+- **Pictures are written before messages**, ahead of the variables, on a
+  restore, a refresh and a reboot, so no message is drawn calling a picture file
+  with nothing in it yet. A call to an empty one draws nothing at all.
+
+The renderer is told which file each icon lives in and nothing else, exactly as
+it is for variables, so the registry stays the single answer to whether a name
+exists. That puts an obligation on the registry: it resolves every name through
+`icons.resolve` before rendering, or a misspelled icon would be reported as
+having no picture, which is true and useless.
+
+One thing to say rather than check: a line too wide for the display breaks onto
+a second page in HOLD, and the last word can land there without the icon that
+labelled it. Warning about that would need the width of the sign's proportional
+font, which is not recorded anywhere here and was never measured.
+
 An **alert** is written to the sign's priority file, which by protocol
 suppresses every other file until a bare priority write releases it. An
 ordinary write with an empty body is not a release: the sign reads its
-formatting bytes as a blank message and keeps the screen.
+formatting bytes as a blank message and keeps the screen. An alert can draw an
+icon, and it is the one caller that renders without claiming: putting a stored
+alert back on the sign after a restart uses the file the alert itself is
+already holding, because failing to restore the display is worse than a call
+that draws nothing.
 
 `SignController` is the only thing allowed to talk to the sign. Every write goes
 through one `asyncio.Lock`, with the blocking pyserial call dispatched to a
@@ -300,7 +342,17 @@ PySide6, so they run in CI where Qt is not installed. That leaves one gap, which
 CI covers separately: nothing in either suite ever builds a window, so a signal
 wired to an attribute that does not exist yet would raise only on construction
 and no test would see it. The lint job already installs Qt to type-check the
-tools, so it builds each window once offscreen as well. The one worth knowing
+tools, so it builds each window once offscreen as well.
+
+Building one is not enough for every part of it, and the simulator is built
+twice for that reason. A window given an empty sign fills no panel, so anything
+that draws a row stays unrun: the files panel paints a picture through a
+QPainter, and constructing the window never reaches it. The second build is
+handed a sign holding a picture and asked to redraw, which is the only place
+that code runs before somebody sends a picture to the simulator by hand. A panel
+that draws something no test can assert about wants one of these.
+
+The one worth knowing
 about in the simulator round trips the frame builders above through its
 decoder: whatever the service builds has to read back as the command that built
 it. The one worth knowing about in the client diffs its endpoint catalogue
@@ -322,11 +374,13 @@ integration. Nothing in the service knows it exists.
 
 It shows each transmission byte by byte, coloured by what each span is and
 annotated with the protocol's own meaning, and it keeps the sign's state: the
-file table, the contents of each file and each STRING file, the run sequence
-and the priority file. The state is what makes it worth having over a packet
-log. It says when a write lands in a file no memory configuration allocated,
-when a message overruns its file, and when the run sequence names a file that
-does not exist.
+file table, the contents of each file, each STRING file and each picture file,
+the run sequence and the priority file. The state is what makes it worth having
+over a packet log. It says when a write lands in a file no memory configuration
+allocated, when a message overruns its file, when the run sequence names a file
+that does not exist, and when a message calls a picture file that is allocated
+but has nothing drawn in it yet. Picture files are drawn as dots rather than
+listed as bytes, because that is the only form a person can check one in.
 
 Two things to know before relying on it. It decodes against
 `readerboard.protocol`'s own tables, so it can confirm which token was sent but
@@ -348,8 +402,9 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-two endpoints, formats every
-response as text rather than JSON, and knows no vocabulary it was not told.
+it at a running service and it can call all twenty-three endpoints, formats
+every response as text rather than JSON, and knows no vocabulary it was not
+told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are
 empty until a button is pressed, so the markup tokens a message field offers are

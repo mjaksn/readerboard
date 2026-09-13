@@ -92,6 +92,12 @@ jobs:
       # signal connected to an attribute that does not exist yet, which raises
       # only on construction. Qt is already installed for the checks above, so
       # building each of them once offscreen costs seconds and closes it.
+      #
+      # The simulator is built twice, and the second one is the interesting one.
+      # An empty sign fills no panel, so everything that draws a row stays
+      # unrun: the picture panel paints a bitmap through QPainter, and a
+      # window that is only constructed never reaches it. So the second build
+      # is given a sign holding a picture and asked to redraw.
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on
@@ -102,6 +108,42 @@ jobs:
         run: |
           python -c "import sys; sys.path.insert(0, 'tools/apiclient'); from PySide6.QtWidgets import QApplication; from apiclient.window import MainWindow; app = QApplication([]); MainWindow()"
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
+          python - <<'SMOKE'
+          import sys
+
+          sys.path.insert(0, "tools/signsim")
+          from PySide6.QtWidgets import QApplication
+          from readerboard.protocol import constants as c
+          from readerboard.protocol import frames
+          from signsim import decode
+          from signsim.framing import FrameScanner
+          from signsim.model import SignState
+          from signsim.server import SignEndpoint
+          from signsim.window import MainWindow
+
+          app = QApplication([])
+          state = SignState()
+
+          def apply(built):
+              found = FrameScanner().feed(frames.packet(built))
+              state.apply(decode.decode(found[0]).command)
+
+          apply(frames.set_memory_config([
+              frames.FileAllocation(b"A", 256),
+              frames.FileAllocation.dots(b"6", 7, 16),
+          ]))
+          apply(frames.write_dots_file(b"6", ["0333330", "3000003", "3088803",
+                                              "3080803", "3088803", "3000003",
+                                              "0333330"]))
+          apply(frames.write_text_file(b"A", c.DOTS_INSERT + b"6 HI"))
+
+          window = MainWindow(SignEndpoint(), state)
+          window._refresh_state()
+
+          drawn = window._files.item(window._files.rowCount() - 1, 5)
+          assert drawn is not None, "the picture got no row in the files panel"
+          assert not drawn.icon().isNull(), "the picture was drawn as nothing"
+          SMOKE
         env:
           QT_QPA_PLATFORM: offscreen
       # Each tool's icon.ico is rendered from the icon.svg beside it, and the

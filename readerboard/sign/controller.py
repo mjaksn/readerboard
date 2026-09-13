@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 
 from readerboard.protocol import constants as c
@@ -252,11 +252,26 @@ class SignController:
         """Put ``data`` in a STRING file. Returns False if the write was suppressed.
 
         Suppressed on the same terms as a TEXT file, by label, which cannot
-        collide with one: the two pools use different labels. Unlike a TEXT
+        collide with one: no two pools use the same labels. Unlike a TEXT
         write this does not blank the display, which is the point of it, so an
         unchanged value costs nothing and a changed one costs one short packet.
         """
         return await self._send_if_changed(label, frames.write_string_file(label, data))
+
+    async def write_dots_file(self, label: bytes, rows: Sequence[str]) -> bool:
+        """Draw ``rows`` into a picture file. Returns False if the write was suppressed.
+
+        Suppressed by label like the other two, and the suppression matters more
+        here than anywhere: rewriting a picture blanks the display and restarts
+        a scrolling message from the beginning, measured on 2026-09-11. An icon
+        that has not changed must not be sent again, and a picture file holding
+        the icon it already holds is the common case on a refresh.
+
+        A picture goes in one transmission. The document asks for a pause after
+        the width bytes; the sign was measured taking one without it, so nothing
+        special is done here.
+        """
+        return await self._send_if_changed(label, frames.write_dots_file(label, rows))
 
     async def write_priority(
         self,

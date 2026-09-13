@@ -1,9 +1,9 @@
 """What the service remembers across a restart.
 
-Four things have to survive: which messages are registered and where on the
-sign each one lives, which variables hold which values and where, whether an
-alert is currently holding the display, and which memory configuration was last
-applied.
+Five things have to survive: which messages are registered and where on the
+sign each one lives, which variables hold which values and where, which icon
+each picture file is holding, whether an alert is currently holding the
+display, and which memory configuration was last applied.
 
 The last of those matters more than it looks. Writing a memory configuration
 erases every file on the sign, so the service must be able to tell "the pool I
@@ -111,9 +111,13 @@ class AlertState(BaseModel):
 class AppliedLayout(BaseModel):
     """The memory configuration currently believed to be on the sign.
 
-    A file written before variables existed has none of the ``variable_``
-    fields, reads as a layout with no STRING files, and so still matches a
-    configuration that asks for none.
+    Every field added here since the first version defaults to the value that
+    means "none of those", and that is load bearing rather than tidy. A state
+    file written before variables existed has none of the ``variable_`` fields
+    and reads as a layout with no STRING files; one written before icons existed
+    has none of the ``picture_`` fields and reads as a layout with no pictures.
+    Each therefore still matches the configuration that wrote it, and an upgrade
+    does not reallocate the sign. Getting that wrong erases every message on it.
     """
 
     slot_count: int
@@ -122,6 +126,10 @@ class AppliedLayout(BaseModel):
     variable_count: int = 0
     variable_capacity: int = 0
     variable_labels: list[str] = Field(default_factory=list)
+    picture_count: int = 0
+    picture_rows: int = 0
+    picture_columns: int = 0
+    picture_labels: list[str] = Field(default_factory=list)
 
     def matches(
         self,
@@ -129,18 +137,83 @@ class AppliedLayout(BaseModel):
         slot_capacity: int,
         variable_count: int = 0,
         variable_capacity: int = 0,
+        picture_count: int = 0,
+        picture_rows: int = 0,
+        picture_columns: int = 0,
     ) -> bool:
-        """Whether this layout is already what the given settings ask for.
+        """Whether this layout asks for the same number of files, of the same sizes.
+
+        Which labels those files have is the other half of the question, and it
+        is :meth:`holds_the_same_files`. Both have to hold before a start can
+        skip reallocating the sign.
 
         With no variables, their size means nothing, so changing it alone must
-        not cost an erase.
+        not cost an erase. The same goes for the picture geometry, which is not
+        a setting at all: it is carried here so that changing the size an icon
+        is allocated at, which is a change to the code rather than to a
+        configuration file, is still noticed as a reallocation rather than
+        leaving the sign holding files of the old size.
         """
         return (
             self.slot_count == slot_count
             and self.slot_capacity == slot_capacity
             and self.variable_count == variable_count
             and (variable_count == 0 or self.variable_capacity == variable_capacity)
+            and self.picture_count == picture_count
+            and (
+                picture_count == 0
+                or (self.picture_rows == picture_rows and self.picture_columns == picture_columns)
+            )
         )
+
+    def holds_the_same_files(self, wanted: AppliedLayout) -> bool:
+        """Whether the sign has the files this layout would hand out, by label.
+
+        Counting them is not enough. Which labels each pool uses comes from a
+        table in the code, so a release that changes one leaves the sign holding
+        the files the old table named while the pool hands out the new ones.
+        Nothing else notices: the counts and the sizes are unchanged, so no
+        reallocation is due, and every write then goes to a file the sign never
+        allocated. The sign discards those without a word, so the messages come
+        back blank and the service reports itself healthy.
+
+        Compared as sets, because only membership matters. A pool that hands out
+        the same labels in a different order still hands out labels the sign has,
+        and every key is given one by the pool at run time rather than read from
+        this record, so reordering costs nothing and must not be paid for with an
+        erase.
+        """
+        return (
+            set(self.labels) == set(wanted.labels)
+            and set(self.variable_labels) == set(wanted.variable_labels)
+            and set(self.picture_labels) == set(wanted.picture_labels)
+        )
+
+
+class PictureState(BaseModel):
+    """One icon, and the picture file currently holding it.
+
+    Nobody creates one of these. A picture is claimed when a message calls the
+    icon and kept until another icon needs the file, so this is a record of what
+    the sign is holding rather than of anything a source asked for.
+
+    What persisting it buys is the pairing, not a saved write. A restart does
+    rewrite every picture, because it builds a new controller whose record of
+    what each file holds is empty and ``SlotRegistry.restore`` rewrites
+    everything. What would be lost without this is which file each icon was in:
+    a message renders to its picture's label as raw bytes, so an icon re-claimed
+    into a different file would leave every stored message pointing at the wrong
+    one, exactly as a variable would.
+
+    ``key`` is the icon and its tint written as a message writes them, ``sun``
+    or ``check:red``, which is both the pool's key and the most readable thing
+    to find in a state file.
+    """
+
+    key: str
+    name: str
+    tint: str | None = None
+    label: str
 
 
 class ServiceState(BaseModel):
@@ -149,6 +222,7 @@ class ServiceState(BaseModel):
     version: int = STATE_VERSION
     slots: dict[str, SlotState] = Field(default_factory=dict)
     variables: dict[str, VariableState] = Field(default_factory=dict)
+    pictures: dict[str, PictureState] = Field(default_factory=dict)
     alert: AlertState | None = None
     layout: AppliedLayout | None = None
 

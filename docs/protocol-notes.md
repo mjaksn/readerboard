@@ -187,11 +187,11 @@ pool is a rounding error, but the two models would stop being two.
 What the service does with the figure is in `readerboard/sign/pool.py`. It asks the sign
 at startup, and only on a start that is about to write a memory configuration, which is
 the one moment the answer can change anything and the one moment the sign is about to be
-erased anyway. `readerboard.sign.pool.ASSUMED_SIGN_MEMORY_POOL` is 5482 and is what stands in when the
-sign does not answer, answers something unreadable, or is a `loop://` URL with nothing
-behind it. A sign that answers and does not have room stops the service starting, which is
-the one thing that does; see "The one dangerous operation" in AGENTS.md for why erasing a
-sign to write a pool that cannot work is the worse of the two outcomes.
+erased anyway. `readerboard.sign.pool.ASSUMED_SIGN_MEMORY_POOL` is 5482 and is what
+stands in when the sign does not answer, answers something unreadable, or is a `loop://`
+URL with nothing behind it. A sign that answers and does not have room stops the service
+starting, which is the one thing that does; see "The one dangerous operation" in AGENTS.md
+for why erasing a sign to write a pool that cannot work is the worse of the two outcomes.
 
 ### The start and stop times
 
@@ -1151,14 +1151,11 @@ and "we thought about it" stay distinguishable.
 STRING files were on this list until they were measured on the sign. They have a section
 of their own above, "STRING files, measured on the sign".
 
-**SMALL DOTS PICTURE files** (`I` and `J`, called with 14H, or by name with 1FH). Bitmaps
-up to 31 by 255 pixels that "can be used to create virtually any logo pattern on the
-display of the sign", stored as their own file type and inserted into a TEXT file. On a
-seven-high display that is a 7 by N bitmap, and it is the way to draw an arrow, a heart or
-a musical note now that the pictograph range has turned out to be absent. The sign has
-since been asked, and "SMALL DOTS PICTURE files, measured on the sign" has what it said:
-they draw, the pause Table 22 asks for is not needed, and a rewrite blanks the display as
-the document warns, so a picture suits an icon and not a changing value.
+SMALL DOTS PICTURE files were on this list too, until the service began using them to
+draw icons. They have a section of their own above, "SMALL DOTS PICTURE files, measured
+on the sign". One part of the capability is still unused and stays here: **the ALPHAVISION
+insert** (1FH), which calls a picture by name rather than by label and belongs to hardware
+this sign is not.
 
 **Read General Information** (`F"`). See "Reading state back" above.
 

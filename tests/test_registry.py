@@ -1,5 +1,7 @@
 """Tests for the registry: upsert, ordering, TTL, capacity, and restart."""
 
+import asyncio
+
 import pytest
 
 from readerboard.protocol import frames
@@ -763,6 +765,103 @@ class TestRefresh:
         await registry.refresh()
 
         assert payloads_starting(transport, b"E$") == []
+
+
+class TestAFailedWriteGivesTheFileBack:
+    """A slot that never existed must not keep the file it was promised.
+
+    The file is assigned before the record that owns it is built, so a failure
+    in between leaves it reserved against a key that is in no state. Nothing
+    afterwards can find it: a delete needs a slot to delete, and a restart reads
+    the state file, which never heard of it.
+    """
+
+    async def test_a_failed_write_does_not_spend_a_slot(self, registry, transport):
+        transport.fail_with = "cable unplugged"
+
+        for key in ("one", "two", "three"):
+            with pytest.raises(TransportError, match="cable unplugged"):
+                await add(registry, key)
+
+        assert registry.list_slots() == []
+        assert registry.occupancy == (0, 3)
+
+    async def test_the_pool_is_still_there_afterwards(self, registry, transport):
+        # The measured consequence: three failures against a three slot pool
+        # used to leave it full, so the next good write was refused.
+        transport.fail_with = "cable unplugged"
+        for key in ("one", "two", "three"):
+            with pytest.raises(TransportError):
+                await add(registry, key)
+        transport.fail_with = None
+
+        await add(registry, "later")
+
+        assert [slot.key for slot in registry.list_slots()] == ["later"]
+
+    async def test_a_slot_that_already_exists_keeps_its_file(self, registry, transport):
+        # The other side of it. A failed update must not take the file from the
+        # message the sign is still playing.
+        await add(registry, "one", "FIRST")
+        label = registry.get("one").label
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError):
+            await add(registry, "one", "SECOND")
+
+        assert registry.get("one").message == "FIRST"
+        assert registry.get("one").label == label
+
+
+class TestACancelledRequestRollsBackToo:
+    """A client that gives up mid-write must not cost the pool anything.
+
+    Cancellation raises ``CancelledError``, which is not an ``Exception``, so a
+    rollback catching only ``Exception`` never ran for it. FastAPI cancels the
+    request task when a client disconnects, so this is an ordinary event rather
+    than a theoretical one.
+    """
+
+    async def cancel_the_text_write(self, controller):
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        controller.write_text_file = cancelled
+
+    async def test_a_cancelled_write_does_not_spend_a_slot(self, registry, controller):
+        await self.cancel_the_text_write(controller)
+
+        for key in ("one", "two", "three"):
+            with pytest.raises(asyncio.CancelledError):
+                await add(registry, key)
+
+        assert registry.list_slots() == []
+        assert registry.occupancy == (0, 3)
+
+    async def test_a_cancelled_update_leaves_the_message_that_is_showing(
+        self, registry, controller
+    ):
+        await add(registry, "one", "FIRST")
+        await self.cancel_the_text_write(controller)
+
+        with pytest.raises(asyncio.CancelledError):
+            await add(registry, "one", "SECOND")
+
+        assert registry.get("one").message == "FIRST"
+
+    async def test_a_cancelled_variable_write_is_not_recorded(self, controller, store, state, clock):
+        registry = SlotRegistry(controller, Layout(3, 256, 2, 32), store, state, now=clock)
+        await registry.restore()
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        controller.write_string_file = cancelled
+
+        with pytest.raises(asyncio.CancelledError):
+            await registry.put_variable("temp", "72")
+
+        assert registry.list_variables() == []
 
 
 class TestReboot:

@@ -94,6 +94,64 @@ class TestRoundTrip:
         assert command.body == body
         assert "<insert string a>" in command.summary
 
+    def test_a_memory_configuration_with_a_picture_file(self):
+        allocations = [
+            frames.FileAllocation(b"A", 256),
+            frames.FileAllocation.dots(b"6", 7, 16),
+        ]
+        entry = payload(frames.set_memory_config(allocations)).command.entries[1]
+        assert entry.label == b"6"
+        assert entry.file_type == c.FILE_TYPE_DOTS
+        assert entry.is_picture
+        # The size field is a geometry rather than a byte count, which is the
+        # one thing about a picture file a reader is most likely to get wrong.
+        assert entry.rows_and_columns == (7, 16)
+        assert entry.pool_bytes == 56
+
+    def test_a_picture_is_described_by_its_geometry_and_costed_by_its_pixels(self):
+        # The decoder used to read the size field as bytes, so a seven by
+        # sixteen icon appeared as 1808 in the span and in the total, while the
+        # simulator's own state panel said 56. One of the two had to be wrong.
+        allocations = [
+            frames.FileAllocation(b"A", 256),
+            frames.FileAllocation.dots(b"6", 7, 16),
+        ]
+        result = payload(frames.set_memory_config(allocations))
+        described = [one.description for one in result.spans if one.label == "file 6"]
+        assert described == [
+            "DOTS file, editable from the infrared keyboard, 7 by 16 pixels, "
+            "56 bytes of pool, 8-colour"
+        ]
+        # 256 and 56 of data, 13 of overhead each, and 6 over the configuration.
+        assert "344 bytes claimed" in result.command.summary
+
+    def test_the_simulator_charges_a_picture_what_the_service_charges_it(self):
+        # Including an odd pixel count, which rounds up in both. The two sums
+        # disagreeing would make the simulator accuse a configuration the
+        # service built correctly.
+        for rows, columns in ((7, 16), (1, 1), (7, 9), (31, 64)):
+            allocation = frames.FileAllocation.dots(b"6", rows, columns)
+            entry = payload(frames.set_memory_config([allocation])).command.entries[0]
+            assert entry.pool_bytes == allocation.pool_bytes
+
+    def test_a_picture_write(self):
+        rows = ["0333330", "3000003", "3088803", "3080803", "3088803", "3000003", "0333330"]
+        result = payload(frames.write_dots_file(b"6", rows))
+        command = result.command
+        assert isinstance(command, decode.WriteDots)
+        assert command.label == b"6"
+        assert command.declared_rows == 7
+        assert command.declared_columns == 7
+        assert [row.decode("ascii") for row in command.rows] == rows
+        assert result.complaints == ()
+        assert command.summary == "Write DOTS picture 6, 7 by 7"
+
+    def test_a_message_calling_a_picture(self):
+        body = render("<icon:sun> FINE", icons={("sun", None): b"6"})
+        command = payload(frames.write_text_file(b"A", body)).command
+        assert command.body == body
+        assert "<insert dots 6>" in command.summary
+
     def test_clear_memory_is_not_a_memory_configuration(self):
         assert isinstance(payload(frames.clear_memory()).command, decode.ClearMemory)
 
@@ -176,6 +234,20 @@ class TestSpansCoverTheFrame:
             frames.write_string_file(b"a", render_value("<green>OK")),
             frames.write_string_file(b"a", b""),
             frames.read_string_file(b"a"),
+            frames.write_dots_file(b"6", ["0123", "4567"]),
+            frames.read_dots_file(b"6"),
+            # Malformed, and the invariant holds for those too: the hex view is
+            # read against it, on the transmission where that matters most.
+            c.COMMAND_WRITE_DOTS + b"6" + b"07",
+            c.COMMAND_WRITE_DOTS + b"6",
+            c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"019X" + c.CR,
+            # An empty row is still a carriage return holding a byte, and the
+            # offsets of everything after it depend on its being counted.
+            c.COMMAND_WRITE_DOTS + b"6" + b"0202" + c.CR + b"01" + c.CR,
+            c.COMMAND_WRITE_DOTS + b"6" + b"0202" + b"01" + c.CR + c.CR + b"23" + c.CR,
+            # Table 22 makes the last carriage return optional, so a picture
+            # that leaves it off is well formed rather than truncated.
+            c.COMMAND_WRITE_DOTS + b"6" + b"0202" + b"01" + c.CR + b"23",
         ],
         ids=[
             "write",
@@ -190,6 +262,14 @@ class TestSpansCoverTheFrame:
             "string",
             "empty string",
             "string read",
+            "picture",
+            "picture read",
+            "picture cut off inside its size",
+            "picture with no size at all",
+            "picture with a pixel code the table lacks",
+            "picture whose first row is empty",
+            "picture with an empty row in the middle",
+            "picture with no carriage return after its last row",
         ],
     )
     def test_every_byte_of_the_frame_belongs_to_exactly_one_span(self, built):
@@ -201,6 +281,49 @@ class TestComplaints:
     def test_a_string_value_over_the_documents_limit(self):
         result = payload(c.COMMAND_WRITE_STRING + b"a" + b"X" * 126)
         assert any("at most 125" in one for one in result.complaints)
+
+    def test_an_empty_row_is_counted_so_the_rows_after_it_read_correctly(self):
+        # Skipping the empty one used to leave its carriage return in no span
+        # and put every later span one byte early, which is the invariant the
+        # hex view is read against.
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0202" + c.CR + b"01" + c.CR)
+        rows = [one for one in result.spans if one.label.startswith("row ")]
+        assert [one.data for one in rows] == [b"01"]
+        assert result.transmission.raw[rows[0].offset : rows[0].end] == b"01"
+
+    def test_an_empty_row_is_a_row_rather_than_an_absent_one(self):
+        # A picture with a blank row in it is malformed, not a picture one row
+        # shorter. Dropping it would slide every row below it up, so the bitmap
+        # the simulator shows would not be the one that arrived.
+        built = c.COMMAND_WRITE_DOTS + b"6" + b"0302" + b"01" + c.CR + c.CR + b"23" + c.CR
+        result = payload(built)
+        assert [bytes(row) for row in result.command.rows] == [b"01", b"", b"23"]
+        assert any("not all the same width" in one for one in result.complaints)
+
+    def test_a_picture_with_no_carriage_return_after_its_last_row(self):
+        # Table 22 makes that one optional, so nothing here is missing and the
+        # piece split() would invent after a trailing CR is not invented.
+        built = c.COMMAND_WRITE_DOTS + b"6" + b"0202" + b"01" + c.CR + b"23"
+        result = payload(built)
+        assert [bytes(row) for row in result.command.rows] == [b"01", b"23"]
+        assert result.complaints == ()
+
+    def test_a_picture_whose_rows_do_not_match_its_size(self):
+        # Hand-built rather than through the frame builder, which refuses this.
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0704" + b"0123" + c.CR)
+        assert any("says 7 pixel rows and 1 followed" in one for one in result.complaints)
+
+    def test_a_picture_whose_rows_are_not_the_declared_width(self):
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"01234" + c.CR)
+        assert any("4 pixel columns and each row carries 5" in one for one in result.complaints)
+
+    def test_a_picture_with_a_pixel_code_the_table_does_not_have(self):
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"0104" + b"019X" + c.CR)
+        assert any("Table 22" in one for one in result.complaints)
+
+    def test_a_picture_cut_off_inside_its_size(self):
+        result = payload(c.COMMAND_WRITE_DOTS + b"6" + b"07")
+        assert any("only 2 byte(s) followed the label" in one for one in result.complaints)
 
     def test_a_string_file_labelled_with_a_question_mark(self):
         result = payload(c.COMMAND_WRITE_STRING + b"?72")

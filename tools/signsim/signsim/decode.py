@@ -56,6 +56,40 @@ class MemoryEntry:
     schedule: bytes
 
     @property
+    def is_picture(self) -> bool:
+        """Whether this line allocates a SMALL DOTS PICTURE file."""
+        return self.file_type == c.FILE_TYPE_DOTS
+
+    @property
+    def rows_and_columns(self) -> tuple[int, int]:
+        """The pixel rows and columns a picture's size field encodes.
+
+        Table 15: "the first two bytes = # pixel rows and the last two bytes =
+        the # of pixel columns in the picture". So a picture's four hex digits
+        are a geometry where every other file's are a byte count, with the rows
+        in the high byte.
+        """
+        return self.capacity >> 8, self.capacity & 0xFF
+
+    @property
+    def pool_bytes(self) -> int:
+        """What this file's own data takes out of the sign's memory pool.
+
+        The same arithmetic as ``FileAllocation.pool_bytes`` in the service, and
+        for the same reason: adding a picture's size field to a budget charges a
+        seven by sixteen icon 1808 bytes for something measured taking 56. The
+        sign packs two pixels to a byte, which is what Table 22's nine pixel
+        codes need, and an odd pixel count rounds up rather than losing the
+        leftover nibble. It has to be the same arithmetic: a simulator that
+        charged something the service does not would make the two disagree
+        about a configuration neither of them had got wrong.
+        """
+        if not self.is_picture:
+            return self.capacity
+        rows, columns = self.rows_and_columns
+        return (rows * columns + 1) // 2
+
+    @property
     def always_eligible(self) -> bool:
         """Whether this file may play whenever the run sequence names it.
 
@@ -111,6 +145,23 @@ class WriteString(Command):
 
     label: bytes = b""
     data: bytes = b""
+
+
+@dataclass(frozen=True)
+class WriteDots(Command):
+    """A Write DOTS picture, which draws a bitmap into a picture file.
+
+    ``declared`` is the geometry in the command's own four hex digits, and
+    ``rows`` is what actually followed. The two can disagree, which is why both
+    are kept: a sign handed a row count that does not match the rows it is sent
+    draws something, and saying which number was believed is the only way to
+    read what it drew.
+    """
+
+    label: bytes = b""
+    declared_rows: int = 0
+    declared_columns: int = 0
+    rows: tuple[bytes, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -353,6 +404,8 @@ def decode_payload(payload: bytes, *, offset: int = 0) -> Command:
         return _write_text(payload, offset)
     if code == c.COMMAND_WRITE_STRING:
         return _write_string(payload, offset)
+    if code == c.COMMAND_WRITE_DOTS:
+        return _write_dots(payload, offset)
     if code == c.COMMAND_WRITE_SPECIAL:
         return _write_special(payload, offset)
     if code in (c.COMMAND_READ_TEXT, c.COMMAND_READ_SPECIAL, c.COMMAND_READ_STRING,
@@ -601,6 +654,195 @@ def _write_string(payload: bytes, offset: int) -> Command:
     )
 
 
+
+def _write_dots(payload: bytes, offset: int) -> Command:
+    """Decode a Write DOTS picture, the command that draws a bitmap into a file.
+
+    The shape is the command, a one byte label, the pixel rows and columns as
+    two hex digits each, then one row of pixel codes per line, each ended with a
+    carriage return. Table 22's nine codes are the pixels, ``0`` unlit and the
+    other eight the colours.
+
+    The geometry in the command and the rows that follow it are both kept even
+    when they disagree, because the sign is not going to say which it believed.
+    """
+    code = payload[0:1]
+    label = payload[1:2]
+    spans = [_command_span(code, offset)]
+
+    if not label:
+        return Unrecognised(
+            code=code,
+            name="Write DOTS picture",
+            summary="A write with no file label",
+            spans=tuple(spans),
+            complaints=("a Write DOTS picture needs a one byte file label after the 'I'",),
+            payload=payload,
+        )
+
+    spans.append(
+        Span(
+            SpanKind.COMMAND,
+            offset + 1,
+            label,
+            "file %s" % printable(label),
+            "The SMALL DOTS PICTURE file this bitmap is drawn into",
+        )
+    )
+
+    geometry = payload[2:6]
+    complaints: list[str] = []
+    declared_rows = declared_columns = 0
+
+    if len(geometry) < 4:
+        if geometry:
+            # Whatever arrived of the size still belongs to a span. Every byte
+            # of a frame belongs to exactly one, and the hex view is read
+            # against that invariant: a byte in no span is one the reader is
+            # told nothing about, on the transmission where that matters most.
+            spans.append(
+                Span(
+                    SpanKind.UNKNOWN,
+                    offset + 2,
+                    geometry,
+                    "size, cut short",
+                    "The pixel rows and columns, of which only %d byte(s) arrived"
+                    % len(geometry),
+                )
+            )
+        return Unrecognised(
+            code=code,
+            name="Write DOTS picture",
+            summary="Write DOTS picture %s, cut off inside its size" % printable(label),
+            spans=tuple(spans),
+            complaints=(
+                "a Write DOTS picture carries the pixel rows and columns as two hex "
+                "digits each, and only %d byte(s) followed the label" % len(geometry),
+            ),
+            payload=payload,
+        )
+
+    try:
+        declared_rows = int(geometry[0:2], 16)
+        declared_columns = int(geometry[2:4], 16)
+    except ValueError:
+        complaints.append(
+            "the size %r is not four hexadecimal digits, so the sign cannot read a "
+            "geometry out of it" % printable(geometry)
+        )
+
+    spans.append(
+        Span(
+            SpanKind.COMMAND,
+            offset + 2,
+            geometry[0:2],
+            "rows %s" % printable(geometry[0:2]),
+            "How many pixel rows the picture has, as two hex digits",
+        )
+    )
+    spans.append(
+        Span(
+            SpanKind.COMMAND,
+            offset + 4,
+            geometry[2:4],
+            "columns %s" % printable(geometry[2:4]),
+            "How many pixel columns the picture has, as two hex digits",
+        )
+    )
+
+    rows: list[bytes] = []
+    at = offset + 6
+    body = payload[6:]
+    # Splitting on the carriage returns gives one more piece than there are of
+    # them, so every piece but the last is followed by one. Each of those is a
+    # row, empty or not: a row with no pixels in it is a malformed picture
+    # rather than an absent one, and dropping it would shift every row after it
+    # up, leaving the bitmap this reports a row shorter than the one that
+    # arrived. Walking the pieces by position also keeps the offsets right,
+    # since an empty row still has a carriage return holding a byte.
+    #
+    # The exception is the piece after a trailing carriage return, which split
+    # invents and which stands for nothing sent. Table 22 makes that last CR
+    # optional, so a picture with no CR at the end has a real row there instead.
+    pieces = body.split(c.CR)
+    for index, line in enumerate(pieces):
+        last = index == len(pieces) - 1
+        if last and not line:
+            continue
+        rows.append(line)
+        stray = sorted(set(line) - set(c.DOTS_PIXEL_CODES))
+        if line:
+            spans.append(
+                Span(
+                    SpanKind.UNKNOWN if stray else SpanKind.TEXT,
+                    at,
+                    line,
+                    "row %d" % len(rows),
+                    "One row of the picture, one Table 22 pixel code a dot",
+                )
+            )
+            at += len(line)
+        if not last:
+            spans.append(
+                Span(
+                    SpanKind.FRAMING,
+                    at,
+                    c.CR,
+                    "CR",
+                    "Ends this row of pixels" if line else "Ends a row with no pixels in it",
+                )
+            )
+            at += 1
+        if stray:
+            complaints.append(
+                "row %d has %s, and a pixel is one of the digits %s from Table 22"
+                % (
+                    len(rows),
+                    ", ".join(repr(chr(byte)) for byte in stray),
+                    c.DOTS_PIXEL_CODES.decode("ascii"),
+                )
+            )
+
+    if not rows:
+        complaints.append("this write carries no rows of pixels at all")
+    elif len(rows) != declared_rows:
+        complaints.append(
+            "the size says %d pixel rows and %d followed it"
+            % (declared_rows, len(rows))
+        )
+
+    widths = {len(row) for row in rows}
+    if len(widths) > 1:
+        complaints.append(
+            "the rows are not all the same width: %s"
+            % ", ".join(str(width) for width in sorted(widths))
+        )
+    elif widths and widths != {declared_columns}:
+        complaints.append(
+            "the size says %d pixel columns and each row carries %d"
+            % (declared_columns, widths.copy().pop())
+        )
+
+    return WriteDots(
+        code=code,
+        name="Write DOTS picture",
+        summary="Write DOTS picture %s, %d by %d"
+        % (printable(label), declared_rows, declared_columns),
+        details=(
+            Detail("File", printable(label)),
+            Detail("Pixel rows", str(declared_rows)),
+            Detail("Pixel columns", str(declared_columns)),
+            Detail("Rows sent", str(len(rows))),
+        ),
+        spans=tuple(spans),
+        complaints=tuple(complaints),
+        label=label,
+        declared_rows=declared_rows,
+        declared_columns=declared_columns,
+        rows=tuple(rows),
+    )
+
+
 def _write_special(payload: bytes, offset: int) -> Command:
     """Decode a Write SPECIAL function by dispatching on its label."""
     code = payload[0:1]
@@ -692,16 +934,14 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
                     at,
                     chunk,
                     "file %s" % printable(entry.label),
-                    "%s file, %s, %d bytes, %s"
+                    "%s file, %s, %s, %s"
                     % (
                         FILE_TYPE_NAMES.get(entry.file_type, "unknown type"),
                         "locked against the infrared keyboard"
                         if entry.locked
                         else "editable from the infrared keyboard",
-                        entry.capacity,
-                        "always eligible to play"
-                        if entry.always_eligible
-                        else "scheduled %s" % printable(entry.schedule),
+                        _entry_size(entry),
+                        _entry_schedule(entry),
                     ),
                 )
             )
@@ -721,7 +961,7 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
             Span(SpanKind.UNKNOWN, at, remainder, "trailing bytes", "Not a whole entry")
         )
 
-    claimed = frames.memory_claimed_by(entry.capacity for entry in entries)
+    claimed = frames.memory_claimed_by(entry.pool_bytes for entry in entries)
     return SetMemoryConfig(
         code=code,
         name="Set memory configuration",
@@ -745,6 +985,46 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
         complaints=tuple(complaints),
         entries=tuple(entries),
     )
+
+
+def _entry_size(entry: MemoryEntry) -> str:
+    """Say how big one file in a configuration is, in the units its type uses.
+
+    A picture's four hex digits are a geometry rather than a byte count, so
+    reading them as bytes puts 1808 against a seven by sixteen icon that takes
+    56. Both are shown: the geometry is what was sent, and the bytes are what it
+    costs the pool, which is the number that has to add up.
+    """
+    if not entry.is_picture:
+        return "%d bytes" % entry.capacity
+    rows, columns = entry.rows_and_columns
+    return "%d by %d pixels, %d bytes of pool" % (rows, columns, entry.pool_bytes)
+
+
+# Table 15's colour statuses, in the last four characters where every other
+# file type carries a schedule.
+DOTS_COLOUR_NAMES = {
+    c.DOTS_MONOCHROME: "monochrome",
+    c.DOTS_THREE_COLOUR: "3-colour",
+    c.DOTS_EIGHT_COLOUR: "8-colour",
+}
+
+
+def _entry_schedule(entry: MemoryEntry) -> str:
+    """Say what the last four characters of one file's entry mean.
+
+    They are a schedule for every file type but one. A picture has a colour
+    status there instead, so reading it as a schedule reports an 8-colour
+    picture as "scheduled 4000", which is four digits of nonsense in the one
+    place a reader is looking for meaning.
+    """
+    if entry.is_picture:
+        return "%s" % DOTS_COLOUR_NAMES.get(
+            entry.schedule.upper(), "an unlisted colour status, %s" % printable(entry.schedule)
+        )
+    if entry.always_eligible:
+        return "always eligible to play"
+    return "scheduled %s" % printable(entry.schedule)
 
 
 def _memory_entry(chunk: bytes) -> tuple[MemoryEntry | None, list[str]]:

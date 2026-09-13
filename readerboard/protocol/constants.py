@@ -787,6 +787,21 @@ TEXT_FILE_LABELS = (
 )
 STRING_FILE_LABELS = tuple(bytes([code]) for code in range(ord("a"), ord("z") + 1))
 STRING_FILE_FORBIDDEN_LABELS = (b"0", b"?")
+
+# The labels a SMALL DOTS PICTURE file may use here. A picture pool has to live
+# somewhere that collides with neither the TEXT files at "A" to "Z" nor the
+# STRING files at "a" to "z", and until 2026-09-12 nothing but the digits had
+# ever been tried. All thirty-two below were then allocated as picture files in
+# two configurations, listed back by the sign, and drawn from, so this is what
+# was measured rather than what Appendix A permits.
+#
+# The order is what a person reading a log line would want: the four digits
+# first, then the run that follows them in ASCII, then the brackets, the braces
+# and the early punctuation. "0" is the priority file and "1" to "5" are kept
+# back for the counter feature, so the digits start at "6".
+PICTURE_FILE_LABELS = tuple(
+    bytes([code]) for code in b"6789:;<=>?@[\\]^_!#%&'()*+,-./{|}"
+)
 RESERVED_FILE_LABELS = (
     b"0",
     b"1",
@@ -814,6 +829,34 @@ RESERVED_FILE_LABELS = (
 
 STRING_FILE_CAPACITY = 125
 STRING_SCHEDULE = b"0000"
+
+# ==========================================================================
+# SMALL DOTS PICTURE files
+# ==========================================================================
+# Section 6.4 and Table 22. A picture is a bitmap in a file of its own, drawn
+# inline by a TEXT file calling it with DOTS_INSERT and the picture's label.
+#
+# Where a TEXT file's allocation has a schedule, a picture has a colour status.
+# Table 15: "1000 = monochrome, 2000 = 3-color, 4000 = 8-color". Only the last
+# is worth sending to this sign, which drew Table 22's full palette from an
+# 8-colour file and mapped half the codes onto the other half from either of the
+# others. Measured 2026-09-11; see docs/protocol-notes.md.
+DOTS_MONOCHROME = b"1000"
+DOTS_THREE_COLOUR = b"2000"
+DOTS_EIGHT_COLOUR = b"4000"
+DOTS_COLOUR_STATUSES = (DOTS_MONOCHROME, DOTS_THREE_COLOUR, DOTS_EIGHT_COLOUR)
+
+# The height and width a write carries are two hex digits each, so a picture
+# could be 255 of either as far as the encoding goes. Table 22 sets the rows
+# lower: a SMALL DOTS PICTURE is at most 31 rows by 255 columns.
+DOTS_MAX_ROWS = 31
+DOTS_MAX_COLUMNS = 255
+
+# The nine pixel codes Table 22 gives, one character a pixel: off, red, green,
+# amber, dim red, dim green, brown, orange and yellow. Nine values need four
+# bits, and the sign was measured taking exactly half a byte of memory pool per
+# pixel, so this is the whole alphabet and not a subset of a wider one.
+DOTS_PIXEL_CODES = b"012345678"
 
 # ==========================================================================
 # What this sign will accept
