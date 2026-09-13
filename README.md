@@ -107,8 +107,8 @@ python scripts/run_against_a_sign.py --serial-url socket://192.168.2.51:4001
 
 That starts the service and the client together, with no simulator. The service
 comes up on <http://127.0.0.1:5001> with `/docs` beside it, the client comes up
-pointed at that address, and the API key to paste into the client is printed in
-the same window. `--no-client` leaves the client out. Ctrl+C stops everything,
+pointed at that address with the API key already in its box, and the key is
+printed in the same window for anything else that needs it. `--no-client` leaves the client out. Ctrl+C stops everything,
 and closing the client leaves the service running.
 
 Both editors carry it as a launch configuration named "readerboard against the

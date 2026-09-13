@@ -5,7 +5,9 @@
 
 The base URL is remembered between runs. The API key is not, and there is no
 option to pass one on the command line: a key on a command line is a key in the
-shell history, and this tool is not worth that.
+shell history, and this tool is not worth that. The box does start out holding
+``READERBOARD_API_KEY`` when this process has one, which is the variable the
+service reads its own key from and what both launch scripts hand down.
 """
 
 from __future__ import annotations

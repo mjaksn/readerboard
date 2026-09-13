@@ -12,6 +12,7 @@ a claim about the window.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from PySide6.QtCore import QMargins, QSettings, Qt, QTimer
@@ -744,13 +745,27 @@ class MainWindow(QMainWindow):
         )
         self.base_url.setToolTip("where the service is listening")
 
-        self.api_key = QLineEdit()
+        # Filled in from the environment when this machine sets a key there,
+        # which is what both launch scripts do with the key they gave the
+        # service. Still no command line option and still nothing written down:
+        # see request.initial_api_key.
+        prefilled = request_module.initial_api_key(os.environ)
+        self.api_key = QLineEdit(prefilled)
         self.api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key.setPlaceholderText("X-API-Key, never saved to disk")
-        self.api_key.setToolTip(
+        explanation = (
             "Sent with the writes that need it. It is not stored between runs and "
             "is redacted everywhere it would otherwise be written down."
         )
+        if prefilled:
+            # A box that arrives full with nothing to say why is a box somebody
+            # stares at wondering whose key is in it.
+            explanation += (
+                " This one was read from %s in the environment, which is where the "
+                "launch scripts put the key they gave the service. Overtype it to "
+                "send a different one." % request_module.API_KEY_VARIABLE
+            )
+        self.api_key.setToolTip(explanation)
 
         health = QPushButton("Health")
         health.setToolTip("GET /health, which like every read needs no key")

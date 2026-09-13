@@ -26,6 +26,12 @@ default to 5001, and the second to start would otherwise bind, fail, and stop,
 but not before the port had answered a connection from the first and the client
 had been pointed at it.
 
+The API key is here too, in a smaller way. The client is handed it through its
+environment so that its key box starts out filled in, and what it is handed has
+to be the key the service is checking against: the service reads the environment
+ahead of the config file, so resolving it any other way would fill the box in
+with a key every write is refused for.
+
 The script is not importable as a module. It lives in ``scripts/`` with no
 package around it, which is why this loads it by path.
 """
@@ -248,6 +254,86 @@ def test_the_two_editors_pass_the_same_arguments() -> None:
 
 # ===========================================================================
 # The port, which is the one that points the client at the wrong service.
+# ===========================================================================
+
+
+# ===========================================================================
+# The API key, and handing it to the client.
+# ===========================================================================
+
+
+def test_the_environment_beats_the_config_file(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The order the service itself reads them in. Anything else would fill the
+    # client's key box with a key the service is not checking against.
+    monkeypatch.setenv(launcher.API_KEY_VARIABLE, "the-machine-key")
+    assert launcher._resolve_key({"api_key": "the-file-key"}) == (
+        "the-machine-key",
+        launcher.API_KEY_VARIABLE,
+    )
+
+
+def test_the_config_file_is_used_when_the_environment_says_nothing(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(launcher.API_KEY_VARIABLE, raising=False)
+    assert launcher._resolve_key({"api_key": "the-file-key"}) == (
+        "the-file-key",
+        launcher.CONFIG_FILE.name,
+    )
+
+
+def test_no_key_anywhere_resolves_to_nothing(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(launcher.API_KEY_VARIABLE, raising=False)
+    assert launcher._resolve_key({}) == ("", "")
+
+
+def test_the_client_is_handed_the_key_through_its_environment(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured = _capture_popen(launcher, monkeypatch)
+    launcher._start_client("http://127.0.0.1:5002", "the-key-in-use")
+
+    command, env = captured
+    assert env[launcher.API_KEY_VARIABLE] == "the-key-in-use"
+    # Not on the command line, which is the shell history and, in an editor, a
+    # tracked file.
+    assert "the-key-in-use" not in command
+
+
+def test_no_key_means_nothing_is_put_in_the_client_environment(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An empty box is the honest answer for a service that will refuse every
+    # write, and it is what the client shows when it is handed nothing.
+    monkeypatch.delenv(launcher.API_KEY_VARIABLE, raising=False)
+    captured = _capture_popen(launcher, monkeypatch)
+    launcher._start_client("http://127.0.0.1:5002", "")
+
+    _, env = captured
+    assert launcher.API_KEY_VARIABLE not in env
+
+
+def _capture_popen(
+    launcher: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> tuple[list[str], dict[str, str]]:
+    """Stand in for Popen, and hand back the command and environment it was given."""
+    captured: list = [[], {}]
+
+    class FakePopen:
+        def __init__(self, command, **kwargs):
+            captured[0] = list(command)
+            captured[1] = dict(kwargs["env"])
+
+    monkeypatch.setattr(launcher.subprocess, "Popen", FakePopen)
+    return captured  # type: ignore[return-value]
+
+
+# ===========================================================================
+# The port, which two checkouts on one machine both want.
 # ===========================================================================
 
 

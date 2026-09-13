@@ -11,11 +11,12 @@
     //
     // "readerboard, the sign simulator and the client" is that same script
     // with --with-client, which adds the client pointed at the service, so the
-    // whole loop comes up at once. The client asks for the API key itself
-    // rather than taking one from a command line, so the key in use is printed
-    // for pasting, and starting it this way replaces the base URL it remembers
-    // between runs. Closing the client leaves the other two running; closing
-    // either of those stops the rest.
+    // whole loop comes up at once. The client takes no API key from a command
+    // line; it is handed the key in use through its environment and starts with
+    // it already in the box. The key is printed as well, for curl and the
+    // Authorize button on the documentation page. Starting the client this way
+    // replaces the base URL it remembers between runs. Closing the client
+    // leaves the other two running; closing either of those stops the rest.
     //
     // Both of those take the API key from READERBOARD_API_KEY when this
     // machine sets one, and fall back to a development key when it does not,

@@ -31,6 +31,15 @@ library, and the names inside it may move without that being a breaking change.
   and a failure stops it there rather than stacking a dialog for every set still
   waiting.
 
+- **The client fills its API key box from `READERBOARD_API_KEY`.** The same
+  variable the service reads its own key from and the one the curl command it
+  copies already refers to, so a machine that exports a key once has the box
+  filled in for it. Both launch scripts now hand the client the key they gave the
+  service, through its environment rather than a command line, so starting the
+  client beside the service no longer means copying a key out of the log. The
+  client still has no option for one, still saves nothing, and an empty box is
+  still what a service with no key configured gets.
+
 - **A message can draw an icon.** `<icon:name>` puts one of 148 built-in bitmaps
   where the tag sits, and `<icon:name:colour>` retints the ones drawn in a single
   ink: `<icon:lock:red> DOOR LOCKED` costs the message two bytes. The colour words

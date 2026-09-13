@@ -152,6 +152,14 @@ secret everywhere else:
 - It is not saved between runs. The base URL is; the key is not.
 - There is no command line option for it, because a key on a command line is a
   key in the shell history.
+- The box starts out holding `READERBOARD_API_KEY` from the environment when
+  this process has one, which is the same variable the service reads its own key
+  from and what both launch scripts hand down. The value is taken exactly as it
+  stands, because the service compares the header against its own setting byte
+  for byte. The tooltip says where it came from when the box arrived full, since
+  a password field somebody did not fill in is otherwise a thing to stare at.
+  Nothing about the point above changes: reading a variable writes the key
+  nowhere.
 - It is redacted when a history record is made, not when one is displayed, so
   there is no display path left to forget about.
 - The curl command therefore refers to `$READERBOARD_API_KEY` rather than

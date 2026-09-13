@@ -9,6 +9,7 @@ import pytest
 from apiclient import catalogue
 from apiclient.request import (
     API_KEY_HEADER,
+    API_KEY_VARIABLE,
     InvalidRequest,
     as_curl,
     as_text,
@@ -16,6 +17,7 @@ from apiclient.request import (
     build_body,
     coerce,
     fill_path,
+    initial_api_key,
     normalise_base_url,
 )
 
@@ -211,3 +213,26 @@ def test_a_field_nobody_touched_is_still_left_out():
     body = build_body(operation, {"message": "hello", "source": ""})
     assert body is not None
     assert "source" not in body
+
+
+def test_the_key_box_starts_with_what_the_environment_holds():
+    assert initial_api_key({API_KEY_VARIABLE: "a-key"}) == "a-key"
+
+
+def test_the_key_box_starts_empty_when_the_environment_says_nothing():
+    assert initial_api_key({}) == ""
+
+
+def test_the_key_is_taken_exactly_as_the_variable_holds_it():
+    # Not tidied up. The service reads the same variable into its own setting
+    # and compares the header against it byte for byte, so a key trimmed here is
+    # a key every write is refused for, which reads as a wrong key rather than
+    # as a box that changed one.
+    assert initial_api_key({API_KEY_VARIABLE: " a-key "}) == " a-key "
+
+
+def test_the_variable_is_the_one_the_curl_command_names():
+    # One name for the key across the service, the box and anything copied out
+    # of the client, or the curl command would refer to a variable that had
+    # nothing to do with the box it came from.
+    assert API_KEY_VARIABLE == "READERBOARD_API_KEY"
