@@ -59,8 +59,10 @@ library, and the names inside it may move without that being a breaking change.
   transient. The check above adds one that is not: a pool too big for the sign
   fails the same way every time, and each attempt puts a read on the wire that
   stalls a scrolling message, so the loop is a sign that twitches every five
-  seconds until somebody logs in, which it needs either way. `systemctl
-  reset-failed readerboard` starts it trying again. Compose has no equivalent
+  seconds until somebody logs in, which it needs either way. Getting it going
+  again once the configuration is fixed takes both `systemctl reset-failed
+  readerboard` and `systemctl start readerboard`: the first clears the counter
+  and leaves the unit stopped. Compose has no equivalent
   and is unchanged; the comment beside `restart: unless-stopped` says so.
 
 - **A configured file is budgeted at the thirteen bytes of overhead the sign

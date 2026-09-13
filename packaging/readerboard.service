@@ -15,8 +15,9 @@ Wants=network-online.target
 # one, and those are worth giving up on: each attempt puts a read on the wire,
 # which stalls a scrolling message for about half a second, so a loop that never
 # ends is a sign that twitches every five seconds until somebody logs in. It
-# needs a person either way. `systemctl reset-failed readerboard` clears it once
-# the configuration is fixed.
+# needs a person either way. Once the configuration is fixed, `systemctl
+# reset-failed readerboard` clears the counter and `systemctl start readerboard`
+# starts it: reset-failed on its own leaves the unit stopped.
 StartLimitIntervalSec=300
 StartLimitBurst=10
 
