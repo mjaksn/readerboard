@@ -260,11 +260,14 @@ itself. Four things hold it together:
 - **A picture file is keyed by the icon and its tint**, since a tint changes the
   bitmap. `<icon:check:green>` and `<icon:check:red>` are two pictures.
 - **Release is lazy**, which is where this stops being the variable design.
-  A file is given up only when the pool is full and a new icon needs one,
-  because every write to a picture blanks the display and restarts a scroll.
-  Freeing a file the moment its last caller went would spend a blank on
-  tidiness. So a full pool is the resting state, not a warning, and
-  `GET /health` reports it as pictures used.
+  A file is given up when the pool is full and a new icon needs one, because
+  every write to a picture blanks the display and restarts a scroll. Freeing a
+  file the moment its last caller went would spend a blank on tidiness. So a
+  full pool is the resting state, not a warning, and `GET /health` reports it as
+  pictures used. There is one other way a file goes back, and it is a recovery
+  rather than a policy: a rollback that could not draw an evicted bitmap again
+  gives that file up, because a record saying a file holds an icon it does not
+  is what puts a wrong picture on the display.
 - **Every holder counts, not only the visible ones.** A hidden slot counts, or
   showing it again would stop being one run sequence write, and the alert counts
   too. `picture_occupancy` and `_icon_in_use` are where that lives.
