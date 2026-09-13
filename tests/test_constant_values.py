@@ -217,8 +217,27 @@ def test_each_configured_file_costs_eleven_bytes_of_overhead():
     Table 15 note 1: "The sum of all the file sizes ... plus 11 bytes of
     overhead for each file should not exceed the total amount of available
     memory in the pool."
+
+    This is the document's figure and stays pinned as the document's. The sign
+    charges more, which is the next test, and the service budgets with that
+    one.
     """
     assert c.FILE_OVERHEAD_BYTES == 11
+
+
+def test_the_sign_charges_thirteen_bytes_a_file_rather_than_eleven():
+    """The one pair of figures here that is measured rather than quoted.
+
+    Not from the document, so not a citation: docs/protocol-notes.md records the
+    2026-09-12 session under "The memory pool, measured on the sign", where a
+    further picture file cost thirteen bytes beyond its data and a TEXT file
+    allocated on its own cost nineteen. The six between them is charged once per
+    configuration under one of the two models that fit and not at all under the
+    other, so the budget carries it as a reserve and asserts neither.
+    """
+    assert c.MEASURED_FILE_OVERHEAD_BYTES == 13
+    assert c.MEASURED_POOL_OVERHEAD_BYTES == 6
+    assert c.MEASURED_FILE_OVERHEAD_BYTES + c.MEASURED_POOL_OVERHEAD_BYTES == 19
 
 
 def test_a_string_file_holds_at_most_125_bytes():

@@ -278,10 +278,33 @@ class TestClearMemory:
 
 
 class TestMemoryClaimed:
-    def test_each_file_costs_its_size_plus_eleven_bytes_of_overhead(self):
+    """What a configuration takes off the pool, in the figures the sign charges.
+
+    Not the document's eleven bytes a file. The sign was measured charging
+    thirteen, and two bytes a file is a whole message at the 5482 byte pool this
+    hardware turned out to have. ``c.MEASURED_FILE_OVERHEAD_BYTES`` says what
+    separates the two.
+    """
+
+    def test_each_file_costs_its_size_plus_the_overhead_measured_on_the_sign(self):
         claimed = frames.memory_claimed([frames.FileAllocation(b"A", 256)])
-        assert claimed == 256 + c.FILE_OVERHEAD_BYTES
+        assert claimed == 256 + c.MEASURED_FILE_OVERHEAD_BYTES + c.MEASURED_POOL_OVERHEAD_BYTES
 
     def test_it_sums_across_the_pool(self):
         pool = [frames.FileAllocation(bytes([label]), 256) for label in b"ABCD"]
-        assert frames.memory_claimed(pool) == 4 * (256 + c.FILE_OVERHEAD_BYTES)
+        assert frames.memory_claimed(pool) == (
+            4 * (256 + c.MEASURED_FILE_OVERHEAD_BYTES) + c.MEASURED_POOL_OVERHEAD_BYTES
+        )
+
+    def test_the_configuration_overhead_is_charged_once_rather_than_per_file(self):
+        one = frames.memory_claimed([frames.FileAllocation(b"A", 256)])
+        two = frames.memory_claimed(
+            [frames.FileAllocation(b"A", 256), frames.FileAllocation(b"B", 256)]
+        )
+        assert two - one == 256 + c.MEASURED_FILE_OVERHEAD_BYTES
+
+    def test_sizes_can_be_costed_without_a_layout_to_build_them_from(self):
+        # Which is what Settings does, since it validates before there is one.
+        assert frames.memory_claimed_by([256, 256]) == frames.memory_claimed(
+            [frames.FileAllocation(b"A", 256), frames.FileAllocation(b"B", 256)]
+        )

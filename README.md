@@ -179,6 +179,13 @@ again after pulling a new version: your config file and key are left alone.
 your registered messages, so reinstalling puts the sign back as it was. Add `--purge` to
 remove those too.
 
+The unit restarts the service whenever it stops, and gives up after ten failed starts in
+five minutes. Almost nothing here fails permanently, which is what makes the exceptions
+worth stopping for: a memory pool too big for the sign fails identically every time, and
+each attempt puts a read on the wire that stalls a scrolling message. `systemctl status
+readerboard` says which failure it was, and `systemctl reset-failed readerboard` starts it
+trying again once the configuration is fixed.
+
 ### With Docker
 
 The image is published to both registries on every release, for `linux/amd64`,
@@ -444,6 +451,16 @@ on it**: `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity`
 service will do it, and say so loudly in the log, but they are not settings to fiddle
 with. With `variable_count` at 0, `variable_capacity` allocates nothing, so changing it
 alone reallocates nothing either.
+
+All four come out of one memory pool, which a BetaBrite Classic reported as 5482 bytes,
+and each file costs thirteen bytes beyond its own size. The defaults take 2518 of that.
+A pool too big to fit is refused when the settings are read, and the service asks the
+sign for its own figure before it allocates anything, so a sign with more or less memory
+than the one this was measured on is believed rather than assumed. A sign that answers and
+does not have the room stops the service starting, with a message naming what was
+configured, what it needs and what there is; that is the one failure that does stop it,
+because the alternative is erasing every message on the sign to write a pool that could
+never work. A sign that says nothing does not stop anything.
 
 ## Security
 

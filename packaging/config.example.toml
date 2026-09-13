@@ -66,6 +66,14 @@ backoff_max = 60.0
 # Changing any of the four settings in this section reallocates the sign's
 # memory on the next start, and that ERASES every message on it. The service
 # will do it and say so in the log, but do not change them casually.
+#
+# All four come out of one memory pool, which is 5482 bytes on a BetaBrite
+# Classic, and each file costs thirteen bytes beyond its own size. The defaults
+# below take 2518 of it. A pool that does not fit is refused when these settings
+# are read, and again at startup against the size the sign itself reports, which
+# is the figure that counts: the service asks before it allocates, and stops
+# rather than erasing the sign to write a pool that could not work. A sign that
+# does not answer costs nothing here, since the 5482 above stands in.
 slot_count = 8
 slot_capacity = 256
 

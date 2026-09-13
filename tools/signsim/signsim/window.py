@@ -802,11 +802,13 @@ class MainWindow(QMainWindow):
             rows.append(
                 (
                     "Memory",
-                    "%d file(s), %d bytes claimed including %d bytes of overhead each"
+                    "%d file(s), %d bytes claimed, counting %d bytes of overhead a "
+                    "file and %d over the configuration"
                     % (
                         len(state.memory_config),
                         state.memory_claimed,
-                        c.FILE_OVERHEAD_BYTES,
+                        c.MEASURED_FILE_OVERHEAD_BYTES,
+                        c.MEASURED_POOL_OVERHEAD_BYTES,
                     ),
                 )
             )
