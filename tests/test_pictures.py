@@ -663,6 +663,88 @@ class TestWritingPicturesUnderAnAlert:
         assert alerts.active.message == "FIRE"
         assert not is_release(priority_writes(transport)[-1])
 
+    async def test_a_refused_alert_gives_back_the_icon_it_evicted(
+        self, controller, store, state, clock, transport
+    ):
+        # The pool is full and the alert being replaced is the only caller of
+        # the icon in it, so claiming the new alert's icon evicts it. If the new
+        # alert then fails to land, the old one is put back on the display, and
+        # it has to come back whole: calling its own file, with its own bitmap
+        # in it.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts = AlertService(controller, store, state, now=clock)
+        alerts.set_rendering(registry.rendering)
+        registry.set_priority_hold(alerts.lifted)
+
+        await alerts.raise_alert("<icon:sun> FINE", mode="HOLD")
+        sun = state.pictures["sun"].label
+        transport.clear()
+
+        real = controller.write_priority
+        calls: list[int] = []
+
+        async def fail_the_new_alerts_own_write(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise TransportError("the new alert never landed")
+            return await real(*args, **kwargs)
+
+        controller.write_priority = fail_the_new_alerts_own_write  # type: ignore[method-assign]
+        try:
+            with pytest.raises(TransportError):
+                await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+        finally:
+            controller.write_priority = real  # type: ignore[method-assign]
+
+        # The record is back, in the file it was in.
+        assert list(state.pictures) == ["sun"]
+        assert state.pictures["sun"].label == sun
+        # The sun was drawn again, after the moon took the file, so the file
+        # holds what the alert going back up is about to call.
+        assert len(picture_writes(transport)) == 2
+        # And the alert that was up is on the priority file calling it.
+        last = priority_writes(transport)[-1]
+        assert not is_release(last)
+        assert c.DOTS_INSERT + sun.encode("latin-1") in last
+        assert alerts.active is not None
+        assert alerts.active.message == "<icon:sun> FINE"
+
+    async def test_a_refused_alert_never_leaves_the_old_one_calling_a_wrong_bitmap(
+        self, controller, store, state, clock, transport
+    ):
+        # The property, rather than one path to it. After a refused alert there
+        # are two states worth having and one worth refusing. Either the old
+        # alert is back calling its file and that file was redrawn for it, or it
+        # is not calling a picture at all and the refresh repairs it. What must
+        # never happen is the old alert calling a file that another icon's
+        # bitmap is sitting in, which is a wrong picture on the display rather
+        # than a missing one.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts = AlertService(controller, store, state, now=clock)
+        alerts.set_rendering(registry.rendering)
+        registry.set_priority_hold(alerts.lifted)
+
+        await alerts.raise_alert("<icon:sun> FINE", mode="HOLD")
+        sun = state.pictures["sun"].label
+        transport.clear()
+
+        # The sign goes away for good after the moon's picture lands, so the
+        # redraw and the put-back both fail too.
+        async def gone(*args, **kwargs):
+            raise TransportError("the sign went away")
+
+        controller.write_priority = gone  # type: ignore[method-assign]
+        with pytest.raises(TransportError):
+            await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+
+        priority = [p for p in priority_writes(transport) if not is_release(p)]
+        calls_the_sun = [p for p in priority if c.DOTS_INSERT + sun.encode("latin-1") in p]
+        assert not calls_the_sun, (
+            "the old alert was put back calling a file the moon had been drawn into"
+        )
+
     async def test_a_put_back_that_fails_on_its_own_is_reported(
         self, wired, transport, monkeypatch
     ):

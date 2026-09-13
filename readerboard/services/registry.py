@@ -163,12 +163,14 @@ class _Rendering:
         self,
         render: Callable[..., bytes],
         draw: Callable[[], Awaitable[None]],
+        revert: Callable[[], Awaitable[None]],
         *,
         draws_pictures: bool = False,
     ) -> None:
-        """Hold the renderer and the write that has not happened yet."""
+        """Hold the renderer, the write that has not happened yet, and its undo."""
         self._render = render
         self._draw = draw
+        self._revert = revert
         self._draws_pictures = draws_pictures
 
     @property
@@ -186,6 +188,22 @@ class _Rendering:
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message, exactly as :meth:`SlotRegistry._render_message` does."""
         return self._render(message, strict=strict)
+
+    async def revert(self) -> None:
+        """Give back what this claimed, and put back on the sign what it evicted.
+
+        For a caller that has to undo before it writes anything else, which is
+        the alert service putting back the alert this one was replacing. The
+        registry undoes its own claims when the failure reaches it, but that is
+        too late for a caller that writes to the display on the way past: with a
+        full pool, claiming this message's icon can evict one only the alert
+        being replaced calls, and putting that alert back before the record is
+        restored writes it to the sign without its icon.
+
+        Doing it here, under both locks, is also what stops the pool moving
+        between giving the file back and drawing the old bitmap into it.
+        """
+        await self._revert()
 
     async def draw_icons(self) -> None:
         """Write the newly claimed pictures to the sign. Call it once, after deciding."""
@@ -658,9 +676,30 @@ class SlotRegistry:
             async def draw() -> None:
                 await self._write_claims(claims.claimed)
 
+            async def revert() -> None:
+                self._undo_claims(claims)
+                # The record coming back is not enough on its own. The file
+                # holds whatever this message's icon drew into it, so an evicted
+                # picture has to be drawn again or its owner is left calling a
+                # file showing somebody else's bitmap.
+                for picture in claims.evicted:
+                    if self._state.pictures.get(picture.key) is picture:
+                        # Only the ones that actually came back. _undo_claims
+                        # logs and skips a file it could not reclaim, and
+                        # drawing into one of those would write over whatever
+                        # holds it now.
+                        await self._write_picture(picture)
+                # Emptied so that the handler below, which runs when this
+                # failure reaches it, finds nothing left to give back.
+                claims.claimed.clear()
+                claims.evicted.clear()
+
             try:
                 yield _Rendering(
-                    self._render_message, draw, draws_pictures=bool(claims.claimed)
+                    self._render_message,
+                    draw,
+                    revert,
+                    draws_pictures=bool(claims.claimed),
                 )
             except BaseException:
                 # The alert did not land, so nothing calls these. They are given
@@ -1325,9 +1364,13 @@ class SlotRegistry:
         put back into them.
 
         A restored picture's file may hold the wrong bitmap, because the write
-        that failed came after the eviction. That is the same tolerance
-        :meth:`upsert` already relies on: the record says which icon belongs in
-        which file, and the next refresh writes every one of them again.
+        that failed came after the eviction. That is the tolerance :meth:`upsert`
+        relies on: the record says which icon belongs in which file, and the next
+        refresh writes every one of them again. The alert service does not rely
+        on it, because it writes the replaced alert straight back to the display
+        and a wrong bitmap would be on screen rather than merely on record; it
+        calls :meth:`_Rendering.revert`, which draws the evicted pictures again
+        before it puts that alert back.
         """
         for key in claims.claimed:
             self._state.pictures.pop(key, None)

@@ -66,6 +66,10 @@ class Renderer(Protocol):
         """Whether :meth:`draw_icons` has anything to write."""
         ...
 
+    async def revert(self) -> None:
+        """Give back what was claimed, and redraw what it evicted."""
+        ...
+
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message to the bytes the sign is sent."""
         ...
@@ -105,6 +109,9 @@ class _PlainRenderer:
     def draws_pictures(self) -> bool:
         """Nothing was claimed, so nothing is going to be drawn."""
         return False
+
+    async def revert(self) -> None:
+        """Nothing was claimed, so there is nothing to give back."""
 
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render against nothing, so a call to either is refused or draws nothing."""
@@ -325,6 +332,10 @@ class AlertService:
         caller told the sign is unreachable when its pool was actually full has
         been told the wrong thing about its own request. :meth:`reassert` puts
         the alert back on its own timer, so the sign is repaired either way.
+
+        The caller reverts the pool before calling this, so the alert is
+        rendered against the files it had when it was up rather than against the
+        ones the alert that failed had taken off it.
         """
         try:
             await self._put_back(alert, render)
@@ -462,6 +473,24 @@ class AlertService:
                     # left the alert that was up still up, because nothing had
                     # touched the priority file.
                     #
+                    # Giving back what this alert claimed comes first, and with
+                    # a full picture pool it is what decides whether the old
+                    # alert comes back whole. Claiming this one's icon can evict
+                    # one only the alert being replaced calls, and the registry
+                    # does not undo that until this failure reaches it, so
+                    # putting the alert back before this renders it without the
+                    # icon it is still asking for.
+                    try:
+                        await render_message.revert()
+                    except Exception:
+                        # A redraw is a write, and the thing that brought us here
+                        # is usually a sign that stopped answering. The refresh
+                        # repairs the pool; what must not happen is this arriving
+                        # in place of the failure the caller asked about.
+                        logger.exception(
+                            "could not give back what the refused alert claimed"
+                        )
+
                     # Quietly, because the failure being handled is the one the
                     # caller asked about and this one is not.
                     await self._put_back_quietly(replaced, render_message)
