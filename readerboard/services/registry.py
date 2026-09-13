@@ -684,6 +684,21 @@ class SlotRegistry:
                 # same reason.
                 await self._write_claims(claims.claimed)
             except Exception:
+                # The slot file has to go back too, and only here. A new key is
+                # given one by ``assign`` a few lines up, and the record that
+                # would own it is not built until after this block, so a failure
+                # in between leaves a file reserved for a slot that never
+                # existed. Nothing releases it afterwards: the key is in no
+                # state, so no delete reaches it and no restart knows about it.
+                # Enough failed writes and the pool reports itself full with
+                # nothing in it, which is what this was measured doing.
+                #
+                # An existing key is the case to leave alone. It is already in
+                # the state holding that file for the message that is still on
+                # the sign, and giving it up would take the file from a slot the
+                # sign is playing.
+                if key not in self._state.slots:
+                    self._layout.slots.release(key)
                 self._undo_claims(claims)
                 raise
 

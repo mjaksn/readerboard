@@ -765,6 +765,52 @@ class TestRefresh:
         assert payloads_starting(transport, b"E$") == []
 
 
+class TestAFailedWriteGivesTheFileBack:
+    """A slot that never existed must not keep the file it was promised.
+
+    The file is assigned before the record that owns it is built, so a failure
+    in between leaves it reserved against a key that is in no state. Nothing
+    afterwards can find it: a delete needs a slot to delete, and a restart reads
+    the state file, which never heard of it.
+    """
+
+    async def test_a_failed_write_does_not_spend_a_slot(self, registry, transport):
+        transport.fail_with = "cable unplugged"
+
+        for key in ("one", "two", "three"):
+            with pytest.raises(TransportError, match="cable unplugged"):
+                await add(registry, key)
+
+        assert registry.list_slots() == []
+        assert registry.occupancy == (0, 3)
+
+    async def test_the_pool_is_still_there_afterwards(self, registry, transport):
+        # The measured consequence: three failures against a three slot pool
+        # used to leave it full, so the next good write was refused.
+        transport.fail_with = "cable unplugged"
+        for key in ("one", "two", "three"):
+            with pytest.raises(TransportError):
+                await add(registry, key)
+        transport.fail_with = None
+
+        await add(registry, "later")
+
+        assert [slot.key for slot in registry.list_slots()] == ["later"]
+
+    async def test_a_slot_that_already_exists_keeps_its_file(self, registry, transport):
+        # The other side of it. A failed update must not take the file from the
+        # message the sign is still playing.
+        await add(registry, "one", "FIRST")
+        label = registry.get("one").label
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError):
+            await add(registry, "one", "SECOND")
+
+        assert registry.get("one").message == "FIRST"
+        assert registry.get("one").label == label
+
+
 class TestReboot:
     """Resetting the sign to recover it, then restoring the rotation.
 
