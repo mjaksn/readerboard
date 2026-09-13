@@ -606,11 +606,11 @@ dim red, dim green, brown, orange and yellow.
   transmission drew correctly.
 - **Rewriting a picture blanks the display**, as the document says, and restarts a ROTATE
   scroll from the beginning.
-- **A call to a missing picture draws nothing**, whether it was never written or never
-  allocated. **Contradicted in part on 2026-09-13**, and the correction is below under
-  "What an empty picture call draws": a call to an allocated but unwritten file drew its
-  own label as a literal character in one position and nothing in another, in the same
-  message. Read this bullet as true of the trailing call and not established for the rest.
+- **A call to a missing picture draws nothing**, *unless the call is the first thing in
+  the message*, in which case it draws its own label as a character. The exception was
+  found on 2026-09-13 and is below under "What an empty picture call draws". This bullet
+  was written without a call in that position, which is why it read as a general rule for
+  two days.
 - **Reading a picture back blanks the display** for under a second, with stray dots lit
   while it does. The reply echoes the write command, the label, the height and the
   width, then the rows. What that session did not record is what the display was doing at
@@ -688,16 +688,31 @@ checked because a line too wide for the display breaks onto one in HOLD. The sam
 with both pictures written drew both icons correctly, so the difference is the files being
 empty and nothing else.
 
-That is two different answers to the same question in one line, and **the asymmetry is not
-explained**. Both files were allocated alike, both were empty, and `J` answered for both
-identically. The only thing that differs between the two calls is where they sit: the first
-is the opening of the message, the second is the end of it. Whether that is what decides
-it, or whether a trailing call is swallowed for some other reason, wants a message with a
-picture call in the middle and a character after it, which has not been sent.
+Two different answers to the same question in one line, and the same spike went back and
+asked why. Two more messages, every picture file allocated and empty:
 
-Worth keeping in mind when reading the older bullet: it was recorded from a run where the
-call under test was not at the start of a message, so the two are not in conflict about the
-same case.
+| Sent | Drew | What it rules out |
+| --- | --- | --- |
+| `14H 36H` `L` `14H 37H` `M` `14H 38H` | `6LM` | the middle and trailing calls are silent, so it is not "every call leaks" |
+| `N` `14H 39H` `20H` | `N` | something *does* follow this call and it is still silent |
+
+**So it is the position, and only the first position.** A call to an empty picture file
+draws nothing wherever it sits, except as the opening of the message, where the label byte
+survives as text. The obvious alternative, that a call is dropped when nothing follows it,
+is what the second message was for: a space followed that one and it was dropped anyway.
+
+The mechanism is not known. The file is not special: `J` answers for all four identically,
+they are allocated alike, and the same leading call draws its picture correctly the moment
+the file has one, which is the control in the step after. Something about a `14H` arriving
+as the first byte of the message body, immediately behind the ESC, position and mode bytes
+that open a TEXT file, is handled differently when there is nothing to draw. Nothing here
+needs the mechanism, so it was not chased further.
+
+**It has a practical edge, and it points at the common case.** A message that opens with an
+icon is the shape the documentation itself uses, `<icon:lock> DOOR LOCKED`, so the position
+this bites is the one people write. Whenever a picture is genuinely missing, and the ways
+that can still happen are in `SlotRegistry._reclaim_pictures`, such a message shows a stray
+digit rather than a gap where the icon should be.
 
 **What made it permanent was the service, not the sign.** `SignController` remembers the
 exact bytes it put in each file and declines to send them again, so a write the sign threw

@@ -273,7 +273,12 @@ itself. Four things hold it together:
   too. `picture_occupancy` and `_icon_in_use` are where that lives.
 - **Pictures are written before messages**, ahead of the variables, on a
   restore, a refresh and a reboot, so no message is drawn calling a picture file
-  with nothing in it yet. A call to an empty one draws nothing at all.
+  with nothing in it yet. A call to an empty one draws nothing at all, with one
+  exception worth knowing because it is the common shape: a call that is the
+  *first thing in the message* draws its own file label as a character instead,
+  measured on 2026-09-13. `<icon:lock> DOOR LOCKED` with no picture in the file
+  shows a stray digit, not a gap. It is a reason the ordering above matters
+  rather than a thing to work around.
 - **A picture cannot be written while an alert is up**, so the alert comes off
   the sign for that write and goes straight back on. The sign does not take a
   picture while a priority message is running, measured on 2026-09-13 and
