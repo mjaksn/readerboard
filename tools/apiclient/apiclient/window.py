@@ -1110,8 +1110,13 @@ class MainWindow(QMainWindow):
         self.response.setHtml(fmt.as_html(rendered, self.theme))
 
         if ok:
-            self._absorb(operation, payload)
+            # Whether the reply was one this client could actually use, which is
+            # not the same question as whether it arrived. A 200 carrying a body
+            # that is not a set this can read is a failure no status code shows,
+            # and Load all has to stop for it exactly as for a 500.
+            taken = self._absorb(operation, payload)
         else:
+            taken = False
             # Required: every failure opens with its full content, not just a colour.
             # The title distinguishes the one failure where no service reported
             # anything, because nothing answered at all.
@@ -1165,7 +1170,7 @@ class MainWindow(QMainWindow):
         if self._queued:
             # Last, so that everything above has read this reply before the next
             # one is asked for.
-            if ok:
+            if taken:
                 QTimer.singleShot(0, self._send_next_queued)
             else:
                 # One failure is one dialog. Carrying on would stack another for
@@ -1178,10 +1183,18 @@ class MainWindow(QMainWindow):
                     False,
                 )
 
-    def _absorb(self, operation: Operation, payload: object) -> None:
-        """Take an enumeration into the store, if that is what just came back."""
+    def _absorb(self, operation: Operation, payload: object) -> bool:
+        """Take an enumeration into the store, if that is what just came back.
+
+        Returns whether the reply was one this client could use, which Load all
+        reads to decide whether to ask for the next set. An operation that loads
+        nothing had nothing to take and answers True, because there was no
+        failure in it. A body that arrived 200 and is not a set this can read
+        answers False, which stops the chain asking four more sets of a service
+        that has just shown it cannot answer one.
+        """
         if operation.loads is None:
-            return
+            return True
         try:
             entries = enums.parse(payload)
         except enums.MalformedEnumeration as err:
@@ -1191,12 +1204,13 @@ class MainWindow(QMainWindow):
                 "%s answered something this client could not read as a set: %s"
                 % (operation.signature, err),
             )
-            return
+            return False
 
         self.store.load(operation.loads, operation.signature, entries)
         self.enumerations.refresh()
         if self._form is not None:
             self._form.refresh_enumerations()
+        return True
 
     def _check_surface(self, address: str) -> None:
         """Ask an address to describe itself, the first time it answers anything."""
