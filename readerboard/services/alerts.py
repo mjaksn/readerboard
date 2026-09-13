@@ -283,8 +283,19 @@ class AlertService:
         service has takes that lock, so asking for one here would wait on a lock
         the caller is holding.
 
-        Nothing happens at all when no alert is up, which is almost always, and
-        that is what keeps an ordinary icon write as cheap as it was.
+        The sign is handed back whether or not an alert is recorded, and that
+        is the point rather than an oversight. A state file is not a reading of
+        the sign: an unclean stop between the write and the save leaves a
+        takeover nothing here knows about, which is why :meth:`restore` clears
+        the priority file at startup even with no alert recorded. It does that
+        after the registry has restored, though, so a picture written on the way
+        back up would still go out underneath it. Releasing here makes "a
+        picture write has the sign to itself" true of the sign rather than true
+        of the record.
+
+        It is not a write per picture. The release is unforced, so the
+        controller sends it once and suppresses every repeat until something
+        puts a message back on that file.
 
         The put-back is forced and happens either way: a write that failed
         under a lifted alert must not leave the sign showing the rotation with
@@ -299,21 +310,19 @@ class AlertService:
         the rotation while the service still reports an alert would be the call
         lying about what it did.
         """
-        alert = self._state.alert
-        if alert is None:
-            yield
-            return
-
         async with self._lock:
-            # Re-read under the lock. Something may have released the alert
-            # between the check above and here, and putting back one that was
-            # released would leave the sign held by an alert nothing records.
+            # Unconditional, and unforced. See the docstring: what is recorded
+            # here is not what the sign is holding, and the release costs one
+            # write per process because the controller remembers it.
+            await self._controller.clear_priority()
+
+            # Read under the lock, after the release. Nothing can have taken the
+            # sign over in between, so an alert found here is one to put back.
             alert = self._state.alert
             if alert is None:
                 yield
                 return
 
-            await self._controller.clear_priority(force=True)
             try:
                 yield
             except BaseException:
@@ -457,8 +466,14 @@ class AlertService:
             # Gated on there being a picture at all: without one, every alert
             # replacing an alert would hand the sign back for nothing.
             replaced = current if render_message.draws_pictures else None
-            if replaced is not None:
-                await self._controller.clear_priority(force=True)
+            if render_message.draws_pictures:
+                # Gated on there being a picture and on nothing else. Whether an
+                # alert is recorded says nothing about whether the sign is
+                # holding one: an unclean stop leaves a takeover this service
+                # never wrote down, and the picture below would be lost under it
+                # exactly as it would under an alert it does know about.
+                # Unforced, so it is suppressed when the file is already free.
+                await self._controller.clear_priority()
 
             try:
                 await render_message.draw_icons()

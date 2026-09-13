@@ -374,8 +374,17 @@ class TestTheFullPool:
 
         await alerts.raise_alert("<icon:moon> DING", mode="HOLD")
 
-        sent = commands(transport)
-        assert sent.index(c.COMMAND_WRITE_DOTS) < sent.index(c.COMMAND_WRITE_TEXT)
+        # Before the takeover, which is the write that matters. The release
+        # ahead of it is not a message and is what gives the picture the sign to
+        # itself; see TestWritingPicturesUnderAnAlert.
+        sent = payloads(transport)
+        picture = next(i for i, p in enumerate(sent) if p[:1] == c.COMMAND_WRITE_DOTS)
+        takeover = next(
+            i
+            for i, p in enumerate(sent)
+            if p[:2] == c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY and not is_release(p)
+        )
+        assert picture < takeover
         assert set(state.pictures) == {"moon"}
 
     async def test_a_save_that_fails_leaves_the_live_alert_its_picture(
@@ -441,7 +450,14 @@ class TestAlerts:
         transport.clear()
         await alerts.raise_alert("<icon:bell> DING", mode="HOLD")
 
-        assert commands(transport)[0] == c.COMMAND_WRITE_DOTS
+        # The bare release comes first, so that the sign takes the picture at
+        # all. What this pins is that the picture is in the file before the
+        # alert calling it goes up.
+        sent = payloads(transport)
+        assert is_release(sent[0])
+        assert sent[1][:1] == c.COMMAND_WRITE_DOTS
+        assert not is_release(sent[-1])
+        assert sent[-1][:2] == c.COMMAND_WRITE_TEXT + c.FILE_PRIORITY
 
     async def test_an_alert_naming_an_icon_nobody_has_is_refused(self, registry, alerts):
         alerts.set_rendering(registry.rendering)
@@ -525,6 +541,92 @@ class TestWritingPicturesUnderAnAlert:
         # taking the sign off the alert a second time.
         assert payloads(transport)[len(after_restore) :] == []
 
+    async def test_a_restart_hands_the_sign_back_before_the_pictures(
+        self, controller, layout, store, state, clock, transport
+    ):
+        # The unrecorded takeover. An unclean stop between writing an alert and
+        # saving it leaves the sign holding one with nothing in the state file
+        # to say so, which the alert service already takes seriously: its
+        # restore clears the priority file even with no alert recorded. But that
+        # runs after the registry's restore, so every picture on the way back up
+        # went out underneath a message the sign was still showing.
+        #
+        # So the release has to come first, and it does not wait to be told an
+        # alert is up.
+        registry = SlotRegistry(controller, layout, store, state, now=clock)
+        await registry.restore()
+        alerts = AlertService(controller, store, state, now=clock)
+        alerts.set_rendering(registry.rendering)
+        registry.set_priority_hold(alerts.lifted)
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        fresh = SignController(transport, inter_packet_delay=0)
+        transport.clear()
+        again = SlotRegistry(fresh, layout, store, state, now=clock)
+        alerts_again = AlertService(fresh, store, state, now=clock)
+        alerts_again.set_rendering(again.rendering)
+        again.set_priority_hold(alerts_again.lifted)
+
+        assert state.alert is None, "the point is that nothing is recorded"
+        await again.restore()
+
+        sent = payloads(transport)
+        release = next(i for i, p in enumerate(sent) if is_release(p))
+        picture = next(i for i, p in enumerate(sent) if p[:1] == c.COMMAND_WRITE_DOTS)
+        assert release < picture, "the picture went out under whatever the sign held"
+
+    async def test_a_dropped_picture_record_is_repaired_by_a_refresh(
+        self, controller, store, state, clock, transport
+    ):
+        # The rollback gives up a file whose bitmap it could not put back, so
+        # that nothing renders a call to a file holding the wrong picture. That
+        # leaves the icon with no file, and the message calling it keeps calling
+        # it, so something has to give it one again. Nothing rewrites a message
+        # that has not changed, which is what _reclaim_pictures is for, and the
+        # refresh is where it gets its chance.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts = AlertService(controller, store, state, now=clock)
+        alerts.set_rendering(registry.rendering)
+        registry.set_priority_hold(alerts.lifted)
+
+        await alerts.raise_alert("<icon:sun> FINE", mode="HOLD")
+        assert "sun" in state.pictures
+
+        real_dots = controller.write_dots_file
+        drawn: list[int] = []
+
+        async def refuse_the_redraw(*args, **kwargs):
+            drawn.append(1)
+            if len(drawn) > 1:
+                raise TransportError("refused the redraw")
+            return await real_dots(*args, **kwargs)
+
+        real_priority = controller.write_priority
+        priority_calls: list[int] = []
+
+        async def fail_only_the_new_alert(*args, **kwargs):
+            priority_calls.append(1)
+            if len(priority_calls) == 1:
+                raise TransportError("the new alert never landed")
+            return await real_priority(*args, **kwargs)
+
+        controller.write_dots_file = refuse_the_redraw  # type: ignore[method-assign]
+        controller.write_priority = fail_only_the_new_alert  # type: ignore[method-assign]
+        try:
+            with pytest.raises(TransportError):
+                await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+        finally:
+            controller.write_dots_file = real_dots  # type: ignore[method-assign]
+            controller.write_priority = real_priority  # type: ignore[method-assign]
+
+        assert "sun" not in state.pictures, "the setup did not reach the drop"
+
+        await registry.refresh()
+
+        assert "sun" in state.pictures
+        assert registry.in_sync
+
     async def test_a_slot_with_a_new_icon_written_under_an_alert(
         self, wired, transport
     ):
@@ -543,15 +645,40 @@ class TestWritingPicturesUnderAnAlert:
         assert order[2] == release
         assert not is_release(priority_writes(transport)[-1])
 
-    async def test_nothing_touches_the_priority_file_when_no_alert_is_up(
+    async def test_the_sign_is_handed_back_even_with_no_alert_recorded(
         self, wired, transport
     ):
+        # What this service has written down is not a reading of the sign. An
+        # unclean stop between writing an alert and saving it leaves a takeover
+        # nothing here knows about, which is why the alert service clears the
+        # priority file at startup with no alert recorded at all. That clear
+        # happens after the registry has restored, so a picture written on the
+        # way back up would still be lost under it.
+        #
+        # So the release does not wait on the record. It is a release and never
+        # a takeover: nothing here puts a message on that file.
         registry, _ = wired
         transport.clear()
 
         await add(registry, "door", "<icon:lock> LOCKED")
 
         assert picture_writes(transport)
+        assert [p for p in priority_writes(transport) if not is_release(p)] == []
+        assert len(priority_writes(transport)) == 1
+
+    async def test_handing_the_sign_back_costs_one_write_and_not_one_per_picture(
+        self, wired, transport
+    ):
+        # The release is unforced, so the controller sends it once and suppresses
+        # every repeat. Without that this would be an extra packet on every icon
+        # any source ever writes.
+        registry, _ = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+
+        await add(registry, "gate", "<icon:bell> RING")
+
+        assert picture_writes(transport), "no picture, so this proves nothing"
         assert priority_writes(transport) == []
 
     async def test_an_icon_that_already_has_its_file_lifts_nothing(
