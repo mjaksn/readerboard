@@ -16,7 +16,7 @@ immediately after the ``E``.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from readerboard.protocol import constants as c
@@ -233,7 +233,7 @@ def write_string_file(label: bytes, data: bytes) -> bytes:
     return c.COMMAND_WRITE_STRING + label + data
 
 
-def write_dots_file(label: bytes, rows: list[str] | tuple[str, ...]) -> bytes:
+def write_dots_file(label: bytes, rows: Sequence[str]) -> bytes:
     """Build the payload that draws ``rows`` into the SMALL DOTS PICTURE ``label``.
 
     Each row is one character a pixel, from Table 22's nine codes. The payload

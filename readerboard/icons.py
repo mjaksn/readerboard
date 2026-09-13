@@ -42,21 +42,20 @@ spelling to say ``<icon:check:red>``.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 
-#: Every icon is exactly this tall, which is the height of the display.
+# Every icon is exactly this tall, which is the height of the display.
 ICON_HEIGHT = 7
 
-#: The widest an icon may be, and the width every picture file is allocated at.
-#: A picture narrower than its file draws narrow rather than padded, so one
-#: width for the pool costs nothing and keeps the layout to a single number.
+# The widest an icon may be, and the width every picture file is allocated at.
+# A picture narrower than its file draws narrow rather than padded, so one
+# width for the pool costs nothing and keeps the layout to a single number.
 ICON_MAX_WIDTH = 16
 
-#: The character standing in for whichever ink the caller chooses.
+# The character standing in for whichever ink the caller chooses.
 INK_MARKER = "#"
 
-#: Each ink, and the Table 22 pixel code the sign draws it from.
+# Each ink, and the Table 22 pixel code the sign draws it from.
 INK_CODES = {
     ".": "0",
     "R": "1",
@@ -69,7 +68,7 @@ INK_CODES = {
     "y": "8",
 }
 
-#: The word a message writes for each ink, matching the colour tokens exactly.
+# The word a message writes for each ink, matching the colour tokens exactly.
 TINT_INKS = {
     "red": "R",
     "green": "G",
@@ -81,10 +80,9 @@ TINT_INKS = {
     "yellow": "y",
 }
 
-#: What an icon may be called. The same shape a variable name takes, because an
-#: icon name has to sit inside a tag too.
+# What an icon may be called. The same shape a variable name takes, because an
+# icon name has to sit inside a tag too.
 ICON_NAME_PATTERN = r"^[a-z0-9_]{1,32}$"
-_ICON_NAME = re.compile(ICON_NAME_PATTERN)
 
 
 class UnknownIcon(ValueError):
@@ -491,14 +489,14 @@ _TABLE: tuple[tuple[str, tuple[tuple[str, str | None, tuple[str, ...]], ...]], .
     )),
 )
 
-#: Every icon, by name.
+# Every icon, by name.
 ICONS: dict[str, Icon] = {
     name: Icon(name=name, group=group, tint=tint, rows=rows)
     for group, icons in _TABLE
     for name, tint, rows in icons
 }
 
-#: The groups, in the order they are declared above.
+# The groups, in the order they are declared above.
 GROUPS: tuple[str, ...] = tuple(group for group, _ in _TABLE)
 
 
