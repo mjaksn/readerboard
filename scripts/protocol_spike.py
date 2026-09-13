@@ -5,12 +5,11 @@ The wire formats this service uses are quoted from the Alpha Sign
 Communications Protocol and are not in doubt. What the document cannot say is
 how your particular BetaBrite Classic behaves at the end of an Ethernet to
 RS-232 adapter. Eleven things have been genuinely open, and this script is how
-each was put to the sign. Ten are settled, across sessions on 2026-09-09,
+each was put to the sign. All eleven are settled, across sessions on 2026-09-09,
 2026-09-11 and 2026-09-12, and their answers are in docs/protocol-notes.md.
 Running it again re-confirms them on the sign in front of you, which is worth
 doing: two of the answers were recorded wrongly the first time and caught on a
-repeat, and both were about something brief on the display. The eleventh is
-asked by step 7 and has no answer yet.
+repeat, and both were about something brief on the display.
 
 1. Is the rotation seamless on this sign, with no blanking between files?
 2. Does rewriting only the run sequence disturb the display? A slot expiring
@@ -45,22 +44,19 @@ asked by step 7 and has no answer yet.
 10. What does a sequence of mostly empty files cost? About five seconds of dwell
     on the message before the empty run. A sign holding one message with the
     whole pool named around it pays nothing, since it has nowhere to rotate to.
-11. What does a read cost the display? Open. Step 7 has sent all four special
-    function reads to this sign twice and only ever asked whether a reply came
-    back. The one measurement anywhere near it is a STRING file read on
-    2026-09-10, which blanked the display briefly mid-scroll, and that single
-    result has been standing in for every kind of read. It should not: a STRING
-    is buffered inline into whatever message calls it, while a special function
-    read asks the sign about its own tables and touches no file a message is
-    drawing. Step 7 now asks it five ways, because the answer plausibly differs
-    between them: the four special function reads against a held message, the
-    same four against a scrolling one, a TEXT file read of a file not named in
-    the run sequence, a STRING file read of a value no message calls, and then
-    every one of those reads again with the display scrolling a message whose
-    whole text lives in that STRING file. The last case is what separates a read
-    costing something in itself from a read costing something only when it asks
-    about the file the sign is drawing from, and the whole question of whether
-    the sign can be polled turns on which of those it is.
+11. What does a read cost the display? Nothing while the sign is holding a
+    message still, and about half a second of stall and blank while it is
+    scrolling one. Step 7 had sent all four special function reads to this sign
+    twice over and only ever asked whether a reply came back; on 2026-09-12 it
+    asked five ways what the display did. The four special function reads against
+    a held message, a TEXT file read of a file the sequence does not name, and a
+    STRING file read of a value no message calls all cost that held message
+    nothing. The same four against a scrolling message, and then all six reads
+    again while the sign scrolled a message whose whole text lived in the STRING
+    file being read, each cost about half a second. So the cost belongs to what
+    the display is doing, not to what is asked or to whether the file is the one
+    on screen, and a scheme that polls the sign pays nothing on a sign that
+    holds.
 
 Questions 8, 9 and 10 were asked for a change that was then dropped: naming
 every file in the pool all the time, so that creating a message would be one
@@ -501,9 +497,9 @@ def string_on_the_display(
     print("  What this separates is whether a read costs anything in itself, or only")
     print("  when it asks about the file the sign is drawing from. The reads just")
     print("  now were of a text file and a STRING file sitting idle. These are the")
-    print("  same two commands against the file on the display. If the idle ones were")
-    print("  free and these are not, the rule is about what is being drawn rather")
-    print("  than about reading, and a scheme that only ever reads idle files is safe.")
+    print("  same two commands against the file on the display. On 2026-09-12 all")
+    print("  six cost the same half second the four cost while scrolling, so idle")
+    print("  or not made no difference and only the motion did.")
     send(
         link,
         frames.write_string_file(STRING_POOL[0], render(STRING_SCROLL_VALUE)),
@@ -538,7 +534,8 @@ def string_on_the_display(
     )
     ask(
         "Which read did it, if you could tell? "
-        "[the STRING read/the text read/one of the four/several/could not tell]"
+        "[all six/the STRING read/the text read/one of the four/several/"
+        "could not tell]"
     )
     ask(
         "Against reading the same STRING while nothing called it, a moment ago: "
@@ -553,13 +550,12 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
     print("  carries traffic both ways. Re-proving it is cheap, and divergence")
     print("  could be detected by asking rather than re-pushing on a timer.")
 
-    print("\n  What has never been asked is what a read costs the display. Both")
-    print("  earlier runs recorded only whether a reply came back. A STRING file")
-    print("  read was measured on 2026-09-10 blanking the display briefly")
-    print("  mid-scroll, and that one result is standing in for every kind of")
-    print("  read, which it should not: a STRING is buffered inline into whatever")
-    print("  message calls it, while these four ask the sign about its own tables")
-    print("  and touch no file a message is drawing. They could differ either way.")
+    print("\n  What a read costs the display was asked on 2026-09-12 and came")
+    print("  back: nothing while the sign holds a message still, about half a")
+    print("  second of stall and blank while it scrolls one, whichever read goes")
+    print("  out and whatever file it names. The rounds below are how that was")
+    print("  separated out, and re-running them re-confirms it on the sign in")
+    print("  front of you. Two earlier runs asked only whether a reply came back.")
 
     print("\n  The display is put on one held message first, because a disturbance")
     print("  this small vanishes into a rotation changing by itself. Watch that")
@@ -581,7 +577,7 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
 
     # == the same four, against a message that is moving ====================
     print("\n  Now the same four reads against a message that is scrolling. This is")
-    print("  the case the one existing measurement came from: the STRING read on")
+    print("  the case that first raised the question: the STRING read on")
     print("  2026-09-10 'blanked the display briefly mid-scroll and picked up from")
     print("  about where it was'. A scroll shows a different kind of damage from a")
     print("  held message. A held one can only blank; a scroll can also stall,")
@@ -621,8 +617,8 @@ def step_7_reads(link: serial.Serial, settle: float) -> None:
 
     print("\n  Last, the contents of two files nothing on the display is using. This")
     print("  is the read a reconciliation scheme would actually make: it asks about")
-    print("  a file the sign is not drawing from, so there is a fair chance it costs")
-    print("  nothing at all even though a STRING read of a file in use does not.")
+    print("  a file the sign is not drawing from. On 2026-09-12 it cost the held")
+    print("  message nothing, which is what every read cost a held message.")
     send(
         link,
         frames.write_text_file(b"A", render(MESSAGES[0])),
