@@ -19,6 +19,7 @@ from readerboard.protocol.constants import (
     MEASURED_FILE_OVERHEAD_BYTES,
     MEASURED_POOL_OVERHEAD_BYTES,
 )
+from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS
 from readerboard.sign.pool import ASSUMED_SIGN_MEMORY_POOL
 
 
@@ -49,6 +50,31 @@ def test_the_variables_count_against_the_pool() -> None:
     settings(slot_count=26, slot_capacity=slot_capacity, variable_count=0)
     with pytest.raises(ValidationError, match="variable_count 1"):
         settings(slot_count=26, slot_capacity=slot_capacity, variable_count=1)
+
+
+def test_the_pictures_count_against_the_pool() -> None:
+    # The same shape as the variables above, and it is the check most likely to
+    # stop counting a pool quietly, because picture_count defaults to 0 and a
+    # configuration that never raises it exercises none of this.
+    room = ASSUMED_SIGN_MEMORY_POOL - MEASURED_POOL_OVERHEAD_BYTES
+    slot_capacity = room // 26 - MEASURED_FILE_OVERHEAD_BYTES
+    settings(slot_count=26, slot_capacity=slot_capacity, variable_count=0, picture_count=0)
+    with pytest.raises(ValidationError, match="picture_count 1"):
+        settings(slot_count=26, slot_capacity=slot_capacity, variable_count=0, picture_count=1)
+
+
+def test_a_picture_is_costed_by_its_pixels_and_its_overhead() -> None:
+    # 69 bytes each: seven by sixteen pixels packed two to a byte, plus the
+    # overhead every file carries. Room for exactly one and not for two is what
+    # says both halves of that are being counted.
+    each = PICTURE_ROWS * PICTURE_COLUMNS // 2 + MEASURED_FILE_OVERHEAD_BYTES
+    assert each == 69
+    room = ASSUMED_SIGN_MEMORY_POOL - MEASURED_POOL_OVERHEAD_BYTES - each
+    slot_capacity = room // 26 - MEASURED_FILE_OVERHEAD_BYTES
+
+    settings(slot_count=26, slot_capacity=slot_capacity, variable_count=0, picture_count=1)
+    with pytest.raises(ValidationError, match="Lower one of them"):
+        settings(slot_count=26, slot_capacity=slot_capacity, variable_count=0, picture_count=2)
 
 
 def test_the_defaults_fit_the_sign_with_room_to_spare() -> None:
