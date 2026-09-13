@@ -194,8 +194,16 @@ class Layout:
         )
 
     def needs_reconfiguration(self, applied: AppliedLayout | None) -> bool:
-        """Whether the sign has to be reallocated, which will erase it."""
+        """Whether the sign has to be reallocated, which will erase it.
+
+        Two questions, and both have to answer yes for a start to leave the sign
+        alone: does it hold the same number of files at the same sizes, and are
+        they the same files. The second is the one that is easy to forget, and
+        :meth:`AppliedLayout.holds_the_same_files` says what it costs to.
+        """
         if applied is None:
+            return True
+        if not applied.holds_the_same_files(self.as_applied()):
             return True
         return not applied.matches(
             self.slot_count,

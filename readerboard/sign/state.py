@@ -141,7 +141,11 @@ class AppliedLayout(BaseModel):
         picture_rows: int = 0,
         picture_columns: int = 0,
     ) -> bool:
-        """Whether this layout is already what the given settings ask for.
+        """Whether this layout asks for the same number of files, of the same sizes.
+
+        Which labels those files have is the other half of the question, and it
+        is :meth:`holds_the_same_files`. Both have to hold before a start can
+        skip reallocating the sign.
 
         With no variables, their size means nothing, so changing it alone must
         not cost an erase. The same goes for the picture geometry, which is not
@@ -160,6 +164,29 @@ class AppliedLayout(BaseModel):
                 picture_count == 0
                 or (self.picture_rows == picture_rows and self.picture_columns == picture_columns)
             )
+        )
+
+    def holds_the_same_files(self, wanted: AppliedLayout) -> bool:
+        """Whether the sign has the files this layout would hand out, by label.
+
+        Counting them is not enough. Which labels each pool uses comes from a
+        table in the code, so a release that changes one leaves the sign holding
+        the files the old table named while the pool hands out the new ones.
+        Nothing else notices: the counts and the sizes are unchanged, so no
+        reallocation is due, and every write then goes to a file the sign never
+        allocated. The sign discards those without a word, so the messages come
+        back blank and the service reports itself healthy.
+
+        Compared as sets, because only membership matters. A pool that hands out
+        the same labels in a different order still hands out labels the sign has,
+        and every key is given one by the pool at run time rather than read from
+        this record, so reordering costs nothing and must not be paid for with an
+        erase.
+        """
+        return (
+            set(self.labels) == set(wanted.labels)
+            and set(self.variable_labels) == set(wanted.variable_labels)
+            and set(self.picture_labels) == set(wanted.picture_labels)
         )
 
 

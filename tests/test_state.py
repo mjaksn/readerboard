@@ -260,6 +260,19 @@ class TestAppliedLayout:
         applied = AppliedLayout(slot_count=4, slot_capacity=256, labels=list("ABCD"))
         assert not applied.matches(4, 512)
 
+    def test_a_changed_slot_label_set_is_a_different_pool(self):
+        from readerboard.sign.layout import Layout
+
+        # The same check as for pictures, and it has always applied to the slots
+        # too: the labels come from a table in the code, so a release that edits
+        # one leaves the sign holding files the pool no longer names.
+        layout = Layout(4, 256)
+        applied = layout.as_applied()
+        moved = applied.model_copy(update={"labels": ["W", "X", "Y", "Z"]})
+
+        assert layout.needs_reconfiguration(moved)
+        assert not layout.needs_reconfiguration(applied)
+
     def test_a_layout_recorded_before_variables_reads_as_having_none(self):
         # The fields are defaulted, so an older state file validates, and it
         # still matches a configuration asking for no variables: no erase.

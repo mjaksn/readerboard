@@ -465,10 +465,11 @@ class TestAcrossARestart:
     async def test_a_picture_whose_label_left_the_pool_is_given_another(
         self, controller, layout, store, state, clock
     ):
-        # The one way to lose a picture and keep the message calling it. The
-        # applied layout is compared by how many files and what shape, never by
-        # which labels, so a label outside a pool of the same size does not
-        # reallocate the sign; the picture is dropped and this puts it back.
+        # A stored picture whose label is not in the pool. A changed label set
+        # reallocates the sign, which erases the messages with it, so what is
+        # left here is a record that disagrees with the pool for some other
+        # reason. The picture is dropped and this puts it back, which is what
+        # keeps the message calling it from drawing nothing for good.
         registry = SlotRegistry(controller, layout, store, state, now=clock)
         await registry.restore()
         await add(registry, "door", "<icon:lock> LOCKED")
@@ -551,6 +552,52 @@ class TestReconfiguring:
         # no pictures and does not cost an erase on upgrade.
         old = AppliedLayout(slot_count=3, slot_capacity=256, labels=["A", "B", "C"])
         assert not Layout(3, 256).needs_reconfiguration(old)
+
+    def test_a_state_file_from_a_released_version_still_matches(self):
+        from readerboard.sign.state import AppliedLayout
+
+        # The shape 0.6.0 actually wrote: slots and variables with their labels,
+        # and no picture fields at all. Upgrading to a version that has icons,
+        # with picture_count left at its default of 0, must cost nothing.
+        released = AppliedLayout.model_validate(
+            {
+                "slot_count": 8,
+                "slot_capacity": 256,
+                "labels": list("ABCDEFGH"),
+                "variable_count": 8,
+                "variable_capacity": 32,
+                "variable_labels": list("abcdefgh"),
+            }
+        )
+        assert not Layout(8, 256, 8, 32, 0).needs_reconfiguration(released)
+
+    def test_a_changed_label_set_costs_a_reallocation(self):
+        from readerboard.sign.state import AppliedLayout
+
+        # The one nothing else catches. The count and the geometry are the same,
+        # so no other check fires, but the sign holds the files the old labels
+        # named while the pool hands out the new ones. Every picture write would
+        # go to a file the sign never allocated, be discarded without a word,
+        # and the icons would come back blank.
+        layout = Layout(3, 256, 0, 32, 2)
+        applied: AppliedLayout = layout.as_applied()
+        moved = applied.model_copy(update={"picture_labels": ["!", "#"]})
+
+        assert layout.needs_reconfiguration(moved)
+
+    def test_the_same_labels_in_a_different_order_cost_nothing(self):
+        from readerboard.sign.state import AppliedLayout
+
+        # Every label is still one the sign has, and which key gets which file
+        # is decided at run time rather than read from the record, so there is
+        # nothing to repair and an erase would be paid for nothing.
+        layout = Layout(3, 256, 0, 32, 2)
+        applied: AppliedLayout = layout.as_applied()
+        shuffled = applied.model_copy(
+            update={"picture_labels": list(reversed(applied.picture_labels))}
+        )
+
+        assert not layout.needs_reconfiguration(shuffled)
 
     def test_turning_icons_on_costs_a_reallocation(self):
         applied = Layout(3, 256).as_applied()

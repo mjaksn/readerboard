@@ -404,12 +404,14 @@ class SlotRegistry:
         slots along with the files, so there is nothing left to reclaim for.
 
         What it covers is the case where a picture loses its file and the
-        messages do not. :meth:`Layout.needs_reconfiguration` compares the pool
-        by how many files and what shape, never by which labels, so reordering
-        ``PICTURE_FILE_LABELS`` in the code leaves a recorded label outside a
-        pool the same size, and ``_reattach_labels`` drops it. Without this the
-        message calling that icon would draw nothing for it for good, since
-        nothing rewrites a message that has not changed.
+        messages do not, and without it the message calling that icon would draw
+        nothing for it for good, since nothing rewrites a message that has not
+        changed. Two things can still leave it that way. A stored picture whose
+        label is not in the pool, which ``_reattach_labels`` drops: a changed
+        label set reallocates the sign now, so what is left is a state file that
+        disagrees with the pool for some other reason. And a claim that was
+        rolled back after an eviction it could not undo, which
+        :meth:`_undo_claims` logs when it happens.
 
         The refusals it swallows are real rather than defensive, and the likely
         one is not a full pool. The icon library is data and changes between
