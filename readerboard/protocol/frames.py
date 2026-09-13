@@ -84,14 +84,8 @@ class FileAllocation:
                 "a picture is between 1 and %d pixel columns, got %d"
                 % (c.DOTS_MAX_COLUMNS, columns)
             )
-        if colour not in c.DOTS_COLOUR_STATUSES:
-            raise ProtocolError(
-                "a picture's colour status is one of %s, got %r"
-                % (
-                    ", ".join(sorted(s.decode("ascii") for s in c.DOTS_COLOUR_STATUSES)),
-                    colour,
-                )
-            )
+        # The colour status is checked in __post_init__, which every
+        # construction path reaches, rather than only this one.
         return cls(
             label,
             rows << 8 | columns,
@@ -142,6 +136,33 @@ class FileAllocation:
             raise ProtocolError("file capacity must be between 1 and 65535, got %d" % self.capacity)
         if len(self.schedule) != 4:
             raise ProtocolError("a file schedule is exactly four bytes, got %r" % self.schedule)
+        if self.file_type == c.FILE_TYPE_DOTS:
+            # Checked here as well as in :meth:`dots`, and the two are not the
+            # same check. That one reads the rows and columns it was handed,
+            # before they are packed into one number, which is the only place a
+            # count too big to fit a byte can still be seen. This one reads them
+            # back out of the packed value, so a picture built by calling the
+            # class directly keeps the same contract as one built by the factory,
+            # exactly as a STRING file does below.
+            rows, columns = self.rows_and_columns
+            if not 1 <= rows <= c.DOTS_MAX_ROWS:
+                raise ProtocolError(
+                    "a picture is between 1 and %d pixel rows, got %d" % (c.DOTS_MAX_ROWS, rows)
+                )
+            if not 1 <= columns <= c.DOTS_MAX_COLUMNS:
+                raise ProtocolError(
+                    "a picture is between 1 and %d pixel columns, got %d"
+                    % (c.DOTS_MAX_COLUMNS, columns)
+                )
+            if self.schedule not in c.DOTS_COLOUR_STATUSES:
+                raise ProtocolError(
+                    "a picture's colour status is one of %s, got %r"
+                    % (
+                        ", ".join(sorted(s.decode("ascii") for s in c.DOTS_COLOUR_STATUSES)),
+                        self.schedule,
+                    )
+                )
+
         if self.file_type == c.FILE_TYPE_STRING:
             _check_string_label(self.label)
             if not self.locked:

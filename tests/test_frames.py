@@ -415,6 +415,25 @@ class TestMemoryClaimed:
     def test_a_text_file_is_charged_by_its_capacity(self):
         assert frames.FileAllocation(b"A", 256).pool_bytes == 256
 
+    @pytest.mark.parametrize(
+        "capacity, schedule, expected",
+        [
+            (0x0100, c.DOTS_EIGHT_COLOUR, "pixel columns, got 0"),
+            (0x0010, c.DOTS_EIGHT_COLOUR, "pixel rows, got 0"),
+            (0x0710, c.TEXT_SCHEDULE_ALWAYS, "colour status is one of"),
+        ],
+        ids=["no columns", "no rows", "a schedule where the colour goes"],
+    )
+    def test_a_picture_built_without_the_factory_keeps_the_same_contract(
+        self, capacity, schedule, expected
+    ):
+        # The class is constructible directly, so the rules cannot live only in
+        # dots(). A STRING file's rules are enforced here for the same reason.
+        with pytest.raises(frames.ProtocolError, match=expected):
+            frames.FileAllocation(
+                b"6", capacity, file_type=c.FILE_TYPE_DOTS, schedule=schedule
+            )
+
     def test_only_a_picture_has_a_geometry(self):
         with pytest.raises(frames.ProtocolError, match="only a DOTS file"):
             _ = frames.FileAllocation(b"A", 256).rows_and_columns
