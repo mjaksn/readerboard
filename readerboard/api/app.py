@@ -275,6 +275,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
 
         used, total = registry.occupancy
         variables_used, variables_total = registry.variable_occupancy
+        pictures_used, pictures_total = registry.picture_occupancy
         return HealthResponse(
             status="ok" if controller.is_connected else "degraded",
             version=__version__,
@@ -290,6 +291,8 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             slots_total=total,
             variables_used=variables_used,
             variables_total=variables_total,
+            pictures_used=pictures_used,
+            pictures_total=pictures_total,
             sign_in_sync=registry.in_sync,
             alert_active=alerts.active is not None,
             clock_last_synced_at=clock.last_sync_at,

@@ -326,6 +326,12 @@ def _health(payload: object) -> list[Block]:
                     "0 of 0 means variables are switched off",
                 ),
                 Row(
+                    "pictures used",
+                    "%s of %s"
+                    % (payload.get("pictures_used", 0), payload.get("pictures_total", 0)),
+                    "picture files holding an icon; 0 of 0 means icons are switched off",
+                ),
+                Row(
                     "sign in sync",
                     yes_no(payload.get("sign_in_sync")),
                     "no means something was accepted but has not reached the sign",

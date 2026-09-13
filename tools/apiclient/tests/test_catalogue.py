@@ -129,6 +129,28 @@ def test_every_markup_field_offers_a_set_something_can_load():
                 assert item.markup in catalogue.SET_ORDER, (operation.id, item.name)
 
 
+def test_the_icon_fields_are_the_messages_and_not_a_variable_value():
+    # The sign cannot draw an icon from inside a variable, so offering one there
+    # would be offering a call the service refuses.
+    icons = {
+        (operation.id, item.name, item.icons)
+        for operation in catalogue.OPERATIONS
+        for item in operation.body
+        if item.icons
+    }
+    assert icons == {
+        ("put_slot", "message", catalogue.ICONS),
+        ("post_alert", "message", catalogue.ICONS),
+    }
+
+
+def test_every_icon_field_offers_a_set_something_can_load():
+    for operation in catalogue.OPERATIONS:
+        for item in operation.body:
+            if item.icons:
+                assert item.icons in catalogue.SET_ORDER, (operation.id, item.name)
+
+
 def test_every_key_loader_lists_the_resource_its_parameter_names():
     """The Load keys button reads each listed item under the parameter's own name.
 

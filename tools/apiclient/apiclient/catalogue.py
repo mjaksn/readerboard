@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from twenty-two hand-written
+The window builds its forms from this table rather than from twenty-three hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -25,16 +25,18 @@ MARKUP_TOKENS = "markup-tokens"
 VALUE_TOKENS = "value-tokens"
 DISPLAY_MODES = "display-modes"
 CONTROL_COMMANDS = "control-commands"
+ICONS = "icons"
 
 SET_TITLES = {
     MARKUP_TOKENS: "Markup tokens",
     VALUE_TOKENS: "Value tokens",
     DISPLAY_MODES: "Display modes",
     CONTROL_COMMANDS: "Control commands",
+    ICONS: "Icons",
 }
 
 # The order the enumeration panel lists them in.
-SET_ORDER = (MARKUP_TOKENS, VALUE_TOKENS, DISPLAY_MODES, CONTROL_COMMANDS)
+SET_ORDER = (MARKUP_TOKENS, VALUE_TOKENS, DISPLAY_MODES, CONTROL_COMMANDS, ICONS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,6 +47,12 @@ class Input:
     token button: a message takes the markup tokens, and a variable's value
     takes the value tokens, which are the same less the ones the sign cannot
     draw from inside a variable.
+
+    ``icons`` names the set a text field offers through a second button beside
+    that one, and only a message has it. Two buttons rather than one list,
+    because there are 148 icons against a few dozen tokens and a single picker
+    holding both would bury the tokens. A variable's value has no icon button
+    because the sign cannot draw one from inside a variable.
 
     ``keys_from`` names the operation listing what a path parameter can name,
     and puts a Load button beside the box that fills it from that list. Each
@@ -78,6 +86,7 @@ class Input:
     prefill: object = None
     enum_set: str | None = None
     markup: str | None = None
+    icons: str | None = None
     keys_from: str | None = None
     fill_from: str | None = None
     seconds_until: str | None = None
@@ -175,10 +184,11 @@ OPERATIONS: tuple[Operation, ...] = (
                 kind="textarea",
                 required=True,
                 markup=MARKUP_TOKENS,
+                icons=ICONS,
                 fill_from="get_slot",
                 description=(
                     "the message, including markup tokens such as <red> and <degree>, "
-                    "and <var:name> to call a variable"
+                    "<icon:name> to draw an icon, and <var:name> to call a variable"
                 ),
             ),
             _DISPLAY_MODE,
@@ -348,6 +358,7 @@ OPERATIONS: tuple[Operation, ...] = (
                 kind="textarea",
                 required=True,
                 markup=MARKUP_TOKENS,
+                icons=ICONS,
                 description="the alert text; the priority file holds 125 rendered bytes",
             ),
             _DISPLAY_MODE,
@@ -465,6 +476,20 @@ OPERATIONS: tuple[Operation, ...] = (
         summary="Commands aimed at the sign itself",
         formatter="tokens",
         loads=CONTROL_COMMANDS,
+    ),
+    Operation(
+        id="icons",
+        group="Enumerations",
+        method="GET",
+        path="/enumerations/icons",
+        summary="Icons a message can draw with <icon:name>",
+        formatter="tokens",
+        loads=ICONS,
+        note=(
+            "What the library holds, not what the sign is holding. How many "
+            "icons fit at once is the service's picture_count, and GET /health "
+            "reports how many of those files are in use."
+        ),
     ),
     # == Health ===========================================================
     Operation(

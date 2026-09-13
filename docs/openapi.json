@@ -12,7 +12,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It can call variables with <var:name>, as a message can. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
+            "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It can call variables with <var:name> and draw icons with <icon:name>, as a message can. An icon costs the alert two of those 125 bytes. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -149,6 +149,16 @@
           "link": {
             "$ref": "#/components/schemas/LinkHealth"
           },
+          "pictures_total": {
+            "description": "0 when icons are switched off",
+            "title": "Pictures Total",
+            "type": "integer"
+          },
+          "pictures_used": {
+            "description": "picture files holding an icon, which includes ones nothing calls any more: a file is kept after its last caller goes, and given up only when another icon needs it",
+            "title": "Pictures Used",
+            "type": "integer"
+          },
           "sign_in_sync": {
             "description": "false when the sign is behind the service's record, which is a removal or an expiry that could not reach the sign yet; a message write that cannot reach the sign is refused with a 503 rather than held",
             "title": "Sign In Sync",
@@ -189,11 +199,50 @@
           "slots_total",
           "variables_used",
           "variables_total",
+          "pictures_used",
+          "pictures_total",
           "sign_in_sync",
           "alert_active",
           "clock_last_synced_at"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "IconInfo": {
+        "description": "One icon from the built-in library.\n\n``name`` is the whole tag rather than the bare icon name, which is what\nevery other enumeration answers too: the caller writes what it is given,\nand a client that had to wrap the answer in ``<icon:`` first would be a\nclient that knows a piece of syntax nobody told it.\n\nThe three fields after the description are the same facts in a form\nsomething can sort or filter on without reading prose.",
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "group": {
+            "description": "what it is listed with, such as 'weather' or 'arrows'",
+            "title": "Group",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "tintable": {
+            "description": "whether a colour may be asked for, as <icon:check:red>. False for an icon whose own colours are the point of it, and asking for one anyway is refused rather than ignored",
+            "title": "Tintable",
+            "type": "boolean"
+          },
+          "width": {
+            "description": "how many dots wide it is drawn; every icon is 7 high",
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "group",
+          "width",
+          "tintable"
+        ],
+        "title": "IconInfo",
         "type": "object"
       },
       "LinkHealth": {
@@ -360,7 +409,7 @@
             "type": "string"
           },
           "message": {
-            "description": "the message, including markup tokens such as <red> and <degree>, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign gives a file with no text in it no turn of its own but does hold the message before it several seconds longer, so the slot would be spent and the rotation would drag. Use DELETE to give the slot back",
+            "description": "the message, including markup tokens such as <red> and <degree>, <icon:name> to draw one of the built-in icons, and <var:name> to call a variable, which has to exist first. It cannot be empty: an empty message holds a slot open around nothing, and the sign gives a file with no text in it no turn of its own but does hold the message before it several seconds longer, so the slot would be spent and the rotation would drag. Use DELETE to give the slot back",
             "maxLength": 4096,
             "minLength": 1,
             "title": "Message",
@@ -837,9 +886,35 @@
         ]
       }
     },
+    "/enumerations/icons": {
+      "get": {
+        "description": "List every built-in icon, in the order the library groups them.\n\nNot sorted by name, because the grouping is the useful order: a caller\nlooking for a weather icon wants the other weather icons next to it.\n\nThis says what the library holds rather than what the sign is holding. How\nmany icons can be on the sign at once is ``picture_count``, and which ones\nare there at any moment is whatever the registered messages call; GET\n/health reports that as pictures used.",
+        "operationId": "icon_library_enumerations_icons_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IconInfo"
+                  },
+                  "title": "Response Icon Library Enumerations Icons Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Icons a message can draw with <icon:name>",
+        "tags": [
+          "Enumerations"
+        ]
+      }
+    },
     "/enumerations/markup-tokens": {
       "get": {
-        "description": "List every token that can be written inline in a message, and the variable call.",
+        "description": "List every token a message can carry inline, and the two calls beside them.",
         "operationId": "markup_tokens_enumerations_markup_tokens_get",
         "responses": {
           "200": {

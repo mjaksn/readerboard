@@ -5,10 +5,14 @@ presses the button that calls the endpoint, which is the point: a client that
 ships its own copy of the markup tokens is a client that goes on offering
 ``<degree>`` for a year after the service stopped answering it.
 
-All four sets arrive in one shape, ``{"name": ..., "description": ...}``, and
-land here as :class:`Entry`. The parsing is still strict about that shape rather
-than tolerant of anything list-like, because a set of empty names looks exactly
-like a healthy one on screen.
+All five sets arrive in one shape, ``{"name": ..., "description": ...}``, and
+land here as :class:`Entry`. The icons carry three more fields saying the same
+things in a sortable form, and those are read past rather than kept: this tool
+shows a table of names and descriptions, and has nothing to do with a width.
+
+The parsing is still strict about the two fields it does read rather than
+tolerant of anything list-like, because a set of empty names looks exactly like
+a healthy one on screen.
 """
 
 from __future__ import annotations

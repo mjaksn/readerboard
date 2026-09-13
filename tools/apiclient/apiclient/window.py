@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty-two
+Everything the tool does is on it: the connection, the enumerations, all twenty-three
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -283,8 +283,8 @@ class OperationForm(QWidget):
 
         A field with ``fill_from`` gets its loader button here, under the
         caption, rather than beside the field. The field's own row is already
-        spoken for: a markup textarea carries Insert token beneath it, and a
-        second button there would read as another way to edit the text rather
+        spoken for: a markup textarea carries its insert buttons beneath it, and
+        another button there would read as one more way to edit the text rather
         than a way to replace all of it.
         """
         text = item.label + (" *" if item.required else "")
@@ -364,27 +364,32 @@ class OperationForm(QWidget):
             edit.setPlaceholderText(item.description)
             edit.setMinimumHeight(70)
             self._body[item.name] = edit
-            if not item.markup:
+            if not item.markup and not item.icons:
                 return edit
-
-            insert = QPushButton("Insert token")
-            insert.clicked.connect(
-                lambda _checked=False, name=item.name, tokens=item.markup: self._insert_token(
-                    name, tokens
-                )
-            )
-            self._token_buttons.append((insert, item.markup))
 
             row = QVBoxLayout()
             row.setContentsMargins(0, 0, 0, 0)
             row.addWidget(edit)
             buttons = QHBoxLayout()
-            buttons.addWidget(insert)
+            # A button for each vocabulary the field draws on, in the order a
+            # person reaches for them. Both insert at the cursor through the
+            # same path, and each is dead until its own set has been loaded.
+            for label, set_key in (("Insert token", item.markup), ("Insert icon", item.icons)):
+                if not set_key:
+                    continue
+                insert = QPushButton(label)
+                insert.clicked.connect(
+                    lambda _checked=False, name=item.name, tokens=set_key: self._insert_token(
+                        name, tokens
+                    )
+                )
+                self._token_buttons.append((insert, set_key))
+                self._refresh_token_button(insert, set_key)
+                buttons.addWidget(insert)
             buttons.addStretch(1)
             row.addLayout(buttons)
             holder = QWidget()
             holder.setLayout(row)
-            self._refresh_token_button(insert, item.markup)
             return holder
 
         if item.kind == "bool":

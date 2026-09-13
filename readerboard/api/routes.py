@@ -18,12 +18,14 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response, status
 
+from readerboard import icons
 from readerboard.api.deps import AlertsDep, ClockDep, ControllerDep, RegistryDep, RequireApiKey
 from readerboard.api.models import (
     AlertRequest,
     AlertResponse,
     ClockResponse,
     ControlCommandRequest,
+    IconInfo,
     SignInformationResponse,
     SlotActiveRequest,
     SlotKey,
@@ -425,11 +427,23 @@ VARIABLE_CALL = TokenInfo(
     ),
 )
 
+# The same, for the other inline call. A caller reading this list to find out
+# what a message may say would otherwise never learn that icons exist, since
+# every icon is a name of its own rather than a token.
+ICON_CALL = TokenInfo(
+    name="<icon:name>",
+    description=(
+        "Draw one of the built-in icons here, with name replaced by the icon's own. "
+        "GET /enumerations/icons lists them. Add a colour to one that takes a tint, as "
+        "<icon:check:red>"
+    ),
+)
+
 
 @enumerations.get("/markup-tokens", summary="Markup tokens a message may contain")
 async def markup_tokens() -> list[TokenInfo]:
-    """List every token that can be written inline in a message, and the variable call."""
-    return [*_as_info(MARKUP_TOKENS), VARIABLE_CALL]
+    """List every token a message can carry inline, and the two calls beside them."""
+    return [*_as_info(MARKUP_TOKENS), VARIABLE_CALL, ICON_CALL]
 
 
 @enumerations.get("/value-tokens", summary="Markup tokens a variable's value may contain")
@@ -453,6 +467,35 @@ async def display_modes() -> list[TokenInfo]:
 async def control_commands() -> list[TokenInfo]:
     """List every control command."""
     return _as_info(CONTROL_COMMANDS)
+
+
+@enumerations.get("/icons", summary="Icons a message can draw with <icon:name>")
+async def icon_library() -> list[IconInfo]:
+    """List every built-in icon, in the order the library groups them.
+
+    Not sorted by name, because the grouping is the useful order: a caller
+    looking for a weather icon wants the other weather icons next to it.
+
+    This says what the library holds rather than what the sign is holding. How
+    many icons can be on the sign at once is ``picture_count``, and which ones
+    are there at any moment is whatever the registered messages call; GET
+    /health reports that as pictures used.
+    """
+    return [
+        IconInfo(
+            name="<icon:%s>" % icon.name,
+            description="%s, %d dots wide, %s"
+            % (
+                icon.group,
+                icon.width,
+                "takes a tint" if icon.tintable else "drawn in its own colours",
+            ),
+            group=icon.group,
+            width=icon.width,
+            tintable=icon.tintable,
+        )
+        for icon in icons.ICONS.values()
+    ]
 
 
 router.include_router(slots)

@@ -8,6 +8,7 @@ from collections.abc import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
+from readerboard import icons
 from readerboard.api import errors
 from readerboard.api.app import create_app
 from readerboard.config import Settings
@@ -82,6 +83,14 @@ def client(settings, sign) -> Iterator[TestClient]:
         yield client
 
 
+@pytest.fixture
+def drawing_client(settings, sign) -> Iterator[TestClient]:
+    """Serve a client whose icons are switched on, which the default settings are not."""
+    settings.picture_count = 4
+    with TestClient(create_app(settings, transport=sign)) as client:
+        yield client
+
+
 class TestHealth:
     def test_it_needs_no_key(self, client):
         assert client.get("/health").status_code == 200
@@ -95,8 +104,24 @@ class TestHealth:
         assert body["slots_used"] == 0
         assert body["variables_total"] == 8
         assert body["variables_used"] == 0
+        assert body["pictures_total"] == 0
+        assert body["pictures_used"] == 0
         assert body["sign_in_sync"] is True
         assert body["alert_active"] is False
+
+    def test_it_reports_the_picture_pool_when_there_is_one(self, drawing_client):
+        assert drawing_client.get("/health").json()["pictures_total"] == 4
+
+    def test_a_message_that_draws_an_icon_shows_up_as_a_picture_in_use(self, drawing_client):
+        drawing_client.put(
+            "/slots/weather",
+            json={"message": "<icon:sun> FINE", "display_mode": "HOLD"},
+            headers=HEADERS,
+        )
+
+        body = drawing_client.get("/health").json()
+        assert body["pictures_used"] == 1
+        assert body["pictures_total"] == 4
 
     def test_it_never_reveals_the_key(self, client):
         assert KEY not in client.get("/health").text
@@ -857,6 +882,7 @@ class TestEnumerations:
             "/enumerations/value-tokens",
             "/enumerations/display-modes",
             "/enumerations/control-commands",
+            "/enumerations/icons",
         ],
     )
     def test_each_lists_something_described(self, client, path):
@@ -900,8 +926,42 @@ class TestEnumerations:
         # The sign draws <week_day> as a literal 9 from inside a variable.
         message = {entry["name"] for entry in client.get("/enumerations/markup-tokens").json()}
         value = {entry["name"] for entry in client.get("/enumerations/value-tokens").json()}
-        assert message - value == {"<week_day>", "<var:name>"}
+        assert message - value == {"<week_day>", "<var:name>", "<icon:name>"}
         assert value < message
+
+    def test_the_message_tokens_say_that_icons_exist(self, client):
+        # Every icon is a name rather than a token, so a caller reading this
+        # list to find out what a message may say would otherwise never learn
+        # there are any.
+        names = {entry["name"] for entry in client.get("/enumerations/markup-tokens").json()}
+        assert "<icon:name>" in names
+
+    def test_every_icon_is_listed_as_the_tag_that_draws_it(self, client):
+        # The name is what a caller writes, exactly as <red> is. A bare "sun"
+        # would leave every client to learn the wrapping for itself, which is
+        # the one thing the client is built not to do.
+        listed = client.get("/enumerations/icons").json()
+        assert len(listed) == len(icons.ICONS)
+        assert {entry["name"] for entry in listed} == {
+            "<icon:%s>" % name for name in icons.ICONS
+        }
+
+    def test_each_icon_carries_its_group_width_and_whether_it_takes_a_tint(self, client):
+        by_name = {entry["name"]: entry for entry in client.get("/enumerations/icons").json()}
+
+        for name, icon in icons.ICONS.items():
+            entry = by_name["<icon:%s>" % name]
+            assert entry["group"] == icon.group
+            assert entry["width"] == icon.width
+            assert entry["tintable"] == icon.tintable
+
+    def test_the_icons_are_listed_grouped_rather_than_sorted(self, client):
+        # The grouping is the useful order: somebody looking for a weather icon
+        # wants the other weather icons beside it. Sorting by name would scatter
+        # them, so this fails if anybody reaches for sorted() on the way out.
+        groups = [entry["group"] for entry in client.get("/enumerations/icons").json()]
+        assert len(set(groups)) == len(icons.GROUPS)
+        assert groups == sorted(groups, key=icons.GROUPS.index)
 
 
 class TestVariables:

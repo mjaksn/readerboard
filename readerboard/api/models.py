@@ -61,7 +61,8 @@ class SlotRequest(BaseModel):
         min_length=1,
         max_length=4096,
         description=(
-            "the message, including markup tokens such as <red> and <degree>, and "
+            "the message, including markup tokens such as <red> and <degree>, "
+            "<icon:name> to draw one of the built-in icons, and "
             "<var:name> to call a variable, which has to exist first. It cannot be "
             "empty: an empty message holds a slot open around nothing, and the sign "
             "gives a file with no text in it no turn of its own but does hold the "
@@ -293,7 +294,8 @@ class AlertRequest(BaseModel):
         description=(
             "the alert text. The sign's priority file holds 125 bytes once markup has "
             "been rendered, and cannot be resized. It can call variables with "
-            "<var:name>, as a message can. It cannot be empty: a write with no "
+            "<var:name> and draw icons with <icon:name>, as a message can. An icon "
+            "costs the alert two of those 125 bytes. It cannot be empty: a write with no "
             "text still carries the formatting bytes around it, which the sign reads as "
             "a blank priority message and displays, so the sign would sit blank with "
             "the rotation suppressed behind it and an alert reported as active"
@@ -376,6 +378,14 @@ class HealthResponse(BaseModel):
     slots_total: int
     variables_used: int
     variables_total: int = Field(description="0 when variables are switched off")
+    pictures_used: int = Field(
+        description=(
+            "picture files holding an icon, which includes ones nothing calls any more: "
+            "a file is kept after its last caller goes, and given up only when another "
+            "icon needs it"
+        )
+    )
+    pictures_total: int = Field(description="0 when icons are switched off")
     sign_in_sync: bool = Field(
         description=(
             "false when the sign is behind the service's record, which is a removal or "
@@ -392,3 +402,28 @@ class TokenInfo(BaseModel):
 
     name: str
     description: str
+
+
+class IconInfo(BaseModel):
+    """One icon from the built-in library.
+
+    ``name`` is the whole tag rather than the bare icon name, which is what
+    every other enumeration answers too: the caller writes what it is given,
+    and a client that had to wrap the answer in ``<icon:`` first would be a
+    client that knows a piece of syntax nobody told it.
+
+    The three fields after the description are the same facts in a form
+    something can sort or filter on without reading prose.
+    """
+
+    name: str
+    description: str
+    group: str = Field(description="what it is listed with, such as 'weather' or 'arrows'")
+    width: int = Field(description="how many dots wide it is drawn; every icon is 7 high")
+    tintable: bool = Field(
+        description=(
+            "whether a colour may be asked for, as <icon:check:red>. False for an icon "
+            "whose own colours are the point of it, and asking for one anyway is refused "
+            "rather than ignored"
+        )
+    )

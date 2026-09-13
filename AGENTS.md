@@ -348,8 +348,9 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-two endpoints, formats every
-response as text rather than JSON, and knows no vocabulary it was not told.
+it at a running service and it can call all twenty-three endpoints, formats
+every response as text rather than JSON, and knows no vocabulary it was not
+told.
 
 Two things about it are load bearing rather than stylistic. The enumerations are
 empty until a button is pressed, so the markup tokens a message field offers are
