@@ -13,6 +13,23 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An icon written while an alert was up was lost.** The sign does not take a
+  SMALL DOTS PICTURE write while a priority message is running. Nothing noticed,
+  because the controller remembers the bytes it sent and declines to send them
+  again, so the write was gone and no retry was coming: the icons stayed missing,
+  or drawn as a sliver, until the next periodic refresh a quarter of an hour
+  later. The reliable way to see it was to restart the service while an alert was
+  up, since the sign keeps its priority file across a restart and the whole
+  rewrite then happened underneath it.
+
+  The alert now comes off the sign for a picture write and goes straight back on,
+  which costs a moment of the rotation showing in place of the alert and nothing
+  else. Only the picture writes are wrapped: STRING, TEXT and run sequence writes
+  are all measured landing under an alert, so a variable a live alert is showing
+  still changes without the alert moving.
+
 ### Added
 
 - **`fail_if_active` on `POST /alerts`**, for a caller that must not overwrite

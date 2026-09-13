@@ -237,7 +237,12 @@ rules hold it together, and each has a reason that is easy to lose:
   write. The alert service renders through `SlotRegistry.rendering`, which
   holds that lock until the priority file is written and the alert recorded.
   Take the registry's lock before the alert service's, never the other way
-  round.
+  round. The two are wired to each other in both directions now, and that order
+  is what keeps it from being a cycle: `alerts.set_rendering(registry.rendering)`
+  goes one way, `registry.set_priority_hold(alerts.lifted)` the other, and the
+  second is called with the registry's lock already held. That is also why
+  `lifted` is handed a renderer rather than reaching for one: every renderer the
+  alert service has takes the lock its caller is holding.
 - **Variables are written before messages** on a restore, a refresh and a
   reboot, so no message is drawn calling a STRING not yet written.
 - **The size check is not optional.** The sign does not truncate a value that
@@ -266,6 +271,17 @@ itself. Four things hold it together:
 - **Pictures are written before messages**, ahead of the variables, on a
   restore, a refresh and a reboot, so no message is drawn calling a picture file
   with nothing in it yet. A call to an empty one draws nothing at all.
+- **A picture cannot be written while an alert is up**, so the alert comes off
+  the sign for that write and goes straight back on. The sign does not take a
+  picture while a priority message is running, measured on 2026-09-13 and
+  recorded in `docs/protocol-notes.md`, and nothing retries it: the controller
+  believes it sent those bytes. `SlotRegistry._priority_lifted` wraps the
+  picture writes and nothing else, because the STRING, TEXT and run sequence
+  writes around them are all measured landing under an alert. `AlertService`
+  does the same for its own case, an alert replacing an alert with a new icon,
+  since the registry is called from inside that lock and cannot take it again.
+  Both are gated on there actually being a picture to write, or every alert
+  would hand the sign back and take it again for nothing.
 
 The renderer is told which file each icon lives in and nothing else, exactly as
 it is for variables, so the registry stays the single answer to whether a name

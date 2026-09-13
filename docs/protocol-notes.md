@@ -12,7 +12,12 @@ settled three of the four behavioural questions that were open then. A second se
 the one measurement still outstanding, which a later run then put in doubt. A third, on
 2026-09-12, took two questions that came out of the fifth and then three more, and
 corrected one of its own answers on a second run that day as well as one given on
-2026-09-09. All ten are listed at the end, with what each turned out to be.
+2026-09-09. All eleven are listed at the end, with what each turned out to be.
+
+One measurement here came from no session at all. On 2026-09-13, running the service
+against the sign showed that a picture written while an alert is up is not taken, which
+nobody had thought to ask; it is recorded with the other picture findings rather than in
+that list, because it was found by being bitten by it rather than by asking.
 
 That session also answered several things nobody had thought to doubt, each recorded below
 beside the measurement: a memory configuration does not display unless a bare `E$` clear
@@ -610,6 +615,51 @@ dim red, dim green, brown, orange and yellow.
   that decides a read's cost: every other read leaves a message held still alone and costs
   a scrolling one about half a second. So the stray dots belong to a picture read, and the
   blank may belong to the motion rather than to the read.
+
+### A picture written under an alert is not taken, found 2026-09-13
+
+Not from a spike. This one came out of running the service against the sign after icons
+shipped, and it is the only measured picture behaviour here that was found by being bitten
+by it rather than by asking.
+
+**A slot's icons, written while a priority message was running, did not draw when that
+message was released.** They came back missing, or drawn as a sliver of what they should
+have been. The reliable way to produce it was to restart the service while an alert was
+up: the sign keeps its priority file across a host restart, so the whole rewrite on the way
+back up, every picture included, landed underneath the alert.
+
+The evidence is the run of 2026-09-13. Five picture writes went out at 05:27:31 to :32,
+followed by the TEXT file calling two of them and then the priority write that put the
+stored alert back. The frames were well formed: the `I` command, the label, two hex digits
+of rows and two of columns, one row a line, each ended with a carriage return, and the row
+counts matched the headers. The alert was released a minute later and the icons were wrong.
+
+**What settles it is that the periodic refresh healed them**, with nothing else done. The
+refresh forgets what the sign is believed to hold and writes everything again, and by then
+the alert was gone, so those writes had the sign to themselves and drew. That rules out the
+service having sent the wrong bytes, and it rules out the pictures having been evicted:
+the same bytes, sent later, worked.
+
+Two things about the shape of this finding are worth keeping honest.
+
+**Whether the sign stored the bytes at all is unmeasured.** No picture was read back with
+`J` (4AH) while the alert was up, which is the read that would separate "the sign never
+took the write" from "the sign took it and would not draw it". The adapter has been shown
+to answer that read, so the question is answerable; it simply was not asked.
+
+**What made it permanent was the service, not the sign.** `SignController` remembers the
+exact bytes it put in each file and declines to send them again, so a write the sign threw
+away is one the service believes it made. Without that, the next ordinary rewrite would
+have repaired it and nobody would have noticed. It is the reason the fix has to hand the
+sign back rather than simply write again.
+
+What this settles for the service: **a picture write needs the sign to itself**. The alert
+comes off the priority file for the write and goes straight back on, which is
+`AlertService.lifted` and `SlotRegistry._priority_lifted`. Only the picture writes are
+wrapped. A STRING write during an alert is measured above as landing and changing the value
+with the alert keeping the sign throughout, and the TEXT write in the run that produced
+this finding landed too, since the message came back with its text intact and only its
+icons missing.
 
 Three questions are left open. The session's memory configuration read and picture read
 were both cut short by the reader, which took one byte a poll over `socket://` until that
