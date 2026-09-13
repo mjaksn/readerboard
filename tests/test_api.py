@@ -596,6 +596,22 @@ class TestSignCommands:
         assert frames.packet(frames.clear_memory()) in sign.packets
         assert client.get("/slots").json()[0]["key"] == "one"
 
+    def test_rebooting_a_sign_without_room_is_409_and_clears_nothing(self, client, sign):
+        # The reboot asks the sign how big its pool is before it erases it, and
+        # this one answers with a pool a quarter the size of the configuration.
+        # Startup cannot have caught that: the state file matches, so it asked
+        # the sign nothing.
+        client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        sign.clear()
+        sign.replies = [general_information(b"1044-160B01931433M000100,0BB8")]
+
+        response = client.post("/sign/reboot", headers=HEADERS)
+
+        assert response.status_code == 409
+        assert "the sign has 256" in response.json()["detail"]
+        assert frames.packet(frames.clear_memory()) not in sign.packets
+        assert client.get("/slots").json()[0]["key"] == "one"
+
     def test_an_unknown_command_is_400(self, client):
         response = client.post(
             "/sign/command", json={"command": "NOPE", "parameter": ""}, headers=HEADERS

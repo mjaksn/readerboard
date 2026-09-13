@@ -14,11 +14,23 @@ settings are read, which includes the tests, ``scripts/dump_openapi.py`` and any
 machine whose sign is unplugged, so a validator that opened a serial port would
 turn a configuration error into a connection error and would fail on machines
 that have no sign to fail about. It measures against
-``config.ASSUMED_SIGN_MEMORY_POOL``, the figure this hardware reported.
+:data:`ASSUMED_SIGN_MEMORY_POOL`, the figure this hardware reported.
 
-This module is the second tier. It runs at startup with the link already open,
-asks the sign what it actually has, and uses the sign's own answer in preference
-to the assumption. Two things follow from that:
+**That first tier is a ceiling, and the second can only lower it.** A
+configuration needing more than the assumption is refused when the settings are
+read, before any link is open, so a sign with a bigger pool cannot be asked
+about it and cannot permit it. That is the deliberate shape rather than an
+oversight: this service drives a BetaBrite Classic, the assumption is that
+hardware's own measured figure, and a configuration that outgrows it is a
+mistake on every sign this has ever been pointed at. Raising the ceiling for a
+sign with more memory would mean letting an unbounded configuration through
+validation on every machine with no sign attached, to be caught only at a
+startup that may be months away. If a larger sign is ever driven from here, the
+number to raise is this one.
+
+This module is the second tier. It runs with the link already open, asks the
+sign what it actually has, and uses the sign's own answer when it is smaller
+than the assumption. Two things follow from that:
 
 - A sign that says nothing, says something unreadable, or is a ``loop://`` URL
   echoing the question back is not a reason to refuse to start. The service is
@@ -34,7 +46,9 @@ to the assumption. Two things follow from that:
 The caller is expected to ask only when a reconfiguration is actually due. That
 keeps an ordinary restart free of both the read and its cost on the display, and
 it means nothing here can cause an erase that would not have happened anyway.
-See ``readerboard.api.app``.
+There are two such callers, and between them they are every path that writes a
+memory configuration: the startup in ``readerboard.api.app``, and
+``SlotRegistry.reboot``, which is ``POST /sign/reboot``.
 """
 
 from __future__ import annotations
@@ -48,6 +62,21 @@ from readerboard.sign.layout import Layout
 from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
+
+ASSUMED_SIGN_MEMORY_POOL = 5482
+"""What the service assumes the sign's memory pool is when it cannot ask.
+
+A BetaBrite Classic reported 5482 bytes on 2026-09-12, read back from the sign
+itself. An earlier figure, in ``config``, was 26000, taken from a remembered
+claim that the sign holds around 30000 bytes of messages and graphics; it is
+nearly five times the pool this hardware actually has, so the check it backed
+could not do its job: a configuration with no room to exist passed it and went
+to the sign, where what happens to one has never been measured.
+
+It lives here rather than beside the settings because it is a fact about the
+hardware rather than something anybody configures, and because both tiers of the
+check read it.
+"""
 
 
 class PoolTooLarge(RuntimeError):
@@ -123,7 +152,7 @@ def check_fits(layout: Layout, pool: int) -> None:
     raise PoolTooLarge(
         "slot_count %d at slot_capacity %d and variable_count %d at variable_capacity "
         "%d need %d bytes of the sign's memory pool, and the sign has %d. Lower one of "
-        "them and start the service again. Nothing has been written, so the sign still "
+        "them and restart the service. Nothing has been written, so the sign still "
         "holds whatever it held."
         % (
             layout.slot_count,

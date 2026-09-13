@@ -14,11 +14,12 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from readerboard.config import ASSUMED_SIGN_MEMORY_POOL, Settings
+from readerboard.config import Settings
 from readerboard.protocol.constants import (
     MEASURED_FILE_OVERHEAD_BYTES,
     MEASURED_POOL_OVERHEAD_BYTES,
 )
+from readerboard.sign.pool import ASSUMED_SIGN_MEMORY_POOL
 
 
 def settings(**overrides: object) -> Settings:

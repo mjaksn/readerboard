@@ -28,21 +28,6 @@ from pydantic_settings import (
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
-# What the service assumes the sign's memory pool is when it cannot ask.
-#
-# A BetaBrite Classic reported 5482 bytes on 2026-09-12, read back from the sign
-# itself. An earlier figure here was 26000, taken from a remembered claim that
-# the sign holds around 30000 bytes of messages and graphics; it is nearly five
-# times the pool this hardware actually has, so the check it backed could not do
-# its job: a configuration with no room to exist passed it and went to the sign,
-# where what happens to one has never been measured.
-#
-# This is the first tier of the check rather than the whole of it. The service asks
-# the sign for its own figure at startup and uses that; see readerboard.sign.pool
-# for why the check is in two tiers and why this one cannot ask.
-ASSUMED_SIGN_MEMORY_POOL = 5482
-
-
 def _config_file() -> Path:
     override = os.environ.get("READERBOARD_CONFIG_FILE")
     return Path(override) if override else DEFAULT_CONFIG_FILE
@@ -217,10 +202,16 @@ class Settings(BaseSettings):
         it runs wherever settings are read: in the tests, in
         scripts/dump_openapi.py, and on a machine whose sign is unplugged. So it
         measures against ``ASSUMED_SIGN_MEMORY_POOL`` rather than against the
-        sign, and the sign is asked at startup instead, where the link is open
-        and its own answer can win. See readerboard.sign.pool.
+        sign, and the sign is asked before it is reconfigured instead, where the
+        link is open.
+
+        This one is a ceiling and the sign's own answer can only lower it. A
+        configuration bigger than the assumption never reaches the sign to be
+        asked about, so a sign with a larger pool cannot permit one. See
+        readerboard.sign.pool for why it is that way round.
         """
         from readerboard.protocol.frames import memory_claimed_by
+        from readerboard.sign.pool import ASSUMED_SIGN_MEMORY_POOL
 
         claimed = memory_claimed_by(
             [self.slot_capacity] * self.slot_count
@@ -230,7 +221,9 @@ class Settings(BaseSettings):
             raise ValueError(
                 "slot_count %d at slot_capacity %d and variable_count %d at "
                 "variable_capacity %d need %d bytes of the sign's memory pool, and a "
-                "BetaBrite Classic has %d. Lower one of them."
+                "BetaBrite Classic has %d. Lower one of them. This is the most any "
+                "sign driven from here may be configured with, whatever a particular "
+                "sign reports."
                 % (
                     self.slot_count,
                     self.slot_capacity,

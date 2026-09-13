@@ -27,9 +27,15 @@ library, and the names inside it may move without that being a breaking change.
   `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity` are now
   checked twice. Once when the settings are read, against the 5482 bytes a
   BetaBrite Classic has, because settings are validated on machines with no sign
-  attached. Once again at startup, against the figure the sign itself reports,
-  which wins in both directions: a sign with more memory may use it, and a sign
-  with less is believed.
+  attached. Once again before the sign is reallocated, against the figure the
+  sign itself reports.
+
+  **The first of those is a ceiling and the second can only lower it.** A sign
+  reporting less than 5482 is believed; a sign reporting more cannot be asked,
+  because a configuration over the ceiling is refused before any link is open.
+  Driving a sign with a bigger pool would mean raising
+  `ASSUMED_SIGN_MEMORY_POOL`, which is now in `readerboard/sign/pool.py` beside
+  the code that reads the sign.
 
   **A pool that some sign held before may now be refused.** Eight messages of 256
   bytes and eight variables of 32, the defaults, take under half the pool and are

@@ -69,11 +69,15 @@ backoff_max = 60.0
 #
 # All four come out of one memory pool, which is 5482 bytes on a BetaBrite
 # Classic, and each file costs thirteen bytes beyond its own size. The defaults
-# below take 2518 of it. A pool that does not fit is refused when these settings
-# are read, and again at startup against the size the sign itself reports, which
-# is the figure that counts: the service asks before it allocates, and stops
+# below take 2518 of it.
+#
+# That 5482 is a ceiling. A pool bigger than it is refused when these settings
+# are read, wherever they are read, so a sign with more memory cannot be
+# configured up to its size without raising the figure in
+# readerboard/sign/pool.py. Before the sign is reallocated the service also asks
+# the sign what it has, and a sign reporting less than 5482 is believed: it stops
 # rather than erasing the sign to write a pool that could not work. A sign that
-# does not answer costs nothing here, since the 5482 above stands in.
+# does not answer costs nothing here, since the 5482 stands in.
 slot_count = 8
 slot_capacity = 256
 

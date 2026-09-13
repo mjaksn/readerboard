@@ -94,14 +94,33 @@ The pool has to fit, and there is less of it than there looks. This sign
 reported 5482 bytes on 2026-09-12, having been budgeted against 26000 since
 before anybody asked it, so a configuration five times too big for it passed
 every check the service had. `Settings` now refuses one no BetaBrite Classic
-could hold, and `readerboard/sign/pool.py` asks the sign for its own figure at
-startup: on the start that is about to reallocate, and on no other, so an
-ordinary restart is untouched and nothing there can bring on an erase that was
-not already coming. A sign that says nothing, answers rubbish or is a `loop://`
-URL falls back to the 5482 at WARNING and starts exactly as before. A sign that
-answers and does not have the room stops the service starting, which is the one
-thing that does, because the alternative is erasing every message on it to write
-a pool that could never work.
+could hold, and `readerboard/sign/pool.py` asks the sign for its own figure
+before it is reallocated.
+
+Two things about that shape are worth knowing before changing either of them.
+
+**The settings check is a ceiling and the sign can only lower it.** A
+configuration over `ASSUMED_SIGN_MEMORY_POOL` is refused where the settings are
+read, which is every machine, sign or no sign, so a sign with a bigger pool is
+never asked and cannot permit one. That is deliberate: raising it for a larger
+sign would mean letting an unbounded configuration past validation everywhere,
+to be caught only at a reallocation that may be months off. A larger sign means
+raising that constant.
+
+**Every path that writes a memory configuration asks, and there are two.** The
+startup in `readerboard/api/app.py`, on the start that is about to reallocate
+and on no other, so an ordinary restart is untouched and nothing there can bring
+on an erase that was not already coming. And `SlotRegistry.reboot`, which is
+`POST /sign/reboot`, because a sign swapped for a smaller one leaves a state file
+that still matches and startup therefore asks nothing. Adding a third path means
+asking there too.
+
+A sign that says nothing, answers rubbish or is a `loop://` URL falls back to the
+5482 at WARNING and carries on exactly as before, which is what keeps the reboot
+able to recover a sign too wedged to talk. A sign that answers and does not have
+the room stops the service starting, which is the one thing that does, because
+the alternative is erasing every message on it to write a pool that could never
+work; on the reboot path the same answer is a 409 and the sign is left alone.
 
 Note that the protocol has a second reset which is nothing to do with this one.
 `E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,
@@ -317,7 +336,8 @@ decoded and shown, and nothing is answered. That last one is visible now that
 the service asks how big the memory pool is before allocating one: every
 simulator run waits out the read's three second deadline and logs a warning that
 it is assuming the figure a real sign gave, which is correct and is not a fault
-in either of them.
+in either of them. `POST /sign/reboot` against the simulator costs the same
+three seconds, for the same reason.
 
 Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in

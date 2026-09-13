@@ -35,6 +35,7 @@ from datetime import UTC, datetime, timedelta
 
 from readerboard.protocol.markup import references, render, render_value
 from readerboard.protocol.tokens import MODE_BY_NAME
+from readerboard.sign import pool
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout, LayoutFull
 from readerboard.sign.state import ServiceState, SlotState, StateStore, VariableState
@@ -297,8 +298,29 @@ class SlotRegistry:
         showing what it should rather than blank. Returns how many slots were
         restored. An alert lives in the priority file, which this does not
         touch; the caller re-asserts it.
+
+        Raises :class:`readerboard.sign.pool.PoolTooLarge` if the sign turns out
+        not to have room for the configuration, in which case nothing has been
+        written and the sign is left exactly as it was.
         """
         async with self._lock:
+            # The pool is checked here for the same reason it is checked at
+            # startup, and this is the other half of that: these two are every
+            # path that writes a memory configuration. A sign swapped for a
+            # smaller one leaves a state file that still matches, so startup
+            # asks nothing, and without this the first reboot would clear the
+            # sign and write a pool it cannot hold.
+            #
+            # A sign too wedged to answer falls back to the assumption and the
+            # reboot goes ahead, which is the point: recovering a sign that has
+            # stopped talking is what this endpoint is for, and refusing to
+            # recover it because it did not answer a question would be refusing
+            # in exactly the case it exists for.
+            budget = await pool.measure(
+                self._controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL
+            )
+            pool.check_fits(self._layout, budget)
+
             # apply_memory_config holds the sign's lock through the clear, the
             # configuration and the sign's power-up diagnostics, so it returns
             # only once the sign is listening again and the rewrite below cannot

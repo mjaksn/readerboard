@@ -62,8 +62,14 @@ class TestMeasure:
 
         assert transport.packets == [frames.packet(frames.read_general_information())]
 
-    async def test_the_signs_own_figure_wins_over_the_assumption(self, controller, transport):
-        # Either way. A sign with more memory than the assumption may use it.
+    async def test_the_signs_own_figure_is_what_comes_back(self, controller, transport):
+        # What this does and does not prove. It proves the reply is parsed and
+        # returned rather than the fallback: measure() reports whatever the sign
+        # says, larger or smaller. It does not mean a bigger sign can be
+        # configured up to its size. Settings refuses a configuration over
+        # ASSUMED_SIGN_MEMORY_POOL before any link is open, so a pool this size
+        # never reaches check_fits to be allowed. The assumption is a ceiling and
+        # this tier can only lower it.
         transport.replies = [information(b"4000")]
 
         assert await pool.measure(controller, fallback=FALLBACK) == 0x4000

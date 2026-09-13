@@ -30,7 +30,7 @@ from readerboard import __version__, logging_setup, names
 from readerboard.api import errors, routes
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
-from readerboard.config import ASSUMED_SIGN_MEMORY_POOL, Settings
+from readerboard.config import Settings
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
 from readerboard.services.registry import SlotRegistry
@@ -181,7 +181,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # behaves exactly as it did before this check existed. Nothing here can
         # bring on a reallocation either: the only thing it can do is stop one.
         if layout.needs_reconfiguration(state.layout):
-            budget = await pool.measure(controller, fallback=ASSUMED_SIGN_MEMORY_POOL)
+            budget = await pool.measure(controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL)
             try:
                 pool.check_fits(layout, budget)
             except pool.PoolTooLarge as err:

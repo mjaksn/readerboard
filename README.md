@@ -183,8 +183,14 @@ The unit restarts the service whenever it stops, and gives up after ten failed s
 five minutes. Almost nothing here fails permanently, which is what makes the exceptions
 worth stopping for: a memory pool too big for the sign fails identically every time, and
 each attempt puts a read on the wire that stalls a scrolling message. `systemctl status
-readerboard` says which failure it was, and `systemctl reset-failed readerboard` starts it
-trying again once the configuration is fixed.
+readerboard` says which failure it was. Once the configuration is fixed, clearing the
+give-up and starting it again are two commands, because `reset-failed` clears the counter
+and leaves the unit stopped:
+
+```
+sudo systemctl reset-failed readerboard
+sudo systemctl start readerboard
+```
 
 ### With Docker
 
@@ -454,13 +460,22 @@ alone reallocates nothing either.
 
 All four come out of one memory pool, which a BetaBrite Classic reported as 5482 bytes,
 and each file costs thirteen bytes beyond its own size. The defaults take 2518 of that.
-A pool too big to fit is refused when the settings are read, and the service asks the
-sign for its own figure before it allocates anything, so a sign with more or less memory
-than the one this was measured on is believed rather than assumed. A sign that answers and
-does not have the room stops the service starting, with a message naming what was
-configured, what it needs and what there is; that is the one failure that does stop it,
-because the alternative is erasing every message on the sign to write a pool that could
-never work. A sign that says nothing does not stop anything.
+
+That 5482 is a ceiling, and it is checked in two places that do different jobs. A
+configuration bigger than it is refused when the settings are read, on any machine,
+whether or not a sign is attached; that is the ceiling, and no sign can raise it. Then,
+on a start that is about to reallocate the sign's memory and only then, the service asks
+the sign for its own figure, and a sign reporting less than 5482 is believed. So the
+second check can lower the limit and never raise it. A sign with a bigger pool than this
+hardware's would need `ASSUMED_SIGN_MEMORY_POOL` in `readerboard/sign/pool.py` raised
+before it could use the extra.
+
+A sign that answers and does not have the room stops the service starting, with a message
+naming what was configured, what it needs and what there is; that is the one failure that
+does stop it, because the alternative is erasing every message on the sign to write a pool
+that could never work. A sign that says nothing does not stop anything. `POST /sign/reboot`
+asks the same question before it clears the sign, and answers 409 rather than erasing it,
+except when the sign is too wedged to answer, which is the case that endpoint exists for.
 
 ## Security
 
