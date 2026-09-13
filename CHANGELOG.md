@@ -11,7 +11,7 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.6.0] - 2026-09-12
 
 ### Added
 
@@ -1401,6 +1401,7 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
+[0.6.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.6.0
 [0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.0
 [0.4.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.4.0
