@@ -18,11 +18,20 @@ An alert can call variables and icons, rendered through the registry's
 :meth:`SlotRegistry.rendering`, which holds the registry's lock until the
 priority file is written. Its lock is always taken before this service's own.
 
-Only :meth:`raise_alert` hands that method a message. The two paths that put an
-alert back on the sign, :meth:`restore` and :meth:`reassert`, deliberately do
-not: an icon they name already has its picture file, since the alert calling it
-is what keeps the file, and claiming is a thing that can fail. Failing to put
-the sign back is a worse outcome than a call that draws nothing.
+Only :meth:`raise_alert` hands that method a message. The three paths that put
+an alert back on the sign, :meth:`restore`, :meth:`reassert` and
+:meth:`lifted`, deliberately do not: an icon they name already has its picture
+file, since the alert calling it is what keeps the file, and claiming is a thing
+that can fail. Failing to put the sign back is a worse outcome than a call that
+draws nothing.
+
+The sign will not take a picture while a priority message is running. Measured
+on 2026-09-13: a slot's icons, written under an alert and then revealed when the
+alert was released, drew nothing or drew a sliver, and stayed that way until the
+next refresh wrote them again. So a picture write has to have the sign to
+itself, which is what :meth:`lifted` is for. The registry holds it around the
+writes it makes, and :meth:`raise_alert` does the same for its own, since an
+alert replacing an alert draws under the one still up.
 """
 
 from __future__ import annotations
@@ -51,6 +60,15 @@ class Renderer(Protocol):
     decided the alert is one the priority file can hold, because those writes go
     into files the alert currently on the sign may be calling.
     """
+
+    @property
+    def draws_pictures(self) -> bool:
+        """Whether :meth:`draw_icons` has anything to write."""
+        ...
+
+    async def revert(self) -> None:
+        """Give back what was claimed, and redraw what it evicted."""
+        ...
 
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message to the bytes the sign is sent."""
@@ -86,6 +104,14 @@ def _utcnow() -> datetime:
 
 class _PlainRenderer:
     """The renderer for a service with no registry: no variables, no icons."""
+
+    @property
+    def draws_pictures(self) -> bool:
+        """Nothing was claimed, so nothing is going to be drawn."""
+        return False
+
+    async def revert(self) -> None:
+        """Nothing was claimed, so there is nothing to give back."""
 
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render against nothing, so a call to either is refused or draws nothing."""
@@ -171,8 +197,20 @@ class AlertService:
             body = render_message(alert.message, strict=False)
             fits = len(body) <= c.PRIORITY_FILE_CAPACITY
             if fits:
-                logger.info("restoring the alert that was active before the restart")
-                await self._write(alert, body)
+                # What is logged depends on whether anything went out, because
+                # by here it often has. The registry hands the sign back to
+                # write a picture and puts the alert straight back on, and its
+                # restore runs before this one, so on a sign with icons the
+                # alert is already up and this write is suppressed. Saying
+                # "restoring" over no packet at all is how a log stops being
+                # worth reading.
+                if await self._write(alert, body):
+                    logger.info("restored the alert that was active before the restart")
+                else:
+                    logger.info(
+                        "the alert that was active before the restart is already back "
+                        "on the sign, put back after the pictures were written"
+                    )
 
         if not fits:
             # It fitted when it was accepted, and it does not now. Re-rendering
@@ -230,6 +268,133 @@ class AlertService:
             await self._write(alert, body, force=True)
 
         return True
+
+    @contextlib.asynccontextmanager
+    async def lifted(self, render: Callable[..., bytes]) -> AsyncIterator[None]:
+        """Take the alert off the sign for the duration, then put it straight back.
+
+        For a picture write, which the sign will not take while a priority
+        message is running. The module docstring has what was measured; the
+        short version is that the write is lost and nothing retries it, because
+        the controller believes it already sent those bytes.
+
+        ``render`` is the registry's own renderer, handed in rather than reached
+        for. This runs with the registry's lock held, and every renderer this
+        service has takes that lock, so asking for one here would wait on a lock
+        the caller is holding.
+
+        The sign is handed back whether or not an alert is recorded, and that
+        is the point rather than an oversight. A state file is not a reading of
+        the sign: an unclean stop between the write and the save leaves a
+        takeover nothing here knows about, which is why :meth:`restore` clears
+        the priority file at startup even with no alert recorded. It does that
+        after the registry has restored, though, so a picture written on the way
+        back up would still go out underneath it. Releasing here makes "a
+        picture write has the sign to itself" true of the sign rather than true
+        of the record.
+
+        It is not a write per picture. The release is unforced, so the
+        controller sends it once and suppresses every repeat until something
+        puts a message back on that file.
+
+        The put-back is forced and happens either way: a write that failed
+        under a lifted alert must not leave the sign showing the rotation with
+        an alert recorded as holding it.
+
+        What differs is what happens when the put-back *itself* fails, and the
+        two exits want opposite things. If the body raised, that failure is the
+        one worth reporting and this one is logged and swallowed, or a caller
+        whose pool was full would be told the sign is unreachable. If the body
+        succeeded, nothing is in flight to protect and the sign is the thing
+        left wrong, so it travels: answering 200 over a display that is showing
+        the rotation while the service still reports an alert would be the call
+        lying about what it did.
+        """
+        async with self._lock:
+            # Unconditional, and unforced. See the docstring: what is recorded
+            # here is not what the sign is holding, and the release costs one
+            # write per process because the controller remembers it.
+            await self._controller.clear_priority()
+
+            # Read under the lock, after the release. Nothing can have taken the
+            # sign over in between, so an alert found here is one to put back.
+            alert = self._state.alert
+            if alert is None:
+                yield
+                return
+
+            try:
+                yield
+            except BaseException:
+                await self._put_back_quietly(alert, render)
+                raise
+            else:
+                await self._put_back(alert, render)
+
+    async def _put_back_quietly(
+        self, alert: AlertState, render: Callable[..., bytes]
+    ) -> None:
+        """Put a lifted alert back while another failure is already travelling.
+
+        Never raises. Every caller is on a rollback path, so anything raised
+        here would arrive in place of the failure that brought us to it, and a
+        caller told the sign is unreachable when its pool was actually full has
+        been told the wrong thing about its own request. :meth:`reassert` puts
+        the alert back on its own timer, so the sign is repaired either way.
+
+        The caller reverts the pool before calling this, so the alert is
+        rendered against the files it had when it was up rather than against the
+        ones the alert that failed had taken off it.
+        """
+        try:
+            await self._put_back(alert, render)
+        except Exception:
+            # Anything at all, for the reason above. Not BaseException: a
+            # cancellation is the caller going away and has to keep travelling.
+            logger.exception("could not put the lifted alert back on the sign")
+
+    async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> None:
+        """Write an alert that was lifted off the sign back onto the priority file.
+
+        Raises what the write raised, which is what the success path wants: the
+        sign has been handed back, this is what puts it right, and a call that
+        reported success over a failure here would leave the rotation showing
+        with an alert still recorded as holding the display and nothing to say
+        so until the periodic re-assert. The rollback paths want the opposite
+        and go through :meth:`_put_back_quietly`.
+
+        The three early returns are decisions rather than failures: the alert is
+        not this one any more, it has expired, or it no longer fits.
+        """
+        if self._state.alert is not alert:
+            # Released or replaced while it was lifted. Whoever did that owns
+            # the priority file now, and putting this back would undo them.
+            return
+
+        if self._has_expired(alert):
+            # Its deadline passed while the sign was being written to. The sweep
+            # is about to release it, so putting it back would show it once more
+            # for a second or two and then take it away again.
+            logger.info("the lifted alert had expired, so it was not put back")
+            self._state.alert = None
+            self._store.save(self._state)
+            return
+
+        body = render(alert.message, strict=False)
+        if len(body) > c.PRIORITY_FILE_CAPACITY:
+            # See restore() for how a stored alert outgrows the file. Not a
+            # failure to report: there is nothing the caller could do about it
+            # and nothing it did to cause it.
+            logger.warning(
+                "the lifted alert no longer fits the sign's priority file, so it "
+                "was not put back. The text was: %r",
+                alert.message,
+            )
+            return
+        # Forced, because the release above left the controller believing the
+        # priority file holds a release. Without it this would be suppressed as
+        # a repeat of the write before the lift.
+        await self._write(alert, body, force=True)
 
     async def raise_alert(
         self,
@@ -293,8 +458,59 @@ class AlertService:
             # above leaves the sign holding whatever it held, icons included;
             # drawing before it would have put this alert's pictures into files
             # the alert already showing is calling.
-            await render_message.draw_icons()
-            await self._write(alert, body)
+            # The alert this one is replacing, when replacing it means handing
+            # the sign back first. An alert is up and this one brings a picture,
+            # which the sign will not take while a priority message is running.
+            # The release is the alert service's own to make rather than the
+            # registry's, because the registry is called from inside this lock.
+            # Gated on there being a picture at all: without one, every alert
+            # replacing an alert would hand the sign back for nothing.
+            replaced = current if render_message.draws_pictures else None
+            if render_message.draws_pictures:
+                # Gated on there being a picture and on nothing else. Whether an
+                # alert is recorded says nothing about whether the sign is
+                # holding one: an unclean stop leaves a takeover this service
+                # never wrote down, and the picture below would be lost under it
+                # exactly as it would under an alert it does know about.
+                # Unforced, so it is suppressed when the file is already free.
+                await self._controller.clear_priority()
+
+            try:
+                await render_message.draw_icons()
+                await self._write(alert, body)
+            except BaseException:
+                if replaced is not None:
+                    # The sign was handed back for the picture and this alert
+                    # never made it onto the file, so the display is showing the
+                    # rotation with an alert still recorded as holding it. Put
+                    # the old one back. Without this the hand-back would be a
+                    # regression on its own: before it, a write that failed here
+                    # left the alert that was up still up, because nothing had
+                    # touched the priority file.
+                    #
+                    # Giving back what this alert claimed comes first, and with
+                    # a full picture pool it is what decides whether the old
+                    # alert comes back whole. Claiming this one's icon can evict
+                    # one only the alert being replaced calls, and the registry
+                    # does not undo that until this failure reaches it, so
+                    # putting the alert back before this renders it without the
+                    # icon it is still asking for.
+                    try:
+                        await render_message.revert()
+                    except Exception:
+                        # A redraw is a write, and the thing that brought us here
+                        # is usually a sign that stopped answering. The refresh
+                        # repairs the pool; what must not happen is this arriving
+                        # in place of the failure the caller asked about.
+                        logger.exception(
+                            "could not give back what the refused alert claimed"
+                        )
+
+                    # Quietly, because the failure being handled is the one the
+                    # caller asked about and this one is not.
+                    await self._put_back_quietly(replaced, render_message)
+                raise
+
             self._state.alert = alert
 
         self._store.save(self._state)
@@ -332,7 +548,8 @@ class AlertService:
         """Whether an alert's deadline has passed, on the service's own clock."""
         return alert.expires_at is not None and alert.expires_at <= self._now()
 
-    async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> None:
-        await self._controller.write_priority(
+    async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> bool:
+        """Put an alert on the priority file. Returns False if the write was suppressed."""
+        return await self._controller.write_priority(
             body, mode=MODE_BY_NAME[alert.mode].value, force=force
         )

@@ -1101,6 +1101,49 @@ class TestVariables:
         assert client.get("/variables").json() == []
 
 
+class TestPicturesUnderAnAlert:
+    """The two services are wired to each other, and only ``app.py`` does that.
+
+    ``tests/test_pictures.py`` wires them by hand to test the behaviour. Nothing
+    there would notice the line in ``app.py`` being deleted, and the whole fix
+    is that line plus what it connects: the sign does not take a picture write
+    while a priority message is running, so the alert has to come off the sign
+    for it. This goes through the HTTP surface for that reason.
+    """
+
+    def test_an_icon_written_under_an_alert_gets_the_sign_to_itself(
+        self, drawing_client, sign
+    ):
+        drawing_client.post("/alerts", json={"message": "FIRE"}, headers=HEADERS)
+        sign.packets.clear()
+
+        response = drawing_client.put(
+            "/slots/door", json={"message": "<icon:lock> LOCKED"}, headers=HEADERS
+        )
+        assert response.status_code == 200
+
+        release = frames.packet(frames.clear_priority_file())
+        assert release in sign.packets, "the alert was not taken off for the picture"
+        pictures = [
+            packet
+            for packet in sign.packets
+            if c.COMMAND_WRITE_DOTS in packet[: len(release)]
+        ]
+        assert pictures, "no picture was written at all, so this proves nothing"
+        # Off before the picture, and back on after it rather than left off.
+        assert sign.packets.index(release) < sign.packets.index(pictures[0])
+        assert sign.packets[-1] != release
+        assert drawing_client.get("/alerts").json()["message"] == "FIRE"
+
+    def test_a_slot_with_no_icon_leaves_the_alert_alone(self, drawing_client, sign):
+        drawing_client.post("/alerts", json={"message": "FIRE"}, headers=HEADERS)
+        sign.packets.clear()
+
+        drawing_client.put("/slots/door", json={"message": "LOCKED"}, headers=HEADERS)
+
+        assert frames.packet(frames.clear_priority_file()) not in sign.packets
+
+
 class TestUnreachableSign:
     """Every write that needs the sign returns 503 when it cannot be reached.
 

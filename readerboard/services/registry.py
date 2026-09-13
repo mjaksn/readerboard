@@ -51,6 +51,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -162,14 +163,47 @@ class _Rendering:
         self,
         render: Callable[..., bytes],
         draw: Callable[[], Awaitable[None]],
+        revert: Callable[[], Awaitable[None]],
+        *,
+        draws_pictures: bool = False,
     ) -> None:
-        """Hold the renderer and the write that has not happened yet."""
+        """Hold the renderer, the write that has not happened yet, and its undo."""
         self._render = render
         self._draw = draw
+        self._revert = revert
+        self._draws_pictures = draws_pictures
+
+    @property
+    def draws_pictures(self) -> bool:
+        """Whether :meth:`draw_icons` has anything to write.
+
+        The alert service reads it to decide whether the sign has to be handed
+        back before that write. A picture is not taken while a priority message
+        is running, and an alert replacing an alert draws under the one still
+        up; without this every alert that replaced another would hand the sign
+        back and take it again for no picture at all.
+        """
+        return self._draws_pictures
 
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message, exactly as :meth:`SlotRegistry._render_message` does."""
         return self._render(message, strict=strict)
+
+    async def revert(self) -> None:
+        """Give back what this claimed, and put back on the sign what it evicted.
+
+        For a caller that has to undo before it writes anything else, which is
+        the alert service putting back the alert this one was replacing. The
+        registry undoes its own claims when the failure reaches it, but that is
+        too late for a caller that writes to the display on the way past: with a
+        full pool, claiming this message's icon can evict one only the alert
+        being replaced calls, and putting that alert back before the record is
+        restored writes it to the sign without its icon.
+
+        Doing it here, under both locks, is also what stops the pool moving
+        between giving the file back and drawing the old bitmap into it.
+        """
+        await self._revert()
 
     async def draw_icons(self) -> None:
         """Write the newly claimed pictures to the sign. Call it once, after deciding."""
@@ -178,6 +212,13 @@ class _Rendering:
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+# What :meth:`SlotRegistry.set_priority_hold` takes: something that hands the
+# sign back for the duration, given the renderer to put the alert back with.
+# The alert service's own lock is below this registry's, so the renderer has to
+# be passed in rather than reached for; see :meth:`AlertService.lifted`.
+PriorityHold = Callable[[Callable[..., bytes]], AbstractAsyncContextManager[None]]
 
 
 class SlotRegistry:
@@ -200,6 +241,17 @@ class SlotRegistry:
         self._now = now
         self._lock = asyncio.Lock()
         self._dirty = False
+        self._priority_hold: PriorityHold | None = None
+
+    def set_priority_hold(self, hold: PriorityHold) -> None:
+        """Give the registry a way to hand the sign back while it writes a picture.
+
+        :meth:`AlertService.lifted` in the service. Without one, a picture
+        written while an alert is up is lost, which is what this exists for;
+        with none set the registry writes as it always did, which is what the
+        tests that have no alert service want.
+        """
+        self._priority_hold = hold
 
     # == reading ============================================================
 
@@ -393,8 +445,6 @@ class SlotRegistry:
                     name,
                 )
 
-        self._reclaim_pictures()
-
     def _reclaim_pictures(self) -> None:
         """Give a picture file back to every icon the surviving messages call.
 
@@ -406,12 +456,19 @@ class SlotRegistry:
         What it covers is the case where a picture loses its file and the
         messages do not, and without it the message calling that icon would draw
         nothing for it for good, since nothing rewrites a message that has not
-        changed. Two things can still leave it that way. A stored picture whose
+        changed. Three things can still leave it that way. A stored picture whose
         label is not in the pool, which ``_reattach_labels`` drops: a changed
         label set reallocates the sign now, so what is left is a state file that
-        disagrees with the pool for some other reason. And a claim that was
-        rolled back after an eviction it could not undo, which
-        :meth:`_undo_claims` logs when it happens.
+        disagrees with the pool for some other reason. A claim that was rolled
+        back after an eviction it could not undo, which :meth:`_undo_claims`
+        logs when it happens. And a rollback that got the file back and could
+        not draw the bitmap into it, which gives the file up rather than leave a
+        record saying it holds a picture it does not; :meth:`rendering`'s revert
+        logs that one.
+
+        Which is why this runs from :meth:`_rewrite_all` rather than from the
+        restart path alone: the third of those happens while the service is
+        running, and the refresh is the next thing along that can repair it.
 
         The refusals it swallows are real rather than defensive, and the likely
         one is not a full pool. The icon library is data and changes between
@@ -465,11 +522,28 @@ class SlotRegistry:
             )
 
     async def _rewrite_all(self) -> None:
+        # Before anything is written, because a message can outlive the picture
+        # file its icon was in and nothing rewrites a message that has not
+        # changed. Here rather than in the restore that used to call it, because
+        # this is the one place all three rewriting paths go through: a refresh
+        # and a reboot need the repair as much as a restart does, and a refresh
+        # is what the rollback in ``rendering`` counts on to give an icon its
+        # file back when it could not redraw the bitmap itself.
+        self._reclaim_pictures()
+
         # Pictures and variables first, so that no message is ever drawn calling
         # a file that is not written yet, then the messages, then the run
         # sequence that starts playing them.
-        for picture in self._state.pictures.values():
-            await self._write_picture(picture)
+        #
+        # The pictures, and only the pictures, are written with the sign handed
+        # back. This is the path the bug was found on: a restart during an alert
+        # rewrites everything while the sign is still showing the alert it kept
+        # across the restart, so every picture write landed under a priority
+        # message and none of them took.
+        if self._state.pictures:
+            async with self._priority_lifted():
+                for picture in self._state.pictures.values():
+                    await self._write_picture(picture)
         for variable in self.list_variables():
             await self._write_variable(variable)
         for slot in self.list_slots():
@@ -616,8 +690,52 @@ class SlotRegistry:
             async def draw() -> None:
                 await self._write_claims(claims.claimed)
 
+            async def revert() -> None:
+                self._undo_claims(claims)
+                # Taken and emptied before a single write, so that the handler
+                # below finds nothing left to give back however this goes. It
+                # runs when the failure reaches it, and undoing the same claims
+                # twice would release files this has just handed back.
+                evicted = list(claims.evicted)
+                claims.claimed.clear()
+                claims.evicted.clear()
+
+                # The record coming back is not enough on its own. The file
+                # holds whatever this message's icon drew into it, so an evicted
+                # picture has to be drawn again or its owner is left calling a
+                # file showing somebody else's bitmap.
+                for picture in evicted:
+                    if self._state.pictures.get(picture.key) is not picture:
+                        # _undo_claims logs and skips a file it could not
+                        # reclaim, and drawing into one of those would write
+                        # over whatever holds it now.
+                        continue
+                    try:
+                        await self._write_picture(picture)
+                    except Exception:
+                        # The bitmap did not go back, so stop saying the file
+                        # holds it. Whoever renders next then leaves the icon
+                        # out, which is what the sign draws for a picture that
+                        # is not there, instead of calling a file with another
+                        # icon's bitmap sitting in it. That second one is the
+                        # only outcome here worth refusing: it puts a wrong
+                        # picture on the display rather than a missing one.
+                        logger.warning(
+                            "could not draw icon %r again after a refused write, so "
+                            "its file goes back to the pool",
+                            picture.key,
+                        )
+                        self._state.pictures.pop(picture.key, None)
+                        self._layout.pictures.release(picture.key)
+                        self._dirty = True
+
             try:
-                yield _Rendering(self._render_message, draw)
+                yield _Rendering(
+                    self._render_message,
+                    draw,
+                    revert,
+                    draws_pictures=bool(claims.claimed),
+                )
             except BaseException:
                 # The alert did not land, so nothing calls these. They are given
                 # up rather than left holding files against a message that is
@@ -692,7 +810,13 @@ class SlotRegistry:
                 # them, so the sign is never drawing a file that points at a
                 # picture not yet written. Same rule as a variable, and for the
                 # same reason.
-                await self._write_claims(claims.claimed)
+                # Only when there is a picture to write. An empty claim list
+                # is the common case, a message whose icons already have their
+                # files included, and lifting an alert for it would take the
+                # sign off an alert to write nothing.
+                if claims.claimed:
+                    async with self._priority_lifted():
+                        await self._write_claims(claims.claimed)
             except BaseException:
                 # The slot file has to go back too, and only here. A new key is
                 # given one by ``assign`` a few lines up, and the record that
@@ -1275,9 +1399,13 @@ class SlotRegistry:
         put back into them.
 
         A restored picture's file may hold the wrong bitmap, because the write
-        that failed came after the eviction. That is the same tolerance
-        :meth:`upsert` already relies on: the record says which icon belongs in
-        which file, and the next refresh writes every one of them again.
+        that failed came after the eviction. That is the tolerance :meth:`upsert`
+        relies on: the record says which icon belongs in which file, and the next
+        refresh writes every one of them again. The alert service does not rely
+        on it, because it writes the replaced alert straight back to the display
+        and a wrong bitmap would be on screen rather than merely on record; it
+        calls :meth:`_Rendering.revert`, which draws the evicted pictures again
+        before it puts that alert back.
         """
         for key in claims.claimed:
             self._state.pictures.pop(key, None)
@@ -1305,9 +1433,42 @@ class SlotRegistry:
         )
 
     async def _write_claims(self, keys: list[str]) -> None:
-        """Draw newly claimed icons into their files, before anything calls them."""
+        """Draw newly claimed icons into their files, before anything calls them.
+
+        The sign has to be handed back for these, and it is not done here. This
+        runs inside :meth:`rendering` as well, which the alert service calls
+        with its own lock already held, so taking that lock here would wait on
+        the caller. Every caller that is not the alert service wraps this in
+        :meth:`_priority_lifted` instead, and the alert service hands the sign
+        back itself.
+        """
         for key in keys:
             await self._write_picture(self._state.pictures[key])
+
+    @contextlib.asynccontextmanager
+    async def _priority_lifted(self) -> AsyncIterator[None]:
+        """Hand the sign back while pictures are written, if an alert is holding it.
+
+        A picture written while a priority message is running is not taken by
+        the sign, measured on 2026-09-13, and nothing retries it: the controller
+        believes it sent those bytes and will not send them again until a
+        refresh forgets. So the alert comes off for the write and goes straight
+        back on.
+
+        Wrapped around the picture writes and nothing else. The STRING, TEXT and
+        run sequence writes that follow are all measured landing under an alert,
+        so including them would lengthen the moment the alert is off the sign
+        for no gain.
+
+        Nothing happens when no alert service was wired in, which is the tests
+        that use the registry on its own.
+        """
+        hold = self._priority_hold
+        if hold is None:
+            yield
+            return
+        async with hold(self._render_message):
+            yield
 
     def _require_variables(self) -> None:
         if not self._layout.variable_count:
