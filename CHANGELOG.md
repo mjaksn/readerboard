@@ -13,6 +13,39 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Added
+
+- **A message can draw an icon.** `<icon:name>` puts one of 148 built-in bitmaps
+  where the tag sits, and `<icon:name:colour>` retints the ones drawn in a single
+  ink: `<icon:lock:red> DOOR LOCKED` costs the message two bytes. The colour words
+  are the colour tokens' own, down to `dimred` and `dimgreen`, so a message that
+  can say `<red>` needs no second spelling. `GET /enumerations/icons` lists every
+  one with its group, its width and whether it takes a tint, and each is answered
+  as the tag that draws it rather than a bare name.
+
+  Each icon lives in a SMALL DOTS PICTURE file on the sign, which is a third pool
+  beside the slots and the variables. Nobody creates an icon and no route deletes
+  one: a file is claimed by whichever icon a message calls, and kept until another
+  icon needs it. That keeping is deliberate rather than untidy. Every write to a
+  picture blanks the display and restarts a scrolling message, so a file held past
+  its last caller is what makes a source alternating between two icons cost
+  nothing. A pool where every file is holding an icon something still calls is a
+  409, and `GET /health` now reports pictures used against pictures total.
+
+  An icon is not a live value. A picture write costs a blank; a variable does not,
+  which is what `<var:name>` is for.
+
+- **`picture_count`**, how many icons can be on the sign at once. It defaults to
+  **0**, which switches icons off, and that default is what keeps this release from
+  reallocating anybody's sign: a state file written before this describes a
+  configuration with no pictures, which is exactly the configuration the default
+  asks for. **Raising it from 0 erases every message on the sign**, once, on the
+  next start, like any other change to the file pool.
+
+  A picture file takes 69 bytes of the sign's memory pool, measured on a BetaBrite
+  Classic whose whole pool is 5482, so 16 is comfortable alongside the default
+  slots and variables and 32 is about the ceiling.
+
 ### Changed
 
 - **The size of the sign's memory pool is read from the sign rather than
@@ -24,8 +57,8 @@ library, and the names inside it may move without that being a breaking change.
   one has never been measured, and the protocol document does not say, which is
   reason enough not to send one.
 
-  `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity` are now
-  checked twice. Once when the settings are read, against the 5482 bytes a
+  `slot_count`, `slot_capacity`, `variable_count`, `variable_capacity` and
+  `picture_count` are now checked twice. Once when the settings are read, against the 5482 bytes a
   BetaBrite Classic has, because settings are validated on machines with no sign
   attached. Once again before the sign is reallocated, against the figure the
   sign itself reports.
@@ -72,6 +105,15 @@ library, and the names inside it may move without that being a breaking change.
   as the document's, pinned by `tests/test_constant_values.py`;
   `docs/protocol-notes.md` records the readings, the two models that fit them
   equally well, and the one measurement that would separate them.
+
+### Fixed
+
+- **A picture file's size in the memory configuration was being charged as bytes.**
+  A DOTS file's four hex digits are a geometry rather than a byte count, so a seven
+  by sixteen icon read as 1808 bytes against a real cost of 69. Nothing shipped
+  allocated one, so no configuration was refused in the field, but the arithmetic
+  was waiting for the first caller. `FileAllocation.pool_bytes` has the measurement
+  and the sign simulator's own sum now agrees with it.
 
 ## [0.6.0] - 2026-09-12
 

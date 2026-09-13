@@ -57,6 +57,13 @@ A **variable** is a value a slot's message or an alert calls with `<var:name>`.
 Changing it rewrites only the variable, so the sign shows the new value without
 blanking or restarting what calls it.
 
+An **icon** is one of the built-in bitmaps, drawn where `<icon:name>` sits in a
+message or an alert. `GET /enumerations/icons` lists them. There is a fixed pool
+of picture files on the sign and it is far smaller than the library, so a file is
+claimed by whichever icon a message calls and kept until another icon needs it.
+Icons are off until `picture_count` is raised, because raising it reallocates the
+sign's memory and clears it.
+
 Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
 which reads the sign rather than the service: it puts a question on the wire and
 holds the sign until the answer comes back. The service's own reads and
@@ -65,14 +72,16 @@ holds the sign until the answer comes back. The service's own reads and
 
 A failure is reported by the status code, with the reason in a `detail` field:
 400 for a command the sign does not have, a parameter it will not accept, a
-message or value too long for its file, markup the sign cannot render or a call
-to a variable that does not exist, 401 for a missing or wrong `X-API-Key`, 404
-for a slot or variable that does not exist, 409 when every slot or every
-variable is already in use or a variable something still calls is deleted, 503
-when the sign is unreachable, stops partway through an answer or answers with
-something the service cannot read, or no API key is configured at all, 500 for
-something the service has no code for, and 422 for a body that is not the shape
-the endpoint declares, which includes a display mode the sign does not have.
+message or value too long for its file, markup the sign cannot render, a call to
+a variable that does not exist, an icon nobody has, a colour asked for on an icon
+drawn in fixed colours, or an icon called while icons are switched off, 401 for a
+missing or wrong `X-API-Key`, 404 for a slot or variable that does not exist, 409
+when every slot, every variable or every picture file is already in use or a
+variable something still calls is deleted, 503 when the sign is unreachable,
+stops partway through an answer or answers with something the service cannot
+read, or no API key is configured at all, 500 for something the service has no
+code for, and 422 for a body that is not the shape the endpoint declares, which
+includes a display mode the sign does not have.
 """
 
 

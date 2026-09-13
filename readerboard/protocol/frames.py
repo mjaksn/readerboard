@@ -115,8 +115,8 @@ class FileAllocation:
         adding it to a budget charges a seven by sixteen icon 1808 bytes for
         something that was measured taking 56. The sign packs two pixels to a
         byte, which is what Table 22's nine pixel codes need, and that halving
-        was exact at 112, 448 and 1984 pixels on 2026-09-12. See "A second run"
-        in docs/protocol-notes.md.
+        was exact at 112, 448 and 1984 pixels on 2026-09-12. See "SMALL DOTS
+        PICTURE files, measured on the sign" in docs/protocol-notes.md.
         """
         if self.file_type != c.FILE_TYPE_DOTS:
             return self.capacity

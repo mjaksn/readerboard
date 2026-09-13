@@ -14,11 +14,14 @@ write and nothing after that.
 A variable is a value in a STRING file of its own, which a slot's message calls
 with ``<var:name>``. Changing a variable rewrites only its STRING file, which
 does not blank the display or restart the message calling it, and one variable
-can be called from any number of messages. Slots and variables share one lock,
-because the rule that holds them together spans both: a variable cannot be
-deleted while a message calls it. Its STRING file's label is written into every
-calling message as raw bytes, so handing that label to another variable would
-make those messages show the wrong value, with nothing on the sign to say so.
+can be called from any number of messages. A variable a message calls cannot be
+deleted: its STRING file's label is written into every calling message as raw
+bytes, so handing that label to another variable would make those messages show
+the wrong value, with nothing on the sign to say so.
+
+All three pools here share one lock, because the rules holding them together
+span more than one of them. That rule about variables is the first, and the
+picture rules below are the rest.
 
 An icon is a bitmap in a picture file, which a message draws with
 ``<icon:name>``. It works unlike either of the other two and the difference is

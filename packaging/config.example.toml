@@ -67,9 +67,9 @@ backoff_max = 60.0
 # memory on the next start, and that ERASES every message on it. The service
 # will do it and say so in the log, but do not change them casually.
 #
-# All four come out of one memory pool, which is 5482 bytes on a BetaBrite
+# All five come out of one memory pool, which is 5482 bytes on a BetaBrite
 # Classic, and each file costs thirteen bytes beyond its own size. The defaults
-# below take 2518 of it.
+# below take 2518 of it, and each icon takes 69 on top.
 #
 # That 5482 is a ceiling. A pool bigger than it is refused when these settings
 # are read, wherever they are read, so a sign with more memory cannot be

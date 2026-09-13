@@ -44,8 +44,8 @@ The state file, and the one dangerous operation
 
 Writing a memory configuration erases every message on the sign, so the service
 does it only when the pool described by ``slot_count``, ``slot_capacity``,
-``variable_count`` and ``variable_capacity`` differs from the plan recorded in
-its state file. No state file means no record, which reads as a change, which
+``variable_count``, ``variable_capacity`` and ``picture_count`` differs from the
+plan recorded in its state file. No state file means no record, which reads as a change, which
 erases the sign.
 
 That is correct and expected on the first run against a sign this machine has
@@ -143,12 +143,13 @@ api_key = "%(api_key)s"
 state_path = ".local-sign-state.json"
 
 # Changing any of these reallocates the sign's memory on the next start, and
-# that ERASES every message on it. Eight messages of 256 bytes and eight
-# variables of 32 bytes is the default.
+# that ERASES every message on it. Eight messages of 256 bytes, eight variables
+# of 32 bytes and no icons at all is the default.
 #slot_count = 8
 #slot_capacity = 256
 #variable_count = 8
 #variable_capacity = 32
+#picture_count = 0
 
 # The zone the sign's clock is set in. The service sets that clock at startup,
 # every hour, and whenever the link comes back. Unset means this machine's own

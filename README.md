@@ -402,6 +402,40 @@ actions:
       value: "{{ states('sensor.outside_temperature') | round(0) | int }}"
 ```
 
+### Icons
+
+A message can draw one of 148 built-in bitmaps where a tag sits. `<icon:sun> FINE`
+puts a sun in front of the word, and `<icon:lock:red>` retints an icon that is drawn
+in a single ink; the colour words are the colour tokens' own, down to `dimred` and
+`dimgreen`, so a message that can say `<red>` needs no second spelling. An icon
+drawn in its own colours, such as the sun, takes no tint and asking for one is
+refused rather than ignored. `GET /enumerations/icons` lists every icon with its
+group, its width and whether it takes a tint.
+
+Icons are off until `picture_count` is set, because each one on the sign needs a
+picture file of its own and allocating those reallocates the sign's memory, which
+erases every message on it. Set it once, alongside the other pool settings, and
+16 is a comfortable number.
+
+Four things are worth knowing, and the first is the one that decides how to use them:
+
+- **An icon is not a live value.** Every write to a picture file blanks the display
+  and restarts a scrolling message. A weather slot stepping from sun to cloud to rain
+  pays that each time it lands on an icon the sign is not already holding. Something
+  that changes every minute belongs in a variable, which costs no blank at all.
+- **The pool is smaller than the library, and that is the design.** A picture file is
+  claimed by whichever icon a message calls, and kept after its last caller goes, so a
+  source alternating between two icons costs nothing after the first write. When every
+  file is holding an icon something still calls and a new one is asked for, the write
+  is refused with a 409. `GET /health` reports pictures used against pictures total,
+  and a full pool is the resting state rather than a warning.
+- **A tint makes a second picture.** `<icon:check:green>` and `<icon:check:red>` are
+  two bitmaps and take two files.
+- **An icon can be parted from its word.** A line too wide for the display breaks onto
+  a second page in HOLD, and the last word can arrive there without the icon labelling
+  it. The service cannot warn about this: it would have to know the width of the sign's
+  proportional font.
+
 ### Recovering a sign that has stopped responding
 
 A sign mounted out of reach can wedge: a stray bit corrupts what its decoder is
@@ -452,14 +486,16 @@ telnet serial protocol, `/dev/ttyUSB0` or `COM3` for a cable plugged straight in
 and the port, and pyserial's answer to one that has a slash names neither the setting
 nor the value.
 
-Four settings reallocate the sign's memory when changed, and **that erases every message
-on it**: `slot_count`, `slot_capacity`, `variable_count` and `variable_capacity`. The
-service will do it, and say so loudly in the log, but they are not settings to fiddle
-with. With `variable_count` at 0, `variable_capacity` allocates nothing, so changing it
-alone reallocates nothing either.
+Five settings reallocate the sign's memory when changed, and **that erases every message
+on it**: `slot_count`, `slot_capacity`, `variable_count`, `variable_capacity` and
+`picture_count`. The service will do it, and say so loudly in the log, but they are not
+settings to fiddle with. With `variable_count` at 0, `variable_capacity` allocates
+nothing, so changing it alone reallocates nothing either. `picture_count` starts at 0,
+which switches icons off, so turning them on is one deliberate erase.
 
-All four come out of one memory pool, which a BetaBrite Classic reported as 5482 bytes,
-and each file costs thirteen bytes beyond its own size. The defaults take 2518 of that.
+All five come out of one memory pool, which a BetaBrite Classic reported as 5482 bytes,
+and each file costs thirteen bytes beyond its own size. The defaults take 2518 of that,
+and each icon takes 69 on top, so the defaults with sixteen icons take 3622.
 
 That 5482 is a ceiling, and it is checked in two places that do different jobs. A
 configuration bigger than it is refused when the settings are read, on any machine,

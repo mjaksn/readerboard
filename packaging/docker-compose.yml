@@ -48,10 +48,12 @@ services:
       #   The sign's clock. Unset means the container's own local time, which is
       #   UTC unless you have changed it.
       #
-      # READERBOARD_SLOT_COUNT, READERBOARD_SLOT_CAPACITY, READERBOARD_VARIABLE_COUNT
-      # and READERBOARD_VARIABLE_CAPACITY
+      # READERBOARD_SLOT_COUNT, READERBOARD_SLOT_CAPACITY, READERBOARD_VARIABLE_COUNT,
+      # READERBOARD_VARIABLE_CAPACITY and READERBOARD_PICTURE_COUNT
       #   Changing any of them reallocates the sign's memory on the next start,
       #   and that ERASES every message on it. Not settings to fiddle with.
+      #   The last one is how many icons can be on the sign at once, and it
+      #   starts at 0, so turning icons on is one deliberate erase.
       #
       # READERBOARD_LOG_LEVEL: INFO
       #   Logs go to stderr, where `docker compose logs` collects them.

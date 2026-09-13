@@ -85,10 +85,15 @@ table is overwritten."
 
 So the service allocates its whole file pool once, records the applied plan in
 its state file, and reconfigures only when the plan itself changes. Changing
-`slot_count`, `slot_capacity`, `variable_count` or `variable_capacity` is
-therefore destructive on the next start. It is done deliberately, it is logged
-at WARNING, and it must never become something an ordinary message or variable
-update can trigger.
+`slot_count`, `slot_capacity`, `variable_count`, `variable_capacity` or
+`picture_count` is therefore destructive on the next start. It is done
+deliberately, it is logged at WARNING, and it must never become something an
+ordinary message, variable or icon update can trigger.
+
+`picture_count` defaults to 0, which is what makes it safe to add: a state file
+written before icons existed describes a configuration with no pictures in it,
+and that is exactly the configuration a service left at the default wants, so
+upgrading reallocates nobody's sign. Turning icons on is one deliberate erase.
 
 The pool has to fit, and there is less of it than there looks. This sign
 reported 5482 bytes on 2026-09-12, having been budgeted against 26000 since
@@ -240,10 +245,47 @@ rules hold it together, and each has a reason that is easy to lose:
   rest of what the sign was measured doing, under "STRING files, measured on
   the sign".
 
+An **icon** is a bitmap from the built-in library, drawn into a SMALL DOTS
+PICTURE file of its own and called from a message with `<icon:name>`, or
+`<icon:name:colour>` for one that takes a tint. That is the third pool of sign
+files, beside the slots and the variables, and it is the one nobody creates: no
+route makes an icon or deletes one, and the registry hands the files out by
+itself. Four things hold it together:
+
+- **A picture file is keyed by the icon and its tint**, since a tint changes the
+  bitmap. `<icon:check:green>` and `<icon:check:red>` are two pictures.
+- **Release is lazy**, which is where this stops being the variable design.
+  A file is given up only when the pool is full and a new icon needs one,
+  because every write to a picture blanks the display and restarts a scroll.
+  Freeing a file the moment its last caller went would spend a blank on
+  tidiness. So a full pool is the resting state, not a warning, and
+  `GET /health` reports it as pictures used.
+- **Every holder counts, not only the visible ones.** A hidden slot counts, or
+  showing it again would stop being one run sequence write, and the alert counts
+  too. `picture_occupancy` and `_icon_in_use` are where that lives.
+- **Pictures are written before messages**, ahead of the variables, on a
+  restore, a refresh and a reboot, so no message is drawn calling a picture file
+  with nothing in it yet. A call to an empty one draws nothing at all.
+
+The renderer is told which file each icon lives in and nothing else, exactly as
+it is for variables, so the registry stays the single answer to whether a name
+exists. That puts an obligation on the registry: it resolves every name through
+`icons.resolve` before rendering, or a misspelled icon would be reported as
+having no picture, which is true and useless.
+
+One thing to say rather than check: a line too wide for the display breaks onto
+a second page in HOLD, and the last word can land there without the icon that
+labelled it. Warning about that would need the width of the sign's proportional
+font, which is not recorded anywhere here and was never measured.
+
 An **alert** is written to the sign's priority file, which by protocol
 suppresses every other file until a bare priority write releases it. An
 ordinary write with an empty body is not a release: the sign reads its
-formatting bytes as a blank message and keeps the screen.
+formatting bytes as a blank message and keeps the screen. An alert can draw an
+icon, and it is the one caller that renders without claiming: putting a stored
+alert back on the sign after a restart uses the file the alert itself is
+already holding, because failing to restore the display is worse than a call
+that draws nothing.
 
 `SignController` is the only thing allowed to talk to the sign. Every write goes
 through one `asyncio.Lock`, with the blocking pyserial call dispatched to a
