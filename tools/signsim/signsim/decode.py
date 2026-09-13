@@ -905,16 +905,14 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
                     at,
                     chunk,
                     "file %s" % printable(entry.label),
-                    "%s file, %s, %d bytes, %s"
+                    "%s file, %s, %s, %s"
                     % (
                         FILE_TYPE_NAMES.get(entry.file_type, "unknown type"),
                         "locked against the infrared keyboard"
                         if entry.locked
                         else "editable from the infrared keyboard",
-                        entry.capacity,
-                        "always eligible to play"
-                        if entry.always_eligible
-                        else "scheduled %s" % printable(entry.schedule),
+                        _entry_size(entry),
+                        _entry_schedule(entry),
                     ),
                 )
             )
@@ -934,7 +932,7 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
             Span(SpanKind.UNKNOWN, at, remainder, "trailing bytes", "Not a whole entry")
         )
 
-    claimed = frames.memory_claimed_by(entry.capacity for entry in entries)
+    claimed = frames.memory_claimed_by(entry.pool_bytes for entry in entries)
     return SetMemoryConfig(
         code=code,
         name="Set memory configuration",
@@ -958,6 +956,46 @@ def _memory_config(code: bytes, parameter: bytes, offset: int, spans: list[Span]
         complaints=tuple(complaints),
         entries=tuple(entries),
     )
+
+
+def _entry_size(entry: MemoryEntry) -> str:
+    """Say how big one file in a configuration is, in the units its type uses.
+
+    A picture's four hex digits are a geometry rather than a byte count, so
+    reading them as bytes puts 1808 against a seven by sixteen icon that takes
+    56. Both are shown: the geometry is what was sent, and the bytes are what it
+    costs the pool, which is the number that has to add up.
+    """
+    if not entry.is_picture:
+        return "%d bytes" % entry.capacity
+    rows, columns = entry.rows_and_columns
+    return "%d by %d pixels, %d bytes of pool" % (rows, columns, entry.pool_bytes)
+
+
+# Table 15's colour statuses, in the last four characters where every other
+# file type carries a schedule.
+DOTS_COLOUR_NAMES = {
+    c.DOTS_MONOCHROME: "monochrome",
+    c.DOTS_THREE_COLOUR: "3-colour",
+    c.DOTS_EIGHT_COLOUR: "8-colour",
+}
+
+
+def _entry_schedule(entry: MemoryEntry) -> str:
+    """Say what the last four characters of one file's entry mean.
+
+    They are a schedule for every file type but one. A picture has a colour
+    status there instead, so reading it as a schedule reports an 8-colour
+    picture as "scheduled 4000", which is four digits of nonsense in the one
+    place a reader is looking for meaning.
+    """
+    if entry.is_picture:
+        return "%s" % DOTS_COLOUR_NAMES.get(
+            entry.schedule.upper(), "an unlisted colour status, %s" % printable(entry.schedule)
+        )
+    if entry.always_eligible:
+        return "always eligible to play"
+    return "scheduled %s" % printable(entry.schedule)
 
 
 def _memory_entry(chunk: bytes) -> tuple[MemoryEntry | None, list[str]]:

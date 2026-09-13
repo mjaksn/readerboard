@@ -108,6 +108,23 @@ class TestRoundTrip:
         assert entry.rows_and_columns == (7, 16)
         assert entry.pool_bytes == 56
 
+    def test_a_picture_is_described_by_its_geometry_and_costed_by_its_pixels(self):
+        # The decoder used to read the size field as bytes, so a seven by
+        # sixteen icon appeared as 1808 in the span and in the total, while the
+        # simulator's own state panel said 56. One of the two had to be wrong.
+        allocations = [
+            frames.FileAllocation(b"A", 256),
+            frames.FileAllocation.dots(b"6", 7, 16),
+        ]
+        result = payload(frames.set_memory_config(allocations))
+        described = [one.description for one in result.spans if one.label == "file 6"]
+        assert described == [
+            "DOTS file, editable from the infrared keyboard, 7 by 16 pixels, "
+            "56 bytes of pool, 8-colour"
+        ]
+        # 256 and 56 of data, 13 of overhead each, and 6 over the configuration.
+        assert "344 bytes claimed" in result.command.summary
+
     def test_the_simulator_charges_a_picture_what_the_service_charges_it(self):
         # Including an odd pixel count, which rounds up in both. The two sums
         # disagreeing would make the simulator accuse a configuration the
