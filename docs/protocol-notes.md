@@ -511,8 +511,13 @@ What this settles for the service:
 - **Alerts can carry live values**, and a STRING write can go out while an alert is up. It
   is not on the list of things that cancel one, and on this sign it did not. That rests on
   one alert calling one STRING, which is all the session tried.
-- **Reading a STRING back has no place in normal running.** It blanks the display, and it
-  cannot tell an unallocated label from an empty one.
+- **What reading a STRING back costs depends on what the display is doing, not on the
+  read.** This run saw it blank a scrolling message, and that was written here without the
+  qualifier, which made a STRING read sound uniquely expensive. Question 11 under "What the
+  spike has settled" put every kind of read to the sign on 2026-09-12: against a message
+  held still, nothing, a STRING read included; against a scrolling one, about half a second
+  of stall and blank, from a STRING read and a special function read alike. It still cannot
+  tell an unallocated label from an empty one.
 
 ## SMALL DOTS PICTURE files, measured on the sign
 
@@ -547,7 +552,11 @@ dim red, dim green, brown, orange and yellow.
   allocated.
 - **Reading a picture back blanks the display** for under a second, with stray dots lit
   while it does. The reply echoes the write command, the label, the height and the
-  width, then the rows.
+  width, then the rows. What that session did not record is what the display was doing at
+  the time, and question 11 under "What the spike has settled" later made that the thing
+  that decides a read's cost: every other read leaves a message held still alone and costs
+  a scrolling one about half a second. So the stray dots belong to a picture read, and the
+  blank may belong to the motion rather than to the read.
 
 Three questions are left open. The session's memory configuration read and picture read
 were both cut short by the reader, which took one byte a poll over `socket://` until that
@@ -573,17 +582,19 @@ What this settles for the service, if it ever sends pictures:
 
 ## What the spike has settled
 
-The wire format questions are closed. Eleven behavioural ones have been opened and ten are
-settled. A session on 2026-09-09 answered three of the four open then; a second on
-2026-09-11 answered the fourth along with a fifth added in between; and 2026-09-12 took two
-that came out of the fifth, then three more, and corrected one of its own answers on a
-second run that day. What each turned out to be is recorded here rather than deleted,
+The wire format questions are closed. Eleven behavioural ones have been opened and all
+eleven are settled. A session on 2026-09-09 answered three of the four open then; a second
+on 2026-09-11 answered the fourth along with a fifth added in between; and 2026-09-12 took
+two that came out of the fifth, then three more, corrected one of its own answers on a
+second run that day, and opened an eleventh and answered it. What each turned out to be is recorded here rather than deleted,
 because the next person will want to know it was answered on hardware and not merely
 assumed, and because two of these answers were wrong the first time and the record of how
 is worth more than the answer alone.
 
-The eleventh was opened on 2026-09-12 and is **not answered**. It asks what a read costs
-the display, which two earlier runs exercised without ever looking.
+The eleventh was opened and answered on 2026-09-12. It asks what a read costs the display,
+which two earlier runs had exercised without ever looking, and its answer decides whether
+this sign can be polled rather than re-pushed on a timer: **nothing while it is holding a
+message still, about half a second of stall and blank while it is scrolling one**.
 
 1. **Is the rotation seamless?** Answered yes, near enough. Files A, B and C cycling by
    themselves ran without much of a pause, so server-side rotation is not needed.
@@ -687,62 +698,70 @@ the display, which two earlier runs exercised without ever looking.
     about five seconds; one never-written file after B, about two seconds; five empty files
     after C, about five seconds. Whether the sign charges per file, per gap, or something
     else again, these runs cannot say, and nothing here needs it settled.
-11. **What does a read cost the display?** Open, and the only one of these still open.
-    Step 7 has sent `F$`, `F#`, `F.` and `F)` to this sign twice over, on 2026-09-09 and
-    again on 2026-09-12, and both runs recorded only whether a reply came back. Nobody was
-    ever asked what the display did, so the absence of a recorded disturbance here is not
-    evidence of one; it is evidence that the question was not put.
+11. **What does a read cost the display?** Answered on 2026-09-12: **nothing at all while
+    the sign is holding a message still, and about half a second of stall and blank while
+    it is scrolling one.** Which read goes out makes no difference, and neither does
+    whether the file being read is the one the sign is drawing.
 
-    The nearest measurement is a STRING file read on 2026-09-10, which "blanked the display
-    briefly mid-scroll and picked up from about where it was", and which is why "Reading a
-    STRING back has no place in normal running" is written above. That one result has since
-    been standing in for reads in general, and it should not: a STRING is buffered inline
-    into whatever message calls it, while these four ask the sign about its own tables and
-    touch no file a message is drawing. They could differ in either direction.
+    Sixteen reads went out one at a time, each named before it was sent so that a
+    disturbance could be pinned on it, in five rounds:
 
-    Step 7 now asks, and asks it five ways, because there is no reason to expect one
-    answer to cover them all:
+    - the four special function reads against a **held** message: **nothing**, from any of
+      the four, so the magnitude question never got an answer and did not need one;
+    - the same four against a **scrolling** message: "a quick stall and then blank
+      together", "all in about half a second", from **all four**;
+    - a **TEXT file read** of a file holding text that the run sequence does not name,
+      against a held message: **nothing**;
+    - a **STRING file read** of a value no message calls, against the same held message:
+      **nothing**, and nothing to tell the two content reads apart;
+    - all six of those reads again with **the STRING file as the display**: A rewritten to
+      hold nothing but the two-byte call to that STRING, in ROTATE mode, so that the whole
+      of what the sign was drawing lived in the file being read. **All six** did the same
+      quick stall and blank as the scrolling round of four.
 
-    - the four special function reads against a **held** message;
-    - the same four against a **scrolling** one, which is where the 2026-09-10
-      observation came from and which can show damage a held message cannot: a stall, a
-      jump, or a restart from the right-hand edge rather than simply a blank;
-    - a **TEXT file read** of a file that holds text but is not named in the run
-      sequence;
-    - a **STRING file read** of a value no message calls;
-    - and then all of those again **with the STRING file being the display**: A is
-      rewritten to hold nothing but the two-byte call to that STRING, in ROTATE mode, so
-      the whole of what the sign is drawing lives in the file being read.
+    So what decides the cost is what the display is doing, not what is being asked. Reading
+    the file the sign is drawing from cost no more than reading its own tables, and reading
+    the STRING that was the entire message cost the same as the four special functions
+    beside it. The hypothesis the last round was built to separate out, that reading an idle
+    file might be free while reading the file on the display is not, is answered no: idle or
+    not makes no difference in either direction.
 
-    The middle two are the reads a reconciliation scheme would actually make, of files
-    the sign is not drawing from, so they may cost nothing even though the 2026-09-10
-    STRING read did not. The last is what tells the two apart, and it is the case the
-    whole question turns on: if reading an idle file is free and reading the file on the
-    display is not, then the cost belongs to what is being drawn rather than to reading,
-    and a scheme that only ever reads idle files is safe at any interval. If both cost
-    the same, polling has a price that no amount of care will remove.
+    **What that prices.** Any design that polls the sign instead of re-pushing it on a timer
+    pays nothing while the sign is holding, and holding is what a slot does unless its caller
+    asked for something else. It pays about half a second of stall and blank to whatever is
+    scrolling at the moment the read lands. The service cannot see which of the two it is
+    about to hit, so an interval is a bet on how much of a given sign's time is spent in
+    motion, and a sign carrying a ROTATE slot is in motion for a good part of it.
 
-    Step 2 allocates one STRING file for this, at the protocol's 125 byte ceiling so the
-    value can be long enough to scroll. No step displays it except the last part of step
-    7, which puts it back afterwards.
+    **What was not covered.** The held rounds put one message on the display with the run
+    sequence naming only its file, so the sign had nowhere to rotate to and was completely
+    still. A rotation of held messages is still holding, but it redraws each time it moves
+    to the next file, and no read here was timed to land on one of those changeovers.
+    Nothing above says what that would look like.
 
-    Throughout, the display is put on one message and held still first, because a
-    disturbance this small vanishes into a rotation changing by itself, and the questions
-    ask for a magnitude against the blank a TEXT file write causes rather than for a yes
-    or no. Any design that polls the sign by reading is priced on these answers.
+    Every read was answered. The summary records eight replies rather than sixteen because
+    the four special functions are kept from the first round and sent twice more without
+    being stored: the four, then the idle TEXT file and the idle STRING, then the wrapper
+    TEXT file and the STRING that was the display. The adapter carries all of them in both
+    directions, which is the third session to show it.
 
-    **Every read waits for the operator before it goes out.** Sixteen reads run in that
-    step, and sent back to back at a couple of seconds each nothing can be pinned on any
-    one of them, which is the whole difficulty with this question: the answer that matters
-    is not whether reading disturbs the display but which kind of read does. So each is
-    announced by name, sent on its own, and followed by a question asking which one did
-    it. The prompts that only wait carry no answer and are kept out of the summary, so
-    that sixteen "(no answer)" rows do not bury the observations.
+    The answers above are from a careful second run of step 7. A first run the same day
+    recorded "all four" for the round of six, which cannot be right for six reads: the
+    prompt offered "one of the four" among its options, a list belonging to the round
+    before it, and the question was misread accordingly. The option list was wrong, not the
+    sign, and the prompt now offers "all six". Every answer in this document that was wrong
+    the first time has been about something brief on the display; this is the first where
+    the fault was in the question rather than in the watching.
 
-    There is no TEXT file read in `readerboard/protocol/frames.py`. The spike builds that
-    payload from `COMMAND_READ_TEXT` and the label by hand, the way the STRING spike built
-    its own, so that a builder nothing has exercised does not land in the protocol layer
-    ahead of the measurement that would justify it.
+    Two pieces of the apparatus are worth keeping. Every read waits for the operator before
+    it goes out, because sixteen reads sent back to back at a couple of seconds each cannot
+    be told apart, and the answer that matters was never whether reading disturbs the
+    display but which kind of read does. And there is no TEXT file read in
+    `readerboard/protocol/frames.py`: the spike builds that payload from `COMMAND_READ_TEXT`
+    and the label by hand, the way the STRING spike built its own, so that a builder nothing
+    has exercised does not land in the protocol layer ahead of the measurement that would
+    justify it. Step 2 allocates the one STRING file this needs, at the protocol's 125 byte
+    ceiling so the value is long enough to scroll.
 
 ### The change those three were asked for, and why it was dropped
 
@@ -887,10 +906,16 @@ separately powered: the sign can be power cycled with the TCP link still up, not
 fires, and the suppression cache then skips exactly the writes that would repair a blank
 sign. Being able to ask would replace that with a cheap comparison.
 
+Cheap on the wire, and as of 2026-09-12 measured on the display as well: a read costs a
+message held still nothing at all, and a scrolling one about half a second of stall and
+blank, whichever of these reads it is and whatever file it names. Question 11 under "What
+the spike has settled" has the five rounds that separated those out.
+
 The frame builders exist, and the adapter is two-way: this sign answered all four of these
 reads through it on 2026-09-09, and answered them again during the soft reset check above,
-which read two text files back with `B` as well. Nothing in the service depends on that
-yet, which is deliberate; the reads are available whenever divergence detection is worth
+which read two text files back with `B` as well, and answered all four again on 2026-09-12
+with a TEXT file and a STRING file read back beside them. Nothing in the service depends on
+that yet, which is deliberate; the reads are available whenever divergence detection is worth
 building.
 
 The trap when reading is pyserial's, not the sign's. Over `socket://`, which is how this
