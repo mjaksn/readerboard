@@ -537,9 +537,13 @@ def string_on_the_display(
         "[all six/the STRING read/the text read/one of the four/several/"
         "could not tell]"
     )
+    # A comparison against the idle STRING read of a moment ago was asked here
+    # once and could not answer anything: that read went out against a message
+    # held still, so its two arms differed in what the display was doing as well
+    # as in which file was read. Compare within the round instead.
     ask(
-        "Against reading the same STRING while nothing called it, a moment ago: "
-        "[the same/worse now/better now/could not tell]"
+        "Did any of the six stand out from the others? "
+        "[no, all the same/name it/could not tell]"
     )
 
 

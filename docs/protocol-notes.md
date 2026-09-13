@@ -726,6 +726,14 @@ message still, about half a second of stall and blank while it is scrolling one*
     file might be free while reading the file on the display is not, is answered no: idle or
     not makes no difference in either direction.
 
+    One prompt in the last round asked for nothing usable, and it has been reworded. It
+    compared reading that STRING now against reading the same STRING when nothing called
+    it, and the answer was "much worse than the non-effect before". That is true and it is
+    the holding against scrolling difference said a second time: the earlier read was put
+    to a message held still, so the two arms differed in what the display was doing as well
+    as in which file was being read, and the comparison can say nothing about the file. The
+    question before it is the one that answers that, and it now offers "all six".
+
     **What that prices.** Any design that polls the sign instead of re-pushing it on a timer
     pays nothing while the sign is holding, and holding is what a slot does unless its caller
     asked for something else. It pays about half a second of stall and blank to whatever is
@@ -908,8 +916,10 @@ sign. Being able to ask would replace that with a cheap comparison.
 
 Cheap on the wire, and as of 2026-09-12 measured on the display as well: a read costs a
 message held still nothing at all, and a scrolling one about half a second of stall and
-blank, whichever of these reads it is and whatever file it names. Question 11 under "What
-the spike has settled" has the five rounds that separated those out.
+blank, whichever read it was and whatever file it named. Question 11 under "What the spike
+has settled" has the five rounds that separated those out. `F"` was not one of the reads
+measured: it is the same kind of command as the four special functions that were, and
+nothing suggests it differs, but nothing has shown it either.
 
 The frame builders exist, and the adapter is two-way: this sign answered all four of these
 reads through it on 2026-09-09, and answered them again during the soft reset check above,
