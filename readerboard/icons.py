@@ -80,15 +80,25 @@ TINT_INKS = {
     "yellow": "y",
 }
 
-class UnknownIcon(ValueError):
+class IconError(ValueError):
+    """An icon could not be drawn as asked.
+
+    The base the three below share, so that everything wanting to say "the
+    caller asked for an icon it cannot have" can catch one thing.
+    ``readerboard/api/errors.py`` maps it once, and the caller is told which of
+    the three it was by the message rather than by the type.
+    """
+
+
+class UnknownIcon(IconError):
     """An icon was asked for that this service does not have."""
 
 
-class UntintableIcon(ValueError):
+class UntintableIcon(IconError):
     """A tint was asked for on an icon drawn in fixed colours."""
 
 
-class UnknownTint(ValueError):
+class UnknownTint(IconError):
     """A tint was asked for that is not one of the sign's eight inks."""
 
 

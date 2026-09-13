@@ -20,9 +20,26 @@ deleted while a message calls it. Its STRING file's label is written into every
 calling message as raw bytes, so handing that label to another variable would
 make those messages show the wrong value, with nothing on the sign to say so.
 
-An alert can call variables too, and the same rule covers it. The alert service
-writes the priority file itself, so it renders through :meth:`rendering`, which
-holds this lock across the render and the write.
+An icon is a bitmap in a picture file, which a message draws with
+``<icon:name>``. It works unlike either of the other two and the difference is
+the thing to understand before reading the picture methods below. Nobody creates
+an icon: there are 148 built in, `picture_count` says how many can be on the
+sign at once, and a file is claimed by whichever icon a message happens to call.
+
+Two rules follow from that, and both come from one measured fact: writing a
+picture blanks the display and restarts a scrolling message, which writing a
+STRING does not.
+
+- **A picture file is released lazily**, when another icon needs it and not when
+  its last caller goes. Freeing it eagerly would spend a blank on tidiness, and
+  a source that alternates between two icons would pay for every switch.
+- **Which icons are in use counts hidden slots and the alert**, not only what is
+  on screen. A hidden slot is shown again by one run sequence write, and that is
+  only true while its icons still have their files.
+
+An alert can call variables and icons too, and the same rules cover it. The
+alert service writes the priority file itself, so it renders through
+:meth:`rendering`, which holds this lock across the render and the write.
 """
 
 from __future__ import annotations
@@ -33,12 +50,19 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime, timedelta
 
-from readerboard.protocol.markup import references, render, render_value
+from readerboard import icons
+from readerboard.protocol.markup import icon_references, references, render, render_value
 from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign import pool
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout, LayoutFull
-from readerboard.sign.state import ServiceState, SlotState, StateStore, VariableState
+from readerboard.sign.state import (
+    PictureState,
+    ServiceState,
+    SlotState,
+    StateStore,
+    VariableState,
+)
 from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
@@ -70,6 +94,32 @@ class VariableInUse(RegistryError):
 
 class VariablesDisabled(RegistryError):
     """The variable pool is empty, so there is nothing to put a variable in."""
+
+
+class IconsDisabled(RegistryError):
+    """The picture pool is empty, so no icon can be drawn."""
+
+
+class PicturePoolFull(RegistryError):
+    """Every picture file is holding an icon something still calls.
+
+    Not the same failure as a full slot pool, and the difference is what the
+    message has to get across. A picture file is never held by an icon nobody
+    calls, since one of those is given up the moment another icon wants it. So
+    this means the messages and the alert now on the sign between them ask for
+    more different icons than there is room for at once.
+    """
+
+
+def _picture_key(name: str, tint: str | None) -> str:
+    """Name the picture holding one icon in one tint, as a message writes it.
+
+    ``sun`` or ``check:red``, which is the body of the tag itself. A tint gets a
+    picture of its own because it changes the bitmap, and using the tag body as
+    the key means what is in the state file and in a log line reads as the thing
+    somebody wrote in a message.
+    """
+    return name if tint is None else "%s:%s" % (name, tint)
 
 
 def _utcnow() -> datetime:
@@ -146,6 +196,16 @@ class SlotRegistry:
         """How many variables exist, and how many there is room for."""
         return len(self._state.variables), self._layout.variable_count
 
+    @property
+    def picture_occupancy(self) -> tuple[int, int]:
+        """How many picture files hold an icon, and how many there are.
+
+        The first number counts files that have been written, not icons anything
+        still calls. A picture is kept after its last caller goes, so a full
+        pool is the ordinary resting state rather than a warning.
+        """
+        return len(self._state.pictures), self._layout.picture_count
+
     # == startup ============================================================
 
     async def restore(self) -> None:
@@ -163,6 +223,7 @@ class SlotRegistry:
                 # Every file was just erased, so nothing survives from before.
                 self._state.slots = {}
                 self._state.variables = {}
+                self._state.pictures = {}
 
             self._reattach_labels()
             await self._rewrite_all()
@@ -196,6 +257,21 @@ class SlotRegistry:
                     variable.label,
                 )
                 del self._state.variables[name]
+
+        for picture_key, picture in list(self._state.pictures.items()):
+            try:
+                self._layout.pictures.restore(picture_key, picture.label.encode("latin-1"))
+            except ValueError:
+                # Unlike a variable, this is not a loss. An icon is not
+                # somebody's data; it is one of a fixed set, and the pass below
+                # gives it a file again if the messages still call it and there
+                # is room.
+                logger.info(
+                    "icon %r used picture file %s, which is outside the current pool",
+                    picture_key,
+                    picture.label,
+                )
+                del self._state.pictures[picture_key]
 
         for key, slot in list(self._state.slots.items()):
             if not slot.message:
@@ -234,10 +310,68 @@ class SlotRegistry:
                     name,
                 )
 
+        self._reclaim_pictures()
+
+    def _reclaim_pictures(self) -> None:
+        """Give a picture file back to every icon the surviving messages call.
+
+        Narrower than it looks, and worth saying exactly what it is for. Most
+        ways of losing a picture take the messages with them: changing
+        ``picture_count`` reallocates the sign, and a reallocation erases the
+        slots along with the files, so there is nothing left to reclaim for.
+
+        What it covers is the case where a picture loses its file and the
+        messages do not. :meth:`Layout.needs_reconfiguration` compares the pool
+        by how many files and what shape, never by which labels, so reordering
+        ``PICTURE_FILE_LABELS`` in the code leaves a recorded label outside a
+        pool the same size, and ``_reattach_labels`` drops it. Without this the
+        message calling that icon would draw nothing for it for good, since
+        nothing rewrites a message that has not changed.
+
+        The refusals it swallows are real rather than defensive, and the likely
+        one is not a full pool. The icon library is data and changes between
+        versions, so a stored message can call an icon this version no longer
+        has. That is worth a line in the log and is not worth refusing to
+        start over.
+
+        Best effort, and deliberately so. A pool too small for what the messages
+        between them ask for is a configuration to fix, not a reason to refuse
+        to start: the service is expected to come back after a power cut without
+        anybody logging in. What cannot be given a file draws nothing, which is
+        what the sign itself draws for a call to a picture that is not there.
+        """
+        alert = self._state.alert
+        wanted: list[tuple[str, str | None]] = []
+        for slot in self.list_slots():
+            wanted += icon_references(slot.message)
+        if alert is not None:
+            wanted += icon_references(alert.message)
+
+        missing: list[str] = []
+        for name, tint in wanted:
+            if _picture_key(name, tint) in self._state.pictures:
+                continue
+            try:
+                self._claim_picture(name, tint)
+            except (RegistryError, icons.IconError):
+                key = _picture_key(name, tint)
+                if key not in missing:
+                    missing.append(key)
+
+        if missing:
+            logger.warning(
+                "no picture file for %s; those calls will show nothing until there is "
+                "room. Raise picture_count and restart, which reallocates the sign and "
+                "clears it.",
+                ", ".join(missing),
+            )
+
     async def _rewrite_all(self) -> None:
-        # Variables first, so that no message is ever drawn calling a STRING that
-        # is not written yet, then the messages, then the run sequence that
-        # starts playing them.
+        # Pictures and variables first, so that no message is ever drawn calling
+        # a file that is not written yet, then the messages, then the run
+        # sequence that starts playing them.
+        for picture in self._state.pictures.values():
+            await self._write_picture(picture)
         for variable in self.list_variables():
             await self._write_variable(variable)
         for slot in self.list_slots():
@@ -349,8 +483,8 @@ class SlotRegistry:
         return not self._dirty
 
     @contextlib.asynccontextmanager
-    async def rendering(self) -> AsyncIterator[Callable[..., bytes]]:
-        """Hold the variables still while a message calling them is rendered and written.
+    async def rendering(self, message: str | None = None) -> AsyncIterator[Callable[..., bytes]]:
+        """Hold the files still while a message calling them is rendered and written.
 
         For the alert service, which writes the priority file itself. It gets
         the renderer a slot's message goes through, so an alert is refused for
@@ -358,11 +492,35 @@ class SlotRegistry:
         write is done: a variable deleted between the render and the write
         would leave the alert calling a file the next variable could be given.
 
+        ``message`` is what is about to be rendered, and it is there for icons
+        rather than variables. An icon has to be given a picture file and drawn
+        into it before anything renders a call to it, and both are this
+        registry's to do, so an alert that carries one says so on the way in.
+        None renders whatever it is given against the files that already exist,
+        which is what the two paths that re-assert an alert already written
+        want: those must not claim anything, because failing to would be a
+        reason not to put the sign back.
+
         The renderer takes a message and ``strict``, as :func:`render` does.
         Nothing that holds this may wait on anything that takes this lock.
         """
         async with self._lock:
-            yield self._render_message
+            claimed: list[str] = []
+            if message is not None:
+                claimed = self._claim_pictures(message)
+                try:
+                    await self._write_claims(claimed)
+                except Exception:
+                    self._release_claims(claimed)
+                    raise
+            try:
+                yield self._render_message
+            except Exception:
+                # The alert did not land, so nothing calls these. They are given
+                # up rather than left holding files against a message that is
+                # not on the sign.
+                self._release_claims(claimed)
+                raise
 
     # == changing slots =====================================================
 
@@ -395,21 +553,38 @@ class SlotRegistry:
         mode_token = MODE_BY_NAME[mode]
 
         async with self._lock:
+            # Every icon the message calls gets a picture file before the
+            # message is rendered, because the render turns each call into that
+            # file's label and cannot invent one. This is also what makes an
+            # icon nobody has say so in the icon library's own words rather than
+            # as "there is no picture holding it".
+            claimed = self._claim_pictures(message)
+
             # Rendered under the lock, because a message that calls a variable
             # renders to that variable's label, and a variable deleted between
             # the render and the write would leave the message calling a file
             # somebody else may be handed next.
-            body = self._render_message(message)
-            if len(body) > self._layout.slot_capacity:
-                raise MessageTooLong(
-                    "the message renders to %d bytes but each slot holds %d. Shorten it, or "
-                    "raise slot_capacity and restart, which reallocates the sign and clears it."
-                    % (len(body), self._layout.slot_capacity)
-                )
+            try:
+                body = self._render_message(message)
+                if len(body) > self._layout.slot_capacity:
+                    raise MessageTooLong(
+                        "the message renders to %d bytes but each slot holds %d. Shorten it, or "
+                        "raise slot_capacity and restart, which reallocates the sign and clears it."
+                        % (len(body), self._layout.slot_capacity)
+                    )
 
-            existed = key in self._state.slots
-            previous = self._state.slots.get(key)
-            label = self._layout.slots.assign(key)  # raises LayoutFull when the pool is full
+                existed = key in self._state.slots
+                previous = self._state.slots.get(key)
+                # Raises LayoutFull when the pool is full.
+                label = self._layout.slots.assign(key)
+                # The pictures go to the sign before the message that calls
+                # them, so the sign is never drawing a file that points at a
+                # picture not yet written. Same rule as a variable, and for the
+                # same reason.
+                await self._write_claims(claimed)
+            except Exception:
+                self._release_claims(claimed)
+                raise
 
             now = self._now()
             slot = SlotState(
@@ -481,6 +656,17 @@ class SlotRegistry:
                 else:
                     del self._state.slots[key]
                     self._layout.slots.release(key)
+                # The pictures claimed for this message are given up too, since
+                # nothing calls them now and leaving them claimed would hold
+                # files against a message that is not on the sign.
+                #
+                # One of them may already be drawn on the sign, because the
+                # pictures go first and it is the message write that failed.
+                # That is left alone rather than blanked: the controller
+                # remembers what each file holds, so the next icon given that
+                # file writes over it, and an icon nobody calls sitting in a
+                # file nothing draws from costs nothing until then.
+                self._release_claims(claimed)
                 raise
 
             self._save()
@@ -783,6 +969,127 @@ class SlotRegistry:
             name: variable.label.encode("ascii") for name, variable in self._state.variables.items()
         }
 
+    def _picture_labels(self) -> dict[tuple[str, str | None], bytes]:
+        """Which picture file each icon lives in, for rendering the messages that call them."""
+        return {
+            (picture.name, picture.tint): picture.label.encode("latin-1")
+            for picture in self._state.pictures.values()
+        }
+
+    # == picture files ======================================================
+
+    def _icon_in_use(self, key: str) -> bool:
+        """Whether any slot or the alert still calls the icon this picture holds.
+
+        Hidden slots count. A hidden slot is put back on the display by one run
+        sequence write and no redraw, and that is only true while the icons its
+        message calls still have their files. Evicting one would turn a free
+        switch into a picture write, which blanks the display.
+        """
+        wanted = (self._state.pictures[key].name, self._state.pictures[key].tint)
+        for slot in self._state.slots.values():
+            if wanted in icon_references(slot.message):
+                return True
+        alert = self._state.alert
+        return alert is not None and wanted in icon_references(alert.message)
+
+    def _claim_picture(self, name: str, tint: str | None) -> str | None:
+        """Give one icon a picture file, returning its key if the file is newly claimed.
+
+        None means the icon already had one, so nothing has to be written. The
+        icon itself is resolved first, which is what turns a name nobody has
+        into the library's own message rather than into "there is no picture
+        holding it", and which is why this cannot be folded into the renderer.
+        """
+        icons.resolve(name, tint)  # raises IconError for a name or a tint we do not have
+        if not self._layout.picture_count:
+            raise IconsDisabled(
+                "icons are switched off, because picture_count is 0. Raise it and "
+                "restart, which reallocates the sign and clears it."
+            )
+
+        key = _picture_key(name, tint)
+        if key in self._state.pictures:
+            return None
+
+        try:
+            label = self._layout.pictures.assign(key)
+        except LayoutFull:
+            if not self._evict_a_picture():
+                raise PicturePoolFull(
+                    "all %d picture files are holding an icon that a message or the alert "
+                    "still calls, so there is nowhere to draw <icon:%s>. Stop calling one, "
+                    "or raise picture_count and restart, which reallocates the sign and "
+                    "clears it." % (self._layout.picture_count, key)
+                ) from None
+            label = self._layout.pictures.assign(key)
+
+        self._state.pictures[key] = PictureState(
+            key=key, name=name, tint=tint, label=label.decode("latin-1")
+        )
+        return key
+
+    def _evict_a_picture(self) -> bool:
+        """Give up one picture file nothing calls any more. Returns whether it found one.
+
+        This is where the lazy release actually happens, and it is the only
+        place a picture is given up. A file is kept after its last caller goes
+        precisely so that the common case, a source alternating between two
+        icons, costs nothing. It is only when a third icon turns up with nowhere
+        to go that one of the idle ones pays.
+
+        The idle picture given up is the one claimed longest ago, which is the
+        order the record is kept in rather than a least recently used order.
+        That is a choice and not an oversight: what the record does not hold is
+        when each icon was last drawn, only when its file was claimed, and an
+        icon nothing calls is not being drawn at all. Whichever idle file is
+        taken costs the same one write when its icon is next called for.
+        """
+        for key in list(self._state.pictures):
+            if not self._icon_in_use(key):
+                picture = self._state.pictures.pop(key)
+                self._layout.pictures.release(key)
+                logger.info(
+                    "picture file %s gave up icon %r, which nothing calls any more",
+                    picture.label,
+                    key,
+                )
+                return True
+        return False
+
+    def _claim_pictures(self, message: str) -> list[str]:
+        """Give every icon a message calls a picture file. Returns the keys newly claimed.
+
+        The caller writes those to the sign and, if anything after that fails,
+        hands them to :meth:`_release_claims`.
+        """
+        claimed: list[str] = []
+        try:
+            for name, tint in icon_references(message):
+                key = self._claim_picture(name, tint)
+                if key is not None:
+                    claimed.append(key)
+        except Exception:
+            self._release_claims(claimed)
+            raise
+        return claimed
+
+    def _release_claims(self, keys: list[str]) -> None:
+        """Undo claims made for a message that did not make it to the sign."""
+        for key in keys:
+            self._state.pictures.pop(key, None)
+            self._layout.pictures.release(key)
+
+    async def _write_picture(self, picture: PictureState) -> None:
+        await self._controller.write_dots_file(
+            picture.label.encode("latin-1"), icons.resolve(picture.name, picture.tint)
+        )
+
+    async def _write_claims(self, keys: list[str]) -> None:
+        """Draw newly claimed icons into their files, before anything calls them."""
+        for key in keys:
+            await self._write_picture(self._state.pictures[key])
+
     def _require_variables(self) -> None:
         if not self._layout.variable_count:
             raise VariablesDisabled(
@@ -799,7 +1106,12 @@ class SlotRegistry:
         """
         if strict and references(message):
             self._require_variables()
-        return render(message, strict=strict, variables=self._variable_labels())
+        return render(
+            message,
+            strict=strict,
+            variables=self._variable_labels(),
+            icons=self._picture_labels(),
+        )
 
     def _render_value(self, value: str, field: str) -> bytes:
         """Render a value strictly and make sure it fits its STRING file."""

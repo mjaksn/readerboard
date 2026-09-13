@@ -14,9 +14,15 @@ The release deadline is persisted. A service that restarted during an alert and
 forgot about it would leave the sign stuck showing that alert forever, with the
 rotation invisible behind it and no record of why.
 
-An alert can call variables, rendered through the registry's
+An alert can call variables and icons, rendered through the registry's
 :meth:`SlotRegistry.rendering`, which holds the registry's lock until the
 priority file is written. Its lock is always taken before this service's own.
+
+Only :meth:`raise_alert` hands that method a message. The two paths that put an
+alert back on the sign, :meth:`restore` and :meth:`reassert`, deliberately do
+not: an icon they name already has its picture file, since the alert calling it
+is what keeps the file, and claiming is a thing that can fail. Failing to put
+the sign back is a worse outcome than a call that draws nothing.
 """
 
 from __future__ import annotations
@@ -36,7 +42,7 @@ from readerboard.sign.state import AlertState, ServiceState, StateStore
 
 logger = logging.getLogger(__name__)
 
-Rendering = Callable[[], AbstractAsyncContextManager[Callable[..., bytes]]]
+Rendering = Callable[[str | None], AbstractAsyncContextManager[Callable[..., bytes]]]
 
 
 class AlertTooLong(ValueError):
@@ -48,8 +54,13 @@ def _utcnow() -> datetime:
 
 
 @contextlib.asynccontextmanager
-async def _without_variables() -> AsyncIterator[Callable[..., bytes]]:
-    """Render with no variables at all, for a service no registry is attached to."""
+async def _without_variables(message: str | None = None) -> AsyncIterator[Callable[..., bytes]]:
+    """Render with no variables or icons at all, for a service no registry is attached to.
+
+    ``message`` is accepted and ignored. With no registry there is nothing that
+    could give an icon a picture file, and a message calling one is refused by
+    the renderer itself.
+    """
     yield render
 
 
@@ -114,7 +125,7 @@ class AlertService:
             await self.release()
             return
 
-        async with self._rendering() as render_message:
+        async with self._rendering(None) as render_message:
             body = render_message(alert.message, strict=False)
             fits = len(body) <= c.PRIORITY_FILE_CAPACITY
             if fits:
@@ -155,7 +166,7 @@ class AlertService:
 
         Returns whether there was an alert to re-assert.
         """
-        async with self._rendering() as render_message, self._lock:
+        async with self._rendering(None) as render_message, self._lock:
             alert = self._state.alert
             if alert is None:
                 return False
@@ -190,7 +201,7 @@ class AlertService:
         # rendering. That is what lets the registry refuse to delete a variable
         # the alert calls: it reads the recorded alert under the same lock, so
         # it never sees one that is rendered but not yet recorded.
-        async with self._rendering() as render_message, self._lock:
+        async with self._rendering(message) as render_message, self._lock:
             body = render_message(message)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
                 raise AlertTooLong(

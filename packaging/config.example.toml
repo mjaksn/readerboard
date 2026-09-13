@@ -63,7 +63,7 @@ backoff_max = 60.0
 
 # How many messages can share the sign at once. Each takes one sign file.
 #
-# Changing any of the four settings in this section reallocates the sign's
+# Changing any of the five settings in this section reallocates the sign's
 # memory on the next start, and that ERASES every message on it. The service
 # will do it and say so in the log, but do not change them casually.
 #
@@ -87,6 +87,17 @@ slot_capacity = 256
 # most 125 bytes. A variable_count of 0 turns variables off.
 variable_count = 8
 variable_capacity = 32
+
+# How many of the built-in icons can be on the sign at once, each a picture file
+# of its own that a message draws with <icon:name> or <icon:name:colour>. There
+# are 148 icons and this is how many fit, not how many exist: a file is claimed
+# by whichever icon a message calls, and kept until another icon needs it.
+#
+# 0 turns icons off and is the default, because raising it from 0 reallocates
+# the sign. A picture file takes 69 bytes of the sign's memory pool, measured on
+# a BetaBrite Classic whose whole pool is 5482, so 16 is comfortable alongside
+# the defaults above and 32 is about the ceiling.
+picture_count = 0
 
 # == behaviour ===============================================================
 

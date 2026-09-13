@@ -13,13 +13,16 @@ from __future__ import annotations
 
 from fastapi import status
 
+from readerboard.icons import IconError
 from readerboard.protocol.frames import ProtocolError
 from readerboard.protocol.markup import MarkupError
 from readerboard.protocol.replies import ReplyError
 from readerboard.services import commands
 from readerboard.services.alerts import AlertTooLong
 from readerboard.services.registry import (
+    IconsDisabled,
     MessageTooLong,
+    PicturePoolFull,
     UnknownSlot,
     UnknownVariable,
     VariableInUse,
@@ -36,6 +39,12 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     (MessageTooLong, status.HTTP_400_BAD_REQUEST),
     (VariableTooLong, status.HTTP_400_BAD_REQUEST),
     (VariablesDisabled, status.HTTP_400_BAD_REQUEST),
+    (IconsDisabled, status.HTTP_400_BAD_REQUEST),
+    # An icon nobody has, or a tint on one drawn in fixed colours. The library
+    # raises these rather than the renderer, because the renderer is not told
+    # which icons exist; mapping the one base they share is what keeps a
+    # misspelled icon name a 400 rather than a 500.
+    (IconError, status.HTTP_400_BAD_REQUEST),
     (AlertTooLong, status.HTTP_400_BAD_REQUEST),
     (commands.UnknownCommand, status.HTTP_400_BAD_REQUEST),
     (commands.BadParameter, status.HTTP_400_BAD_REQUEST),
@@ -51,6 +60,10 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     # calling a file the next variable could be given. Not the caller's
     # request being malformed, which is what makes it a conflict.
     (VariableInUse, status.HTTP_409_CONFLICT),
+    # Every picture file is holding an icon something still calls. Like a full
+    # slot pool and unlike a bad icon name, this is the state of the sign rather
+    # than anything wrong with the request.
+    (PicturePoolFull, status.HTTP_409_CONFLICT),
     (TransportError, status.HTTP_503_SERVICE_UNAVAILABLE),
     # A sign that answers with something unreadable is as unusable as one
     # that does not answer, and neither is the caller's doing. The route

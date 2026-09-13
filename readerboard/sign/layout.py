@@ -1,23 +1,40 @@
-"""Deciding which sign file each message and each variable lives in.
+"""Deciding which sign file each message, variable and icon lives in.
 
 The sign accepts any printable file label, so the real ceiling on how many
 things can share it is the memory pool in bytes rather than a count of files.
-This service allocates two fixed pools beside the priority file ``0`` the sign
-allocates itself: TEXT files ``A`` through ``Z`` for messages, and STRING files
-``a`` through ``z`` for variables, at most 26 of each. Each registered message
-gets one TEXT file and each variable one STRING file.
+This service allocates three fixed pools beside the priority file ``0`` the sign
+allocates itself: TEXT files ``A`` through ``Z`` for messages, STRING files
+``a`` through ``z`` for variables, and SMALL DOTS PICTURE files on the labels
+left over for icons. Each registered message gets one TEXT file and each
+variable one STRING file.
+
+The picture pool is the one that works differently, and the difference is worth
+having in mind before reading :class:`Layout`. Nobody registers an icon. A
+picture file is claimed by whichever icon a message happens to call, held while
+it is called and for as long after as nothing else wants the file, and the
+registry does all of that. So a picture pool of sixteen does not mean sixteen
+icons exist; it means sixteen can be on the sign at once out of the hundred and
+forty eight there are.
 
 The pools are fixed rather than grown on demand for one reason: allocating files
 erases the sign. Growing a pool when a fourth source turned up would blank the
 other three, so the sizes are a configuration decision made up front and the
-service simply refuses a message or a variable once its pool is full.
+service simply refuses a message, a variable or an icon once its pool is full.
 """
 
 from __future__ import annotations
 
+from readerboard import icons
 from readerboard.protocol import constants as c
 from readerboard.protocol.frames import FileAllocation
 from readerboard.sign.state import AppliedLayout
+
+# Every picture file is allocated at the same size, and it is not a setting.
+# The widest icon is twelve dots and the display is seven high, so one geometry
+# fits every one of them, and a picture narrower than its file draws narrow
+# rather than padded. That makes the pool a single number rather than three.
+PICTURE_ROWS = icons.ICON_HEIGHT
+PICTURE_COLUMNS = icons.ICON_MAX_WIDTH
 
 
 class LayoutFull(RuntimeError):
@@ -85,7 +102,7 @@ class FilePool:
 
 
 class Layout:
-    """The sign's two pools of files: TEXT files for messages, STRING files for variables."""
+    """The sign's three pools: TEXT files for messages, STRING files for variables, pictures for icons."""
 
     def __init__(
         self,
@@ -93,8 +110,9 @@ class Layout:
         slot_capacity: int,
         variable_count: int = 0,
         variable_capacity: int = 32,
+        picture_count: int = 0,
     ) -> None:
-        """Describe ``slot_count`` TEXT files and ``variable_count`` STRING files and their sizes."""
+        """Describe the TEXT, STRING and picture files, and the sizes of the first two."""
         if not 1 <= slot_count <= len(c.TEXT_FILE_LABELS):
             raise ValueError(
                 "slot_count must be between 1 and %d, got %d"
@@ -110,10 +128,16 @@ class Layout:
                 "variable_capacity must be between 1 and %d, got %d"
                 % (c.STRING_FILE_CAPACITY, variable_capacity)
             )
+        if not 0 <= picture_count <= len(c.PICTURE_FILE_LABELS):
+            raise ValueError(
+                "picture_count must be between 0 and %d, got %d"
+                % (len(c.PICTURE_FILE_LABELS), picture_count)
+            )
         self.slot_count = slot_count
         self.slot_capacity = slot_capacity
         self.variable_count = variable_count
         self.variable_capacity = variable_capacity
+        self.picture_count = picture_count
         self.slots = FilePool(
             c.TEXT_FILE_LABELS[:slot_count],
             slot_capacity,
@@ -130,12 +154,29 @@ class Layout:
                 "restart, which reallocates the sign and clears it." % variable_count
             ),
         )
+        self.pictures = FilePool(
+            c.PICTURE_FILE_LABELS[:picture_count],
+            PICTURE_ROWS * PICTURE_COLUMNS,
+            full=(
+                "all %d picture files are holding an icon that a message or the alert "
+                "still calls. Stop calling one, or raise picture_count and restart, "
+                "which reallocates the sign and clears it." % picture_count
+            ),
+        )
 
     def allocations(self) -> list[FileAllocation]:
-        """Return the memory configuration entries for both pools, TEXT files first."""
-        return [FileAllocation(label, self.slot_capacity) for label in self.slots.labels] + [
-            FileAllocation.string(label, self.variable_capacity) for label in self.variables.labels
-        ]
+        """Return the memory configuration entries for all three pools, TEXT files first."""
+        return (
+            [FileAllocation(label, self.slot_capacity) for label in self.slots.labels]
+            + [
+                FileAllocation.string(label, self.variable_capacity)
+                for label in self.variables.labels
+            ]
+            + [
+                FileAllocation.dots(label, PICTURE_ROWS, PICTURE_COLUMNS)
+                for label in self.pictures.labels
+            ]
+        )
 
     def as_applied(self) -> AppliedLayout:
         """Return this layout in the form the state file records."""
@@ -146,6 +187,10 @@ class Layout:
             variable_count=self.variable_count,
             variable_capacity=self.variable_capacity if self.variable_count else 0,
             variable_labels=[label.decode("ascii") for label in self.variables.labels],
+            picture_count=self.picture_count,
+            picture_rows=PICTURE_ROWS if self.picture_count else 0,
+            picture_columns=PICTURE_COLUMNS if self.picture_count else 0,
+            picture_labels=[label.decode("latin-1") for label in self.pictures.labels],
         )
 
     def needs_reconfiguration(self, applied: AppliedLayout | None) -> bool:
@@ -153,5 +198,11 @@ class Layout:
         if applied is None:
             return True
         return not applied.matches(
-            self.slot_count, self.slot_capacity, self.variable_count, self.variable_capacity
+            self.slot_count,
+            self.slot_capacity,
+            self.variable_count,
+            self.variable_capacity,
+            self.picture_count,
+            PICTURE_ROWS if self.picture_count else 0,
+            PICTURE_COLUMNS if self.picture_count else 0,
         )

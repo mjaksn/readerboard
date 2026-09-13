@@ -155,6 +155,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             settings.slot_capacity,
             settings.variable_count,
             settings.variable_capacity,
+            settings.picture_count,
         )
         alerts = AlertService(controller, store, state)
         registry = SlotRegistry(controller, layout, store, state)

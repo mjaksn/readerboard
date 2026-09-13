@@ -787,6 +787,21 @@ TEXT_FILE_LABELS = (
 )
 STRING_FILE_LABELS = tuple(bytes([code]) for code in range(ord("a"), ord("z") + 1))
 STRING_FILE_FORBIDDEN_LABELS = (b"0", b"?")
+
+# The labels a SMALL DOTS PICTURE file may use here. A picture pool has to live
+# somewhere that collides with neither the TEXT files at "A" to "Z" nor the
+# STRING files at "a" to "z", and until 2026-09-12 nothing but the digits had
+# ever been tried. All thirty-two below were then allocated as picture files in
+# two configurations, listed back by the sign, and drawn from, so this is what
+# was measured rather than what Appendix A permits.
+#
+# The order is what a person reading a log line would want: the four digits
+# first, then the run that follows them in ASCII, then the brackets, the braces
+# and the early punctuation. "0" is the priority file and "1" to "5" are kept
+# back for the counter feature, so the digits start at "6".
+PICTURE_FILE_LABELS = tuple(
+    bytes([code]) for code in b"6789:;<=>?@[\\]^_!#%&'()*+,-./{|}"
+)
 RESERVED_FILE_LABELS = (
     b"0",
     b"1",
