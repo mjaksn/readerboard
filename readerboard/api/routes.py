@@ -317,6 +317,13 @@ async def sign_information(controller: ControllerDep) -> SignInformationResponse
     useful as a source of troubleshooting information", which is a fair summary:
     nothing here changes anything.
 
+    Changing nothing is not the same as costing nothing, and what a read costs
+    was measured on 2026-09-12. Every read put to the sign left a message that
+    was holding still completely undisturbed, and cost a message that was
+    scrolling about half a second of stall and blank. So this is free to call as
+    often as you like on a sign whose slots all hold, and a brief interruption to
+    whichever slot happens to be scrolling when it lands.
+
     This is the only read in the service, so it is also the only place a silent
     sign is distinguishable from an unplugged one. A sign that does not answer
     within a few seconds is a 503, the same as a sign that cannot be written to,
