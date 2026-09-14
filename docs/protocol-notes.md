@@ -606,8 +606,11 @@ dim red, dim green, brown, orange and yellow.
   transmission drew correctly.
 - **Rewriting a picture blanks the display**, as the document says, and restarts a ROTATE
   scroll from the beginning.
-- **A call to a missing picture draws nothing**, whether it was never written or never
-  allocated.
+- **A call to a missing picture draws nothing**, *unless the call is the first thing in
+  the message*, in which case it draws its own label as a character. The exception was
+  found on 2026-09-13 and is below under "What an empty picture call draws". This bullet
+  was written without a call in that position, which is why it read as a general rule for
+  two days.
 - **Reading a picture back blanks the display** for under a second, with stray dots lit
   while it does. The reply echoes the write command, the label, the height and the
   width, then the rows. What that session did not record is what the display was doing at
@@ -642,10 +645,74 @@ the same bytes, sent later, worked.
 
 Two things about the shape of this finding are worth keeping honest.
 
-**Whether the sign stored the bytes at all is unmeasured.** No picture was read back with
-`J` (4AH) while the alert was up, which is the read that would separate "the sign never
-took the write" from "the sign took it and would not draw it". The adapter has been shown
-to answer that read, so the question is answerable; it simply was not asked.
+**The sign never takes the write. Answered 2026-09-13** by
+`scripts/dots_under_alert_spike.py`, which asks with `J` (4AH) rather than inferring from
+the display. Both files were allocated the way the service allocates them, eight colour
+and one geometry for all of them, and the same two icons were written twice: once with an
+alert holding the display and once with the sign to itself.
+
+| When the picture was written | What `J` answered |
+| --- | --- |
+| allocated, never written | `I6` and the checksum, nothing else |
+| written under an alert, alert still up | `I6` and the checksum, nothing else |
+| written under an alert, after the release | `I6` and the checksum, nothing else |
+| written with no alert up | `I60709008880880\r088888888\r...`, every row |
+
+So the sign does not store the bytes and decline to draw them. It does not take them at
+all, it says nothing about having refused them, and the file is left exactly as it was.
+The transmission is accepted on the wire and discarded.
+
+**A `J` reply says plainly whether a file was ever written**, which is what made the
+question answerable. An empty picture answers with the command, the label and the
+checksum, carrying no height, no width and no rows. A written one answers the command, the
+label, the height and width as two hex digits each, then one row a line. There is no
+ambiguity between them to reason around.
+
+### What an empty picture call draws, found 2026-09-13
+
+This is the half no read can settle, and it corrects the 2026-09-11 bullet above.
+
+The message that first bit was put back on the sign deliberately, with both its picture
+files allocated and empty, which is the state the failure leaves them in:
+
+    <icon:rain><bold_on> <red><time> <icon:bolt>
+
+renders to `14H 36H`, a character attribute, a space, red, the time insert, a space, and
+`14H 38H`. So it opens with a call to picture file `6` and closes with a call to picture
+file `8`, and on that run both files were empty.
+
+**The display read `6`, a space, the time, and then nothing.** A literal `6` where the
+rain belongs, which is exactly the label byte of the file it is called from, and nothing at
+all where the bolt belongs. Not an overflow: no second page rotated in behind it, which was
+checked because a line too wide for the display breaks onto one in HOLD. The same message
+with both pictures written drew both icons correctly, so the difference is the files being
+empty and nothing else.
+
+Two different answers to the same question in one line, and the same spike went back and
+asked why. Two more messages, every picture file allocated and empty:
+
+| Sent | Drew | What it rules out |
+| --- | --- | --- |
+| `14H 36H` `L` `14H 37H` `M` `14H 38H` | `6LM` | the middle and trailing calls are silent, so it is not "every call leaks" |
+| `N` `14H 39H` `20H` | `N` | something *does* follow this call and it is still silent |
+
+**So it is the position, and only the first position.** A call to an empty picture file
+draws nothing wherever it sits, except as the opening of the message, where the label byte
+survives as text. The obvious alternative, that a call is dropped when nothing follows it,
+is what the second message was for: a space followed that one and it was dropped anyway.
+
+The mechanism is not known. The file is not special: `J` answers for all four identically,
+they are allocated alike, and the same leading call draws its picture correctly the moment
+the file has one, which is the control in the step after. Something about a `14H` arriving
+as the first byte of the message body, immediately behind the ESC, position and mode bytes
+that open a TEXT file, is handled differently when there is nothing to draw. Nothing here
+needs the mechanism, so it was not chased further.
+
+**It has a practical edge, and it points at the common case.** A message that opens with an
+icon is the shape the documentation itself uses, `<icon:lock> DOOR LOCKED`, so the position
+this bites is the one people write. Whenever a picture is genuinely missing, and the ways
+that can still happen are in `SlotRegistry._reclaim_pictures`, such a message shows a stray
+digit rather than a gap where the icon should be.
 
 **What made it permanent was the service, not the sign.** `SignController` remembers the
 exact bytes it put in each file and declines to send them again, so a write the sign threw
