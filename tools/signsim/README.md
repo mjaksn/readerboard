@@ -186,7 +186,7 @@ Type checking is a separate invocation, because the root `mypy` config names
 only the service:
 
 ```
-MYPYPATH=tools/signsim mypy tools/signsim/signsim
+mypy tools/signsim/signsim
 ```
 
 CI runs that too, in the lint job, after installing the lock file above. It is
