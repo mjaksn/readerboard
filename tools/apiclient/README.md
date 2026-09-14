@@ -258,7 +258,7 @@ Type checking is a separate invocation, because the root `mypy` config names
 only the service:
 
 ```
-MYPYPATH=tools/apiclient mypy tools/apiclient/apiclient
+mypy tools/apiclient/apiclient
 ```
 
 CI runs it in the lint job, after installing the lock file above, for the reason

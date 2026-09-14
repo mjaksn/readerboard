@@ -175,6 +175,15 @@ files = ["readerboard"]
 strict = true
 warn_unreachable = true
 enable_error_code = ["redundant-expr", "truthy-bool", "ignore-without-code"]
+# `files` above still names only the service, so checking a tool is a separate
+# invocation, `mypy tools/signsim/signsim` or `mypy tools/apiclient/apiclient`.
+# Naming both tool roots here means one of those resolves the tool's own
+# package (`import signsim`, `import apiclient`) on its own, no MYPYPATH
+# needed by hand or in CI. The directory-level invocations above already found
+# their root by crawling up from the package's own `__init__.py`; what this
+# actually buys is the narrower case that crawl finds nothing for, such as
+# `mypy` on a single file under a tool's `tests/`, which has none.
+mypy_path = ["tools/signsim", "tools/apiclient"]
 
 [[tool.mypy.overrides]]
 # pyserial ships no type information.

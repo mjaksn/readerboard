@@ -80,12 +80,8 @@ jobs:
         run: pip install --require-hashes -r tools/signsim/requirements.lock
       - name: mypy the sign simulator
         run: mypy tools/signsim/signsim
-        env:
-          MYPYPATH: tools/signsim
       - name: mypy the client
         run: mypy tools/apiclient/apiclient
-        env:
-          MYPYPATH: tools/apiclient
 
       # The tools' own test suites run without Qt, deliberately, so nothing in
       # them ever builds a window. That leaves a gap exactly the width of a
