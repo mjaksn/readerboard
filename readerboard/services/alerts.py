@@ -286,6 +286,19 @@ class AlertService:
             alert = self._state.alert
             if alert is None:
                 return False
+            if not alert.message:
+                # The same rule :meth:`restore` applies, and here because an
+                # empty alert can outlive that: a sign unreachable at startup
+                # makes restore raise before it reaches its own branch, and the
+                # record survives into the first refresh. Writing it is the
+                # opposite of a release, since the formatting bytes around the
+                # empty body make the sign hold the display dark. There is
+                # nothing here the sign can hold, so let it go and record that.
+                logger.warning(
+                    "an alert with no message is recorded as active; releasing it"
+                )
+                await self._release_locked()
+                return False
             body = render_message(alert.message, strict=False)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
                 # See restore() for how a stored alert outgrows the file. This
@@ -592,14 +605,24 @@ class AlertService:
     async def release(self) -> bool:
         """Give the sign back. Returns whether an alert was actually holding it."""
         async with self._lock:
-            was_active = self._state.alert is not None
-            await self._controller.clear_priority()
-            self._state.alert = None
-            self._store.save(self._state)
+            was_active = await self._release_locked()
 
         if was_active:
             logger.info("alert released, rotation resumes")
 
+        return was_active
+
+    async def _release_locked(self) -> bool:
+        """Give the sign back with the lock already held. Returns whether one was up.
+
+        Split out for :meth:`reassert`, which holds the lock across its whole
+        body and cannot call :meth:`release`, because ``asyncio.Lock`` is not
+        reentrant and waiting on it there would wait forever.
+        """
+        was_active = self._state.alert is not None
+        await self._controller.clear_priority()
+        self._state.alert = None
+        self._store.save(self._state)
         return was_active
 
     async def sweep(self) -> bool:

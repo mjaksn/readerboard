@@ -15,6 +15,28 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
+- **An alert flickered twice on every refresh, and twice at startup.** Handing
+  the sign back for a picture write means putting the alert on again afterwards,
+  and the sign restarts an alert when it takes one. The periodic refresh then
+  re-asserted the alert straight after, restarting it a second time for nothing,
+  once per refresh interval for as long as the alert was up. The refresh and the
+  reboot now say whether they put the alert back, and the alert is re-asserted
+  only when they did not, which is a service with no icons: nothing hands the
+  sign back there, so the re-assert is still the only thing that would repair a
+  sign power cycled mid-alert.
+
+  Two smaller ones went with it. An alert with no message, which only a state
+  file written by an older version can hold, was written back to the priority
+  file: the body is empty but the formatting bytes around it are not, so the
+  sign read a blank priority message and held the display dark. One such alert
+  is now released and forgotten wherever it is found rather than only by the
+  startup path, which a sign unreachable at startup could stop reaching it. And
+  a reconnect re-pushed the slots without re-asserting the alert, so a link that
+  came back in front of a sign that had lost one left the priority file empty
+  until the next tick of the timer; both now go through the same path. The cost
+  of that last one is one forced alert write on a reconnect where nothing was
+  lost, which was not there before.
+
 - **An icon written while an alert was up was lost.** The sign does not take a
   SMALL DOTS PICTURE write while a priority message is running. Nothing noticed,
   because the controller remembers the bytes it sent and declines to send them

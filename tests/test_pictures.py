@@ -21,6 +21,7 @@ from dataclasses import replace
 import pytest
 
 from readerboard import icons
+from readerboard.api.app import _refresh_and_reassert
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
@@ -1084,11 +1085,59 @@ class TestNotWritingTheAlertTwice:
         state.alert = AlertState(message="", mode="HOLD", started_at=clock.now)
         transport.clear()
 
-        assert await registry.refresh() is False
+        await registry.refresh()
 
         # The release that hands the sign over for the picture, and nothing
         # after it: the sign is left showing the rotation, not held dark.
         assert [is_release(write) for write in priority_writes(transport)] == [True]
+        # And nothing was put back, so the caller is still the one to deal with
+        # it, which for this alert means releasing it rather than restoring it.
+        assert await registry.refresh() is False
+
+    async def test_the_shared_path_writes_the_alert_once(self, wired, transport):
+        # What both the periodic timer and the reconnect hook actually call, so
+        # the two cannot drift apart. The reconnect used to re-push the slots
+        # and nothing else, which left the priority file empty on a link that
+        # came back in front of a sign that had lost its alert.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+    async def test_the_shared_path_still_writes_it_with_no_icons(self, wired, transport):
+        registry, alerts = wired
+        await add(registry, "door", "LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+    async def test_an_empty_alert_is_released_rather_than_written(
+        self, wired, transport, state, clock
+    ):
+        # The other half of the rule below: the hand-back declines to put an
+        # empty alert back, and this is what then gets rid of it. Without it the
+        # record would say an alert is holding a sign that is showing the
+        # rotation, and with no deadline it would say so for good.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        state.alert = AlertState(message="", mode="HOLD", started_at=clock.now)
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert alerts.active is None
+        # Releases only. Nothing was written to the priority file that the sign
+        # would read as a blank message and hold.
+        assert all(is_release(write) for write in priority_writes(transport))
 
     async def test_a_reboot_reports_it_the_same_way(
         self, wired, transport, answer_a_pool_reading
