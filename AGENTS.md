@@ -323,10 +323,18 @@ declines to write them again.
 
 ## Things that look wrong and are not
 
-- **Everything is re-pushed on a timer.** The sign and the adapter are
-  separately powered, so the sign can be power cycled with the TCP link still
-  up. Nothing fires, the write cache stays warm, and suppression would then skip
-  exactly the writes that would repair a blank sign.
+- **The timer asks the sign a question rather than re-pushing blindly.** The
+  sign and the adapter are separately powered, so the sign can be power cycled
+  with the TCP link still up: nothing fires, the write cache stays warm, and
+  suppression would then skip exactly the writes that would repair a blank sign.
+  That used to mean re-pushing everything every interval, which is expensive in
+  the one currency that matters, since a picture write blanks the whole display
+  and a sign with five icons blanked five times an interval for a repair almost
+  never needed. So `SlotRegistry.refresh` reads one picture file back first. A
+  power cycle takes the sign's memory or leaves it alone, there is no version of
+  it that loses one file, so one answer stands in for the whole sign. Every
+  answer it is not sure about, and every question it cannot ask, falls through
+  to the re-push that used to be unconditional.
 - **The alert is not re-asserted after every refresh.** It looks like a gap and
   it is the opposite. A refresh that hands the sign back to write a picture ends
   by writing the alert on again, and the sign restarts an alert when it takes
@@ -430,6 +438,14 @@ simulator run waits out the read's three second deadline and logs a warning that
 it is assuming the figure a real sign gave, which is correct and is not a fault
 in either of them. `POST /sign/reboot` against the simulator costs the same
 three seconds, for the same reason.
+
+The periodic refresh now asks a question too, and would cost those three seconds
+every interval rather than once. It does not, and the rule is worth knowing
+because it is the one place the service changes its mind about the thing on the
+other end: one unanswered read and it stops asking for the life of the process
+and goes back to re-pushing everything. So the simulator sees the old behaviour
+after the first refresh, which is what makes it still a fair rehearsal of what a
+sign gets when a sign stops answering.
 
 Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in

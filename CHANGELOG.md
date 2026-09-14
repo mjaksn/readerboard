@@ -13,6 +13,35 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Changed
+
+- **The periodic refresh asks the sign whether it needs to do anything.** It used
+  to push every picture, variable, message and the run sequence again every
+  interval, on the reasoning that a sign power cycled behind a still-connected
+  adapter is undetectable. That reasoning was right and the cost had grown:
+  writing a picture blanks the whole display, so a sign showing five icons
+  blanked five times an interval, and with an alert up the alert came off and
+  went back on around it, for a repair that is almost never needed.
+
+  It now reads one picture file back first. A power cycle takes the sign's
+  memory or leaves it alone, so a file that still holds a bitmap says the whole
+  sign survived. An unwritten picture answers with no rows at all, measured on
+  the sign, so this needs no comparison against what the service thinks is
+  there. A sign that still holds its picture is left completely alone.
+
+  Everything it cannot be sure about falls through to the re-push exactly as
+  before: no answer, an answer that does not parse, a link that is down, no
+  icons to ask about, or a picture file just given back to an icon that had lost
+  one. One read that goes unanswered and it stops asking for the life of the
+  process, which is what keeps the sign simulator, which answers no reads, from
+  paying the read's three second deadline every interval.
+
+  Two things it does not do. It does not ask about the priority file, so an
+  alert is still re-asserted on the timer, which is one write rather than none.
+  And a service with no icons has nothing to ask about and behaves exactly as it
+  did. `POST /sign/reboot` is unchanged and still re-pushes unconditionally,
+  which is what it is for.
+
 ### Fixed
 
 - **An alert flickered twice on every refresh, and twice at startup.** Handing

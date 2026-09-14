@@ -56,8 +56,15 @@ class GeneralInformation:
     raw: str
 
 
-def unwrap(reply: bytes, label: bytes) -> bytes:
+def unwrap(
+    reply: bytes, label: bytes, *, command: bytes = c.COMMAND_WRITE_SPECIAL
+) -> bytes:
     """Pull the data field out of a reply frame, checking it answers ``label``.
+
+    ``command`` is the code the sign echoes, which is the **write** code for the
+    thing that was read rather than the read code that was sent. That looks like
+    a mistake in the document and is what it specifies; it holds for a picture
+    read as well, which answers ``I`` to a ``J``.
 
     Tolerant of what surrounds it on purpose. A reply arrives over a serial line
     that may have been mid-sentence when the read went out, so leading rubbish
@@ -75,17 +82,39 @@ def unwrap(reply: bytes, label: bytes) -> bytes:
     if end >= 0:
         body = body[:end]
 
-    if not body.startswith(c.COMMAND_WRITE_SPECIAL):
+    if not body.startswith(command):
         raise ReplyError(
-            "the sign's reply does not begin with the special function command code: %r" % body
+            "the sign's reply does not begin with %r, the command code it should echo: %r"
+            % (command, body)
         )
-    body = body[len(c.COMMAND_WRITE_SPECIAL) :]
+    body = body[len(command) :]
 
     if not body.startswith(label):
         raise ReplyError(
             "asked the sign for %r and it answered about %r" % (label, body[:1])
         )
     return body[len(label) :]
+
+
+def picture_contents(reply: bytes, label: bytes) -> bytes:
+    """Pull what a picture file holds out of the sign's answer to a ``J`` read.
+
+    Empty means the file was allocated and never written, and the emptiness is
+    the whole point: measured on the sign on 2026-09-13 by
+    ``scripts/dots_under_alert_spike.py``, an unwritten picture answers with the
+    command code, the label and the checksum and carries no height, no width and
+    no rows, while a written one answers the height and the width as two hex
+    digits each and then one row a line. There is no ambiguity between the two
+    to reason around, which is what makes the question worth asking at all.
+
+    What is returned is not compared against the bitmap the service believes is
+    there, and deliberately not. Whether the sign stores a picture byte for byte
+    as it was sent, or normalises anything about it, has not been measured, and
+    a comparison that never matched would turn every refresh into a read
+    followed by the same full re-push it was meant to avoid. Written or not is
+    what was measured, so written or not is what is asked.
+    """
+    return unwrap(reply, label, command=c.COMMAND_WRITE_DOTS)
 
 
 def parse_general_information(reply: bytes) -> GeneralInformation:
