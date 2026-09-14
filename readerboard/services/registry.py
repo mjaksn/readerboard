@@ -54,6 +54,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Protocol
 
 from readerboard import icons
 from readerboard.protocol.markup import icon_references, references, render, render_value
@@ -214,11 +215,39 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+class Lift(Protocol):
+    """What a priority hold yields: a place to read afterwards what it did.
+
+    Read it on the way out rather than on the way in, because what it reports
+    is not known until then. Whether an alert goes back on the sign is decided
+    when the hold closes: one can be released or replaced while the sign is
+    handed back, and one whose deadline passed in the meantime is dropped
+    rather than shown again for a second.
+
+    The mirror of :class:`readerboard.services.alerts.Renderer`, which the alert
+    service declares and this module implements. This one goes the other way.
+    """
+
+    @property
+    def put_the_alert_back(self) -> bool:
+        """Whether an alert was written to the priority file as the hold closed."""
+        ...
+
+
 # What :meth:`SlotRegistry.set_priority_hold` takes: something that hands the
 # sign back for the duration, given the renderer to put the alert back with.
 # The alert service's own lock is below this registry's, so the renderer has to
 # be passed in rather than reached for; see :meth:`AlertService.lifted`.
-PriorityHold = Callable[[Callable[..., bytes]], AbstractAsyncContextManager[None]]
+PriorityHold = Callable[[Callable[..., bytes]], AbstractAsyncContextManager[Lift]]
+
+
+class _NoLift:
+    """The lift a registry with no alert service wired in gets."""
+
+    @property
+    def put_the_alert_back(self) -> bool:
+        """Nothing was handed back, so nothing was put back."""
+        return False
 
 
 class SlotRegistry:
@@ -521,7 +550,23 @@ class SlotRegistry:
                 ", ".join(missing),
             )
 
-    async def _rewrite_all(self) -> None:
+    async def _rewrite_all(self) -> bool:
+        """Write everything the state file describes. Returns whether it put an alert back.
+
+        The return is what stops the alert being written to the sign twice in a
+        row. Handing the sign back for the picture writes means putting the
+        alert straight back on afterwards, and that write is a real one: the
+        alert restarts on the display. A caller that then re-asserts the alert
+        restarts it a second time for nothing, which is the flicker that came
+        with the hand-back. True here means the caller has nothing left to do.
+
+        False covers both the case where no alert was up and the case where
+        there were no pictures to write, so the sign was never handed back and
+        nothing here touched the priority file. The second is why the caller
+        still needs :meth:`AlertService.reassert`: a service with no icons goes
+        through here without going near the priority file at all, and a sign
+        power cycled mid-alert would stay blank without it.
+        """
         # Before anything is written, because a message can outlive the picture
         # file its icon was in and nothing rewrites a message that has not
         # changed. Here rather than in the restore that used to call it, because
@@ -540,10 +585,12 @@ class SlotRegistry:
         # rewrites everything while the sign is still showing the alert it kept
         # across the restart, so every picture write landed under a priority
         # message and none of them took.
+        handed_the_alert_back = False
         if self._state.pictures:
-            async with self._priority_lifted():
+            async with self._priority_lifted() as lifted:
                 for picture in self._state.pictures.values():
                     await self._write_picture(picture)
+            handed_the_alert_back = lifted.put_the_alert_back
         for variable in self.list_variables():
             await self._write_variable(variable)
         for slot in self.list_slots():
@@ -556,8 +603,9 @@ class SlotRegistry:
             else:
                 await self._hide(slot)
         await self._apply_run_sequence()
+        return handed_the_alert_back
 
-    async def refresh(self) -> None:
+    async def refresh(self) -> bool:
         """Push everything to the sign again, whether or not it looks necessary.
 
         This is the answer to a problem the suppression cache cannot see. The
@@ -577,10 +625,14 @@ class SlotRegistry:
         since been shown to answer them through the Ethernet adapter. Nothing
         here depends on that yet. See "Reading state back" in
         docs/protocol-notes.md.
+
+        Returns whether an alert was put back on the sign as part of it, which
+        the caller needs so that it does not write the alert a second time. See
+        :meth:`_rewrite_all`.
         """
         async with self._lock:
             self._controller.forget_sign_contents()
-            await self._rewrite_all()
+            put_the_alert_back = await self._rewrite_all()
             self._dirty = False
 
         logger.debug(
@@ -588,8 +640,9 @@ class SlotRegistry:
             len(self._state.slots),
             len(self._state.variables),
         )
+        return put_the_alert_back
 
-    async def reboot(self) -> int:
+    async def reboot(self) -> bool:
         """Reset the sign to recover it, then restore the rotation from record.
 
         This is the recovery path for a sign that has stopped showing what it
@@ -601,9 +654,13 @@ class SlotRegistry:
         variable, every slot and the run sequence.
 
         The service's own record is left untouched, so the sign comes back
-        showing what it should rather than blank. Returns how many slots were
-        restored. An alert lives in the priority file, which this does not
-        touch; the caller re-asserts it.
+        showing what it should rather than blank. An alert lives in the priority
+        file, which this touches only when it hands the sign back to write a
+        picture; the caller re-asserts it when this reports that it did not.
+
+        Returns whether an alert was put back as part of the restore, on the
+        same terms as :meth:`refresh`. How many slots came back is in the log
+        line below and in :meth:`list_slots`.
 
         Raises :class:`readerboard.sign.pool.PoolTooLarge` if the sign turns out
         not to have room for the configuration, in which case nothing has been
@@ -637,17 +694,16 @@ class SlotRegistry:
             # again is belt and braces: after a reset the cache is exactly what
             # cannot be trusted, and the rewrite below must not be suppressed.
             self._controller.forget_sign_contents()
-            await self._rewrite_all()
+            put_the_alert_back = await self._rewrite_all()
             self._dirty = False
             self._save()
 
-        count = len(self._state.slots)
         logger.warning(
             "sign rebooted; %d slot(s) and %d variable(s) restored",
-            count,
+            len(self._state.slots),
             len(self._state.variables),
         )
-        return count
+        return put_the_alert_back
 
     @property
     def in_sync(self) -> bool:
@@ -1446,7 +1502,7 @@ class SlotRegistry:
             await self._write_picture(self._state.pictures[key])
 
     @contextlib.asynccontextmanager
-    async def _priority_lifted(self) -> AsyncIterator[None]:
+    async def _priority_lifted(self) -> AsyncIterator[Lift]:
         """Hand the sign back while pictures are written, if an alert is holding it.
 
         A picture written while a priority message is running is not taken by
@@ -1461,14 +1517,16 @@ class SlotRegistry:
         for no gain.
 
         Nothing happens when no alert service was wired in, which is the tests
-        that use the registry on its own.
+        that use the registry on its own. Those get a lift that reports having
+        put nothing back, which is true: with no alert service there is no
+        priority file to put anything on.
         """
         hold = self._priority_hold
         if hold is None:
-            yield
+            yield _NoLift()
             return
-        async with hold(self._render_message):
-            yield
+        async with hold(self._render_message) as lift:
+            yield lift
 
     def _require_variables(self) -> None:
         if not self._layout.variable_count:

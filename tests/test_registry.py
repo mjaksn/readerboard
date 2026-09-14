@@ -881,7 +881,7 @@ class TestReboot:
         transport.clear()
         answer_a_pool_reading()
 
-        restored = await registry.reboot()
+        put_the_alert_back = await registry.reboot()
 
         # The clear and the configuration went out, erasing the sign, ...
         assert frames.packet(frames.clear_memory()) in transport.packets
@@ -890,8 +890,10 @@ class TestReboot:
             in transport.packets
         )
         # ... and both slots and the run sequence were written again after it.
-        assert restored == 2
         assert [slot.key for slot in registry.list_slots()] == ["one", "two"]
+        # No alert was up, so the caller is the one that has to put one back,
+        # and there was nothing to put.
+        assert put_the_alert_back is False
         assert len(payloads_starting(transport, b"A")) == 2
         assert run_sequences(transport)
 
@@ -945,7 +947,8 @@ class TestReboot:
         await add(registry, "one")
         transport.clear()
 
-        assert await registry.reboot() == 1
+        await registry.reboot()
+        assert [slot.key for slot in registry.list_slots()] == ["one"]
         assert frames.packet(frames.clear_memory()) in transport.packets
 
 

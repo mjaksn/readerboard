@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 
@@ -97,6 +98,26 @@ def build_transport(settings: Settings) -> Transport:
     )
 
 
+async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) -> None:
+    """Push everything to the sign again, and make sure any alert is back on it.
+
+    Both of the places that re-push go through here, the timer below and the
+    reconnect hook, because both are answering the same question: the sign may
+    have been power cycled and nothing the controller believes about it holds.
+
+    The refresh puts the slots back, and it puts the alert back too when it had
+    to hand the sign over to write a picture. It says which, and that is why
+    this asks rather than always re-asserting: re-asserting an alert that is
+    already back on the priority file restarts it on the display for nothing,
+    which is a visible flicker every refresh interval for as long as the alert
+    is up. In the case where the refresh did not touch the priority file, which
+    is a service with no icons, the re-assert is the only thing that would put
+    the alert on a sign that came back blank.
+    """
+    if not await registry.refresh():
+        await alerts.reassert()
+
+
 async def _refresh_loop(app: FastAPI, interval: float) -> None:
     """Push everything to the sign again, periodically.
 
@@ -109,12 +130,7 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
     while True:
         await asyncio.sleep(interval)
         try:
-            await registry.refresh()
-            # The refresh puts the slots back, but an alert lives in the
-            # priority file, which the registry does not touch. Without this a
-            # sign power cycled mid-alert would stay blank until the alert's
-            # deadline, and an alert with no deadline would stay blank for good.
-            await alerts.reassert()
+            await _refresh_and_reassert(registry, alerts)
         except TransportError as err:
             logger.debug("periodic refresh skipped, sign unreachable: %s", err)
         except Exception:
@@ -241,7 +257,12 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             controller.on_reconnect(clock.sync_quietly)
         # A link that just came back may be in front of a sign that was power
         # cycled, so nothing the controller believes about its contents holds.
-        controller.on_reconnect(registry.refresh)
+        # The alert goes back on with everything else: it was only the slots
+        # before, so a reconnect to a sign that had lost an alert left the
+        # priority file empty until the next tick of the timer above.
+        controller.on_reconnect(
+            functools.partial(_refresh_and_reassert, registry, alerts)
+        )
 
         if settings.clock_sync_enabled:
             await clock.start()
