@@ -442,13 +442,14 @@ class AlertService:
             # opposite of putting the sign back: the body is empty but the
             # formatting bytes around it are not, so the sign reads a blank
             # priority message and holds the display dark until something
-            # releases it. :meth:`restore` is what clears the record; this runs
-            # before it on the way up, and its job here is only to not make the
-            # sign worse in between.
+            # releases it. The lifted hold has already sent that release, so
+            # forget the stale record here as well.
             logger.warning(
                 "the lifted alert has no message, so it was not put back; it will be "
                 "released rather than restored"
             )
+            self._state.alert = None
+            self._store.save(self._state)
             return False
 
         if self._has_expired(alert):
