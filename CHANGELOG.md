@@ -15,7 +15,7 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
-- **An alert flickered twice on every refresh, and twice at startup.** Handing
+- **An alert flickered twice on every refresh, and on every sign reboot.**
   the sign back for a picture write means putting the alert on again afterwards,
   and the sign restarts an alert when it takes one. The periodic refresh then
   re-asserted the alert straight after, restarting it a second time for nothing,
