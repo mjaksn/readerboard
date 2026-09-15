@@ -21,6 +21,7 @@ from dataclasses import replace
 import pytest
 
 from readerboard import icons
+from readerboard.api.app import _refresh_and_reassert
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
@@ -31,6 +32,7 @@ from readerboard.services.registry import (
 )
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout
+from readerboard.sign.state import AlertState
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -981,6 +983,175 @@ class TestWritingPicturesUnderAnAlert:
 
         assert len(picture_writes(transport)) == 1
         assert priority_writes(transport) == []
+
+
+class TestNotWritingTheAlertTwice:
+    """Handing the sign back means putting the alert on again, and once is enough.
+
+    The hand-back that lets a picture write land ends by writing the alert back
+    to the priority file, forced. That write is not free: the sign restarts the
+    alert on the display when it takes it. So a caller that then re-asserts the
+    alert restarts it a second time for nothing, and because the refresh runs on
+    a timer it is a flicker every interval for as long as the alert is up.
+
+    Hence the report. :meth:`SlotRegistry.refresh` and
+    :meth:`SlotRegistry.reboot` each answer whether they put the alert back, and
+    ``app.py`` and the reboot route re-assert only when they did not. The case
+    where they did not is real and is the one this must not break: a service
+    with no icons never hands the sign back, so nothing else would put the alert
+    on a sign that was power cycled mid-alert.
+    """
+
+    async def test_a_refresh_that_handed_the_sign_back_reports_it(self, wired, transport):
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        assert await registry.refresh() is True
+
+        # Released for the picture, then put back on: one of each, in that order.
+        writes = priority_writes(transport)
+        assert [is_release(write) for write in writes] == [True, False]
+
+    async def test_the_caller_does_not_write_the_alert_a_second_time(self, wired, transport):
+        # The whole point, in the shape ``app.py`` runs it. Before the report
+        # existed this wrote the alert twice: once from the hand-back and once
+        # from the re-assert straight after it.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        if not await registry.refresh():
+            await alerts.reassert()
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+    async def test_with_no_picture_to_write_the_caller_still_re_asserts(
+        self, wired, transport
+    ):
+        # Nothing claims a picture file, so the sign is never handed back and
+        # nothing in the refresh goes near the priority file. The re-assert is
+        # the only thing that would repair a sign power cycled mid-alert, so it
+        # has to still happen.
+        registry, alerts = wired
+        await add(registry, "door", "LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        assert await registry.refresh() is False
+
+        assert priority_writes(transport) == []
+        assert await alerts.reassert() is True
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+    async def test_with_no_alert_up_there_is_nothing_to_report(self, wired, transport):
+        registry, _ = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+
+        assert await registry.refresh() is False
+
+    async def test_an_alert_that_expired_while_the_sign_was_handed_back(
+        self, wired, transport, clock
+    ):
+        # Its deadline passes during the picture write, so it is dropped rather
+        # than shown again for a second. Nothing was put back, so the refresh
+        # says so, and the caller's re-assert finds no alert to assert.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD", ttl_seconds=60)
+        transport.clear()
+        clock.advance(120)
+
+        assert await registry.refresh() is False
+        assert await alerts.reassert() is False
+
+    async def test_an_alert_with_no_message_is_not_put_back(
+        self, wired, transport, state, clock
+    ):
+        # An earlier version accepted an alert with no text, so one can still be
+        # sitting in a state file. Writing it back is worse than doing nothing:
+        # the body is empty but the formatting bytes around it are not, and the
+        # sign reads that as a blank priority message and holds the display dark
+        # until something releases it. On the way up that is two extra things a
+        # person sees, a dark sign and then the release, for an alert that is
+        # about to be thrown away anyway.
+        registry, _ = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        state.alert = AlertState(message="", mode="HOLD", started_at=clock.now)
+        transport.clear()
+
+        await registry.refresh()
+
+        # The release that hands the sign over for the picture, and nothing
+        # after it: the sign is left showing the rotation, not held dark.
+        assert [is_release(write) for write in priority_writes(transport)] == [True]
+        # And nothing was put back, so the caller is still the one to deal with
+        # it, which for this alert means releasing it rather than restoring it.
+        assert await registry.refresh() is False
+
+    async def test_the_shared_path_writes_the_alert_once(self, wired, transport):
+        # What both the periodic timer and the reconnect hook actually call, so
+        # the two cannot drift apart. The reconnect used to re-push the slots
+        # and nothing else, which left the priority file empty on a link that
+        # came back in front of a sign that had lost its alert.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+    async def test_the_shared_path_still_writes_it_with_no_icons(self, wired, transport):
+        registry, alerts = wired
+        await add(registry, "door", "LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+    async def test_an_empty_alert_is_released_rather_than_written(
+        self, wired, transport, state, clock
+    ):
+        # The other half of the rule below: the hand-back declines to put an
+        # empty alert back, and this is what then gets rid of it. Without it the
+        # record would say an alert is holding a sign that is showing the
+        # rotation, and with no deadline it would say so for good.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        state.alert = AlertState(message="", mode="HOLD", started_at=clock.now)
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert alerts.active is None
+        # Releases only. Nothing was written to the priority file that the sign
+        # would read as a blank message and hold.
+        assert all(is_release(write) for write in priority_writes(transport))
+
+    async def test_a_reboot_reports_it_the_same_way(
+        self, wired, transport, answer_a_pool_reading
+    ):
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+        answer_a_pool_reading()
+
+        assert await registry.reboot() is True
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
 
 
 class TestAcrossARestart:

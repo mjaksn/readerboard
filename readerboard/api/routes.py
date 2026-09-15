@@ -411,8 +411,11 @@ async def reboot_sign(registry: RegistryDep, alerts: AlertsDep) -> Response:
     written and it is left exactly as it was. A sign too wedged to answer that
     question is rebooted anyway, which is the case this endpoint exists for.
     """
-    await registry.reboot()
-    await alerts.reassert()
+    # Only when the reboot did not already put it back, which it does when it
+    # hands the sign over to write a picture. Writing it twice restarts the
+    # alert on the display a second time for nothing.
+    if not await registry.reboot():
+        await alerts.reassert()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

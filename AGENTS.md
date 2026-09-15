@@ -327,6 +327,15 @@ declines to write them again.
   separately powered, so the sign can be power cycled with the TCP link still
   up. Nothing fires, the write cache stays warm, and suppression would then skip
   exactly the writes that would repair a blank sign.
+- **The alert is not re-asserted after every refresh.** It looks like a gap and
+  it is the opposite. A refresh that hands the sign back to write a picture ends
+  by writing the alert on again, and the sign restarts an alert when it takes
+  one, so re-asserting it straight after restarts it a second time for nothing.
+  `SlotRegistry.refresh` and `SlotRegistry.reboot` each report whether they put
+  it back, and `_refresh_and_reassert` in `app.py` asks before it acts. The case
+  that still needs the re-assert is a service with no icons, which never hands
+  the sign back and so never goes near the priority file; without it a sign
+  power cycled mid-alert would stay blank.
 - **The paths carry no version prefix.** They read `/v2` until the second,
   older surface beside them was removed. With one surface left, a prefix that
   distinguishes it from nothing is a word every caller writes and no reader
