@@ -82,6 +82,35 @@ class Renderer(Protocol):
 Rendering = Callable[[str | None], AbstractAsyncContextManager[Renderer]]
 
 
+class _Lift:
+    """What :meth:`AlertService.lifted` yields, for the caller to read afterwards.
+
+    It carries one fact: whether an alert went back on the priority file as the
+    hold closed. The caller needs it because putting the alert back is a real
+    write that restarts the alert on the display, so re-asserting the alert
+    after one has happened restarts it a second time for nothing. That second
+    restart is the flicker the hand-back brought with it.
+
+    It cannot be answered on the way in. The alert can be released or replaced
+    while the sign is handed back, and one whose deadline passes in the meantime
+    is dropped rather than shown again for a second, so the answer is only known
+    once :meth:`AlertService._put_back` has run.
+    """
+
+    def __init__(self) -> None:
+        """Start out having put nothing back, which is true until the hold closes."""
+        self._put_back = False
+
+    def record(self, put_back: bool) -> None:
+        """Say whether the put-back wrote the priority file. Called as the hold closes."""
+        self._put_back = put_back
+
+    @property
+    def put_the_alert_back(self) -> bool:
+        """Whether an alert was written to the priority file as the hold closed."""
+        return self._put_back
+
+
 class AlertTooLong(ValueError):
     """The alert does not fit the sign's fixed size priority file."""
 
@@ -239,16 +268,36 @@ class AlertService:
 
         The registry's periodic refresh exists because the sign can be power
         cycled behind a still-connected adapter, leaving it blank with nothing
-        to notice. That refresh puts the slots back, but an alert lives in the
-        priority file, which the registry does not touch. Without this, a sign
-        power cycled mid-alert would sit blank until the alert's deadline
-        passed, and an alert with no deadline would sit blank indefinitely.
+        to notice. That refresh puts the slots back, and an alert lives in the
+        priority file, which it touches only when it hands the sign over to
+        write a picture. Without this, a sign power cycled mid-alert with no
+        picture to write would sit blank until the alert's deadline passed, and
+        an alert with no deadline would sit blank indefinitely.
+
+        So the caller asks first. :meth:`SlotRegistry.refresh` and
+        :meth:`SlotRegistry.reboot` each report whether they put the alert back,
+        and this is for the case where they did not. Calling it anyway is not
+        harmless: the write is forced, so it would restart an alert already back
+        on the display, once per refresh interval for as long as the alert is up.
 
         Returns whether there was an alert to re-assert.
         """
         async with self._rendering(None) as render_message, self._lock:
             alert = self._state.alert
             if alert is None:
+                return False
+            if not alert.message:
+                # The same rule :meth:`restore` applies, and here because an
+                # empty alert can outlive that: a sign unreachable at startup
+                # makes restore raise before it reaches its own branch, and the
+                # record survives into the first refresh. Writing it is the
+                # opposite of a release, since the formatting bytes around the
+                # empty body make the sign hold the display dark. There is
+                # nothing here the sign can hold, so let it go and record that.
+                logger.warning(
+                    "an alert with no message is recorded as active; releasing it"
+                )
+                await self._release_locked()
                 return False
             body = render_message(alert.message, strict=False)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
@@ -270,7 +319,7 @@ class AlertService:
         return True
 
     @contextlib.asynccontextmanager
-    async def lifted(self, render: Callable[..., bytes]) -> AsyncIterator[None]:
+    async def lifted(self, render: Callable[..., bytes]) -> AsyncIterator[_Lift]:
         """Take the alert off the sign for the duration, then put it straight back.
 
         For a picture write, which the sign will not take while a priority
@@ -309,7 +358,12 @@ class AlertService:
         left wrong, so it travels: answering 200 over a display that is showing
         the rotation while the service still reports an alert would be the call
         lying about what it did.
+
+        What is yielded reports, afterwards, whether an alert went back on the
+        priority file, so that the caller does not write it a second time. See
+        :class:`_Lift`.
         """
+        lift = _Lift()
         async with self._lock:
             # Unconditional, and unforced. See the docstring: what is recorded
             # here is not what the sign is holding, and the release costs one
@@ -320,20 +374,20 @@ class AlertService:
             # sign over in between, so an alert found here is one to put back.
             alert = self._state.alert
             if alert is None:
-                yield
+                yield lift
                 return
 
             try:
-                yield
+                yield lift
             except BaseException:
-                await self._put_back_quietly(alert, render)
+                lift.record(await self._put_back_quietly(alert, render))
                 raise
             else:
-                await self._put_back(alert, render)
+                lift.record(await self._put_back(alert, render))
 
     async def _put_back_quietly(
         self, alert: AlertState, render: Callable[..., bytes]
-    ) -> None:
+    ) -> bool:
         """Put a lifted alert back while another failure is already travelling.
 
         Never raises. Every caller is on a rollback path, so anything raised
@@ -345,16 +399,26 @@ class AlertService:
         The caller reverts the pool before calling this, so the alert is
         rendered against the files it had when it was up rather than against the
         ones the alert that failed had taken off it.
+
+        Returns whether the priority file was written, on the same terms as
+        :meth:`_put_back`. A failure swallowed here wrote nothing, so it answers
+        False and whatever asked is told to put the alert back itself.
         """
         try:
-            await self._put_back(alert, render)
+            return await self._put_back(alert, render)
         except Exception:
             # Anything at all, for the reason above. Not BaseException: a
             # cancellation is the caller going away and has to keep travelling.
             logger.exception("could not put the lifted alert back on the sign")
+            return False
 
-    async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> None:
+    async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> bool:
         """Write an alert that was lifted off the sign back onto the priority file.
+
+        Returns whether the priority file was written, which is what tells the
+        caller it has nothing left to do. Every early return below answers
+        False, so an alert this declined to put back is still re-asserted by
+        whoever asked, rather than being dropped by both of them.
 
         Raises what the write raised, which is what the success path wants: the
         sign has been handed back, this is what puts it right, and a call that
@@ -363,13 +427,30 @@ class AlertService:
         so until the periodic re-assert. The rollback paths want the opposite
         and go through :meth:`_put_back_quietly`.
 
-        The three early returns are decisions rather than failures: the alert is
-        not this one any more, it has expired, or it no longer fits.
+        The four early returns are decisions rather than failures: the alert is
+        not this one any more, it has expired, it has no message, or it no
+        longer fits.
         """
         if self._state.alert is not alert:
             # Released or replaced while it was lifted. Whoever did that owns
             # the priority file now, and putting this back would undo them.
-            return
+            return False
+
+        if not alert.message:
+            # An earlier version accepted an alert with no text, and one can
+            # still be sitting in a state file written by it. Writing it is the
+            # opposite of putting the sign back: the body is empty but the
+            # formatting bytes around it are not, so the sign reads a blank
+            # priority message and holds the display dark until something
+            # releases it. The lifted hold has already sent that release, so
+            # forget the stale record here as well.
+            logger.warning(
+                "the lifted alert has no message, so it was not put back; it will be "
+                "released rather than restored"
+            )
+            self._state.alert = None
+            self._store.save(self._state)
+            return False
 
         if self._has_expired(alert):
             # Its deadline passed while the sign was being written to. The sweep
@@ -378,7 +459,7 @@ class AlertService:
             logger.info("the lifted alert had expired, so it was not put back")
             self._state.alert = None
             self._store.save(self._state)
-            return
+            return False
 
         body = render(alert.message, strict=False)
         if len(body) > c.PRIORITY_FILE_CAPACITY:
@@ -390,11 +471,12 @@ class AlertService:
                 "was not put back. The text was: %r",
                 alert.message,
             )
-            return
+            return False
         # Forced, because the release above left the controller believing the
         # priority file holds a release. Without it this would be suppressed as
         # a repeat of the write before the lift.
         await self._write(alert, body, force=True)
+        return True
 
     async def raise_alert(
         self,
@@ -524,14 +606,24 @@ class AlertService:
     async def release(self) -> bool:
         """Give the sign back. Returns whether an alert was actually holding it."""
         async with self._lock:
-            was_active = self._state.alert is not None
-            await self._controller.clear_priority()
-            self._state.alert = None
-            self._store.save(self._state)
+            was_active = await self._release_locked()
 
         if was_active:
             logger.info("alert released, rotation resumes")
 
+        return was_active
+
+    async def _release_locked(self) -> bool:
+        """Give the sign back with the lock already held. Returns whether one was up.
+
+        Split out for :meth:`reassert`, which holds the lock across its whole
+        body and cannot call :meth:`release`, because ``asyncio.Lock`` is not
+        reentrant and waiting on it there would wait forever.
+        """
+        was_active = self._state.alert is not None
+        await self._controller.clear_priority()
+        self._state.alert = None
+        self._store.save(self._state)
         return was_active
 
     async def sweep(self) -> bool:

@@ -13,7 +13,60 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Changed
+
+- **The periodic refresh asks the sign whether it needs to do anything.** It used
+  to push every picture, variable, message and the run sequence again every
+  interval, on the reasoning that a sign power cycled behind a still-connected
+  adapter is undetectable. That reasoning was right and the cost had grown:
+  writing a picture blanks the whole display, so a sign showing five icons
+  blanked five times an interval, and with an alert up the alert came off and
+  went back on around it, for a repair that is almost never needed.
+
+  It now reads one picture file back first. A power cycle takes the sign's
+  memory or leaves it alone, so a file that still holds a bitmap says the whole
+  sign survived. An unwritten picture answers with no rows at all, measured on
+  the sign, so this needs no comparison against what the service thinks is
+  there. A sign that still holds its picture is left completely alone.
+
+  Everything it cannot be sure about falls through to the re-push exactly as
+  before: no answer, an answer that does not match its own declared height and
+  width, a link that is down, no icons to ask about, a picture file just given
+  back to an icon that had lost one, or a write already known not to have
+  landed, which is what every failure and rollback path leaves to the next
+  refresh. One read that goes unanswered and it stops asking for the life of the
+  process, which is what keeps the sign simulator, which answers no reads, from
+  paying the read's three second deadline every interval.
+
+  Two things it does not do. It does not ask about the priority file, so an
+  alert is still re-asserted on the timer, which is one write rather than none.
+  And a service with no icons has nothing to ask about and behaves exactly as it
+  did. `POST /sign/reboot` is unchanged and still re-pushes unconditionally,
+  which is what it is for.
+
 ### Fixed
+
+- **An alert flickered twice on every refresh, and twice on every sign reboot.**
+  Handing the sign back for a picture write means putting the alert on again
+  afterwards, and the sign restarts an alert when it takes one. The periodic
+  refresh then re-asserted the alert straight after, restarting it a second time
+  for nothing, once per refresh interval for as long as the alert was up. The
+  refresh and the reboot now say whether they put the alert back, and the alert
+  is re-asserted only when they did not, which is a service with no icons:
+  nothing hands the sign back there, so the re-assert is still the only thing
+  that would repair a sign power cycled mid-alert.
+
+  Two smaller ones went with it. An alert with no message, which only a state
+  file written by an older version can hold, was written back to the priority
+  file: the body is empty but the formatting bytes around it are not, so the
+  sign read a blank priority message and held the display dark. One such alert
+  is now released and forgotten wherever it is found rather than only by the
+  startup path, which a sign unreachable at startup could stop reaching it. And
+  a reconnect re-pushed the slots without re-asserting the alert, so a link that
+  came back in front of a sign that had lost one left the priority file empty
+  until the next tick of the timer; both now go through the same path. The cost
+  of that last one is one forced alert write on a reconnect where nothing was
+  lost, which was not there before.
 
 - **An icon written while an alert was up was lost.** The sign does not take a
   SMALL DOTS PICTURE write while a priority message is running. Nothing noticed,

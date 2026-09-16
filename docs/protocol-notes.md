@@ -1078,11 +1078,20 @@ Collecting the reply has its own traps, described under "Reading state back" and
 `tests/test_controller.py` and `tests/test_transport.py`: the answer is read until its EOT
 arrives, and what is waiting is drained rather than read once.
 
-These would turn divergence detection from a timer into a question. The service currently
-re-pushes everything every fifteen minutes, because the sign and the Ethernet adapter are
-separately powered: the sign can be power cycled with the TCP link still up, nothing
-fires, and the suppression cache then skips exactly the writes that would repair a blank
-sign. Being able to ask would replace that with a cheap comparison.
+These turn divergence detection from a timer into a question, and **as of 2026-09-13 the
+periodic refresh asks one.** The reason it re-pushed blindly is that the sign and the
+Ethernet adapter are separately powered: the sign can be power cycled with the TCP link
+still up, nothing fires, and the suppression cache then skips exactly the writes that
+would repair a blank sign. `SlotRegistry.refresh` now reads one picture file back with `J`
+first, and re-pushes only when the answer says the file is empty, does not parse, or does
+not come. A power cycle takes the sign's memory or leaves it alone, so one file answers for
+the whole sign.
+
+It is `J` rather than one of the five above because of what the reply shape gives for
+nothing: an unwritten picture answers with no rows at all, so written or not needs no
+comparison against what the service believes is there. Whether the sign stores a bitmap
+byte for byte as it was sent is still unmeasured, and a comparison that never matched
+would cost a read an interval and change nothing.
 
 Cheap on the wire, and as of 2026-09-12 measured on the display as well: a read costs a
 message held still nothing at all, and a scrolling one about half a second of stall and
@@ -1094,9 +1103,10 @@ nothing suggests it differs, but nothing has shown it either.
 The frame builders exist, and the adapter is two-way: this sign answered all four of these
 reads through it on 2026-09-09, and answered them again during the soft reset check above,
 which read two text files back with `B` as well, and answered all four again on 2026-09-12
-with a TEXT file and a STRING file read back beside them. Nothing in the service depends on
-that yet, which is deliberate; the reads are available whenever divergence detection is worth
-building.
+with a TEXT file and a STRING file read back beside them. The refresh above is the first
+thing in the service to depend on that, and it depends on it softly: one read that does not
+come and it stops asking for the life of the process and re-pushes as it always did. The
+rest of the reads are still available and still unused.
 
 The trap when reading is pyserial's, not the sign's. Over `socket://`, which is how this
 sign has always been reached, `in_waiting` is not a byte count: it is 1 while anything is

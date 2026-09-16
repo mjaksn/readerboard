@@ -144,9 +144,11 @@ class Settings(BaseSettings):
         default=900.0,
         gt=0,
         description=(
-            "how often to push every message to the sign again whether or not it looks "
-            "necessary. This is what repairs a sign that was power cycled behind a "
-            "still-connected Ethernet adapter, which nothing else can detect"
+            "how often to check that the sign still holds what it was given, and to "
+            "push all of it again if it does not. This is what repairs a sign that was "
+            "power cycled behind a still-connected Ethernet adapter, which nothing else "
+            "can detect. The check is one short read, so an interval that costs nothing "
+            "on a sign that is fine is the point of it"
         ),
     )
     clock_sync_enabled: bool = True

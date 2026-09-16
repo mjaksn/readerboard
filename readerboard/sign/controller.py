@@ -389,6 +389,20 @@ class SignController:
             if settle_seconds and self._settle:
                 await self._sleep(settle_seconds)
 
+    async def read_picture(self, label: bytes) -> bytes:
+        """Ask the sign what a SMALL DOTS PICTURE file holds. Returns the whole reply.
+
+        The one read the service makes on its own timer rather than for a
+        request, and :meth:`SlotRegistry.refresh` has why: an answer that
+        carries rows says the sign still holds what it was given, which is the
+        question the periodic re-push exists to guess at.
+
+        Goes through :meth:`read_special` because collecting a reply is the same
+        work whatever was asked. The name is about the four special functions
+        that were the only reads there were when it was written.
+        """
+        return await self.read_special(frames.read_dots_file(label))
+
     async def read_special(self, payload: bytes) -> bytes:
         """Ask the sign a question and collect the whole answer.
 
