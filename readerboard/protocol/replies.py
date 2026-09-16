@@ -114,14 +114,22 @@ def picture_contents(reply: bytes, label: bytes) -> bytes:
     followed by the same full re-push it was meant to avoid. Written or not is
     what was measured, so written or not is what is asked.
 
-    The shape is checked even so, and the asymmetry of the failure is why. A
-    caller reads emptiness as "the sign lost it, repair everything" and anything
-    else as "the sign is fine, do nothing", so an answer this does not
-    understand must not come back looking like the second one: a sign answering
-    in some shape the spike never saw would then be told it was fine every
-    interval, for good, and the repair would quietly stop happening. Raising
-    instead sends the caller down the path it takes when nothing came back at
-    all, which costs a read and repairs exactly as it did before.
+    The shape is checked against itself even so, and the asymmetry of the
+    failure is why. A caller reads emptiness as "the sign lost it, repair
+    everything" and anything else as "the sign is fine, do nothing", so an
+    answer this does not understand must not come back looking like the second
+    one: a sign answering in some shape the spike never saw would then be told
+    it was fine every interval, for good, and the repair would quietly stop
+    happening. Raising instead sends the caller down the path it takes when
+    nothing came back at all, which costs a read and repairs exactly as it did
+    before. Of the two ways to be wrong, that is the one that leaves a sign
+    working.
+
+    Checked against itself rather than against the service's own record, which
+    is the distinction the paragraph above is about. The reply declares its own
+    height and width, so whether it carries that many rows of that many pixels
+    is answerable without knowing which icon is supposed to be in the file, and
+    a reply mangled on the wire is unlikely to survive it.
     """
     contents = unwrap(reply, label, command=c.COMMAND_WRITE_DOTS)
     if not contents:
@@ -129,14 +137,32 @@ def picture_contents(reply: bytes, label: bytes) -> bytes:
         # malformed one, and the one the caller acts on.
         return contents
 
-    height_and_width = contents[:4]
-    if len(height_and_width) < 4 or any(
-        byte not in b"0123456789ABCDEFabcdef" for byte in height_and_width
-    ):
-        raise ReplyError(
+    def refuse(why: str) -> ReplyError:
+        return ReplyError(
             "the sign answered for picture %r with something that is neither an empty "
-            "file nor a height and width in hex: %r" % (label, contents[:16])
+            "file nor a picture: %s. It said: %r" % (label, why, contents[:24])
         )
+
+    if len(contents) < 4:
+        raise refuse("too short to carry a height and a width")
+    try:
+        height = int(contents[:2].decode("ascii"), 16)
+        width = int(contents[2:4].decode("ascii"), 16)
+    except (UnicodeDecodeError, ValueError):
+        raise refuse("the height and width are not two hex digits each") from None
+    if not height or not width:
+        raise refuse("it declares a height or a width of zero")
+
+    body = contents[4:]
+    if not body.endswith(c.CR):
+        raise refuse("the last row does not end where a row ends")
+    rows = body.split(c.CR)[:-1]
+    if len(rows) != height:
+        raise refuse(
+            "it declares %d rows and carries %d" % (height, len(rows))
+        )
+    if any(len(row) != width for row in rows):
+        raise refuse("it declares a width of %d and a row does not match" % width)
     return contents
 
 

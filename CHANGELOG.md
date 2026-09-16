@@ -30,10 +30,10 @@ library, and the names inside it may move without that being a breaking change.
   there. A sign that still holds its picture is left completely alone.
 
   Everything it cannot be sure about falls through to the re-push exactly as
-  before: no answer, an answer in a shape that is neither an empty file nor a
-  height and width, a link that is down, no icons to ask about, a picture file
-  just given back to an icon that had lost one, or a write already known not to
-  have landed, which is what every failure and rollback path leaves to the next
+  before: no answer, an answer that does not match its own declared height and
+  width, a link that is down, no icons to ask about, a picture file just given
+  back to an icon that had lost one, or a write already known not to have
+  landed, which is what every failure and rollback path leaves to the next
   refresh. One read that goes unanswered and it stops asking for the life of the
   process, which is what keeps the sign simulator, which answers no reads, from
   paying the read's three second deadline every interval.

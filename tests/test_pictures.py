@@ -1315,6 +1315,43 @@ class TestAskingBeforeRePushing:
 
         assert picture_writes(transport)
 
+    @pytest.mark.parametrize(
+        ("contents", "what"),
+        [
+            (b"0101", "dimensions and no rows at all"),
+            (b"0709", "dimensions and no rows, at the size a real one is"),
+            (b"0709" + b"000000000" + c.CR, "one row where it declares seven"),
+            (b"0709" + (b"00000000" + c.CR) * 7, "rows narrower than it declares"),
+            (b"0000", "a height and a width of zero"),
+            (b"07zz" + b"000000000" + c.CR, "a width that is not hex"),
+            (b"0709" + b"000000000", "a last row that does not end where a row ends"),
+        ],
+    )
+    async def test_a_reply_that_does_not_describe_itself_gets_everything_back(
+        self, registry, transport, contents, what
+    ):
+        # The reply says how tall and how wide it is, so whether it carries that
+        # many rows of that many pixels is answerable without knowing which icon
+        # is supposed to be in the file. Anything that fails its own description
+        # is an answer this does not understand, and the one thing it must not
+        # do with one of those is read it as "the sign is fine".
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+        body = c.STX + c.COMMAND_WRITE_DOTS + b"6" + contents + c.ETX
+        transport.replies.append(
+            c.NUL * 20
+            + c.SOH
+            + c.SIGN_TYPE_RESPONSE
+            + c.SIGN_ADDRESS_BROADCAST
+            + body
+            + b"%04X" % sum(body)
+            + c.EOT
+        )
+
+        await registry.refresh()
+
+        assert picture_writes(transport), what
+
     async def test_a_registry_with_a_write_that_did_not_land_gets_everything_back(
         self, registry, transport
     ):
