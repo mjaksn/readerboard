@@ -684,16 +684,29 @@ class SlotRegistry:
 
         False on anything it is not sure about, which is what makes it safe to
         add: no answer, an answer that does not parse, a sign the link is down
-        to, or no picture to ask about. Every one of those falls through to the
-        re-push that happened unconditionally before, so the worst this can do
-        is cost a read.
+        to, no picture to ask about, or anything already known to need repair.
+        Every one of those falls through to the re-push that happened
+        unconditionally before, so the worst this can do is cost a read.
 
-        The repair in :meth:`_reclaim_pictures` runs first and is the reason for
-        the second check. It can give a file back to an icon that lost one, and
-        a record the controller has never written is exactly the case the
-        re-push is there to finish; asking the sign about a different file would
-        answer yes and leave that one undrawn.
+        That last one is the subtle one and it is not optional. Every place that
+        sets ``_dirty`` is a failure or a rollback, a write that went out and one
+        after it that did not, and each of them leaves the repair to the next
+        refresh by name: see the comment in :meth:`upsert` about the sign showing
+        something the record does not describe. What the sign holds in one
+        picture file says nothing about any of that, so asking would answer yes
+        over a sign that is known to be wrong somewhere else.
+
+        The repair in :meth:`_reclaim_pictures` runs first for a related reason.
+        It can give a file back to an icon that lost one, and a record the
+        controller has never written is exactly the case the re-push is there to
+        finish; asking the sign about a different file would answer yes and
+        leave that one undrawn.
         """
+        if self._dirty:
+            # Something is already known not to have landed, and the refresh is
+            # what every one of those paths leaves the repair to.
+            return False
+
         if self._reclaim_pictures():
             # A file was just given back to an icon that had lost one, and the
             # bitmap is not in it yet. The re-push is what draws it.

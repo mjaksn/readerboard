@@ -1315,6 +1315,25 @@ class TestAskingBeforeRePushing:
 
         assert picture_writes(transport)
 
+    async def test_a_registry_with_a_write_that_did_not_land_gets_everything_back(
+        self, registry, transport
+    ):
+        # Every path that sets the dirty flag is a failure or a rollback that
+        # leaves the repair to the next refresh by name. What the sign holds in
+        # one picture file says nothing about any of that, so the question is
+        # not asked at all.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        registry._dirty = True
+
+        await registry.refresh()
+
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert picture_writes(transport)
+        assert registry.in_sync
+
     async def test_a_sign_that_never_answers_is_only_asked_once(
         self, registry, transport
     ):
