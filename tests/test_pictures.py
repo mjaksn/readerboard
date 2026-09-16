@@ -1154,6 +1154,263 @@ class TestNotWritingTheAlertTwice:
         assert len(takeovers) == 1
 
 
+def picture_reply(label: bytes, rows: list[str] | None) -> bytes:
+    """Build the answer a sign gives to a ``J`` read of one picture file.
+
+    ``rows`` None is a file that was allocated and never written, which answers
+    the command code, the label and the checksum and nothing else. A written one
+    answers the height and the width as two hex digits each and then one row a
+    line. Both shapes are from the sign, on 2026-09-13, recorded under "What a
+    ``J`` reply says" in docs/protocol-notes.md.
+    """
+    data = b""
+    if rows is not None:
+        data = b"%02X%02X" % (len(rows), max(len(row) for row in rows))
+        data += b"".join(row.encode("ascii") + c.CR for row in rows)
+    body = c.STX + c.COMMAND_WRITE_DOTS + label + data + c.ETX
+    return (
+        c.NUL * 20
+        + c.SOH
+        + c.SIGN_TYPE_RESPONSE
+        + c.SIGN_ADDRESS_BROADCAST
+        + body
+        + b"%04X" % sum(body)
+        + c.EOT
+    )
+
+
+class TestAskingBeforeRePushing:
+    """The periodic re-push asks the sign first, because it is expensive to be wrong.
+
+    Every picture write blanks the whole display, so a sign showing five icons
+    blanks five times an interval for a repair that is almost never needed. What
+    the re-push guards against is the sign being power cycled behind a
+    still-connected adapter, which takes its memory or leaves it alone: there is
+    no version of it that loses one file. So one question stands in for the
+    whole sign, and PR #77 measured the two answers apart on hardware, an
+    unwritten picture answering with no rows at all.
+
+    Everything it is not sure about falls through to the re-push that used to
+    happen unconditionally, which is why adding it cannot make the sign worse
+    than it was; the worst case is the cost of a read.
+    """
+
+    async def test_a_sign_that_still_holds_its_picture_is_left_alone(
+        self, registry, transport
+    ):
+        await add(registry, "door", "<icon:lock> LOCKED")
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+
+        await registry.refresh()
+
+        # The read went out and nothing else did. No picture blanked the
+        # display, no message restarted, no run sequence moved.
+        assert payloads(transport) == [c.COMMAND_READ_DOTS + b"6"]
+
+    async def test_a_sign_that_lost_its_picture_gets_everything_back(
+        self, registry, transport
+    ):
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+        # Allocated and never written, which is what a power cycle leaves.
+        transport.replies.append(picture_reply(b"6", None))
+
+        await registry.refresh()
+
+        assert picture_writes(transport)
+        assert commands(transport).count(c.COMMAND_WRITE_TEXT) == 1
+
+    async def test_a_sign_that_does_not_answer_gets_everything_back(
+        self, registry, transport
+    ):
+        # The read is the new thing that can fail, and failing has to mean
+        # falling through to what happened before rather than skipping a repair.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+
+        await registry.refresh()
+
+        assert picture_writes(transport)
+
+    async def test_an_answer_about_the_wrong_file_gets_everything_back(
+        self, registry, transport
+    ):
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+        transport.replies.append(picture_reply(b"7", ["000", "000"]))
+
+        await registry.refresh()
+
+        assert picture_writes(transport)
+
+    async def test_a_service_with_no_icons_re_pushes_as_it_always_did(
+        self, registry, transport
+    ):
+        # Nothing to ask about, so nothing is asked and nothing changes.
+        await add(registry, "door", "LOCKED")
+        transport.clear()
+
+        await registry.refresh()
+
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert commands(transport).count(c.COMMAND_WRITE_TEXT) == 1
+
+    async def test_a_picture_the_controller_never_wrote_gets_everything_back(
+        self, registry, controller, transport
+    ):
+        # The controller having been reset without the state file going with it.
+        # Asking the sign would answer for a file this has no bitmap recorded
+        # for, so it is not asked.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        controller.forget_sign_contents()
+        transport.clear()
+
+        await registry.refresh()
+
+        assert payloads(transport)
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert picture_writes(transport)
+
+    async def test_a_reclaimed_picture_is_drawn_rather_than_skipped(
+        self, registry, state, transport
+    ):
+        # The repair the refresh is the last line of: an icon lost its file to a
+        # rollback that could not redraw it, and the message calling it is still
+        # there. Reclaiming gives the file back, and the bitmap still has to go
+        # into it, so this must not take the skip.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        state.pictures.clear()
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", ["000", "000"]))
+
+        await registry.refresh()
+
+        assert picture_writes(transport)
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+
+    async def test_an_answer_in_a_shape_it_does_not_know_gets_everything_back(
+        self, registry, transport
+    ):
+        # The dangerous direction. Emptiness means "repair everything" and
+        # anything else means "do nothing", so an answer this does not
+        # understand must not land on the second: a sign answering in some shape
+        # the spike never saw would be told it was fine every interval, for
+        # good, and the repair would quietly stop happening.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+        body = c.STX + c.COMMAND_WRITE_DOTS + b"6" + b"not hex" + c.ETX
+        transport.replies.append(
+            c.NUL * 20
+            + c.SOH
+            + c.SIGN_TYPE_RESPONSE
+            + c.SIGN_ADDRESS_BROADCAST
+            + body
+            + b"%04X" % sum(body)
+            + c.EOT
+        )
+
+        await registry.refresh()
+
+        assert picture_writes(transport)
+
+    @pytest.mark.parametrize(
+        ("contents", "what"),
+        [
+            (b"0101", "dimensions and no rows at all"),
+            (b"0709", "dimensions and no rows, at the size a real one is"),
+            (b"0709" + b"000000000" + c.CR, "one row where it declares seven"),
+            (b"0709" + (b"00000000" + c.CR) * 7, "rows narrower than it declares"),
+            (b"0000", "a height and a width of zero"),
+            (b"07zz" + b"000000000" + c.CR, "a width that is not hex"),
+            (b"0709" + b"000000000", "a last row that does not end where a row ends"),
+        ],
+    )
+    async def test_a_reply_that_does_not_describe_itself_gets_everything_back(
+        self, registry, transport, contents, what
+    ):
+        # The reply says how tall and how wide it is, so whether it carries that
+        # many rows of that many pixels is answerable without knowing which icon
+        # is supposed to be in the file. Anything that fails its own description
+        # is an answer this does not understand, and the one thing it must not
+        # do with one of those is read it as "the sign is fine".
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+        body = c.STX + c.COMMAND_WRITE_DOTS + b"6" + contents + c.ETX
+        transport.replies.append(
+            c.NUL * 20
+            + c.SOH
+            + c.SIGN_TYPE_RESPONSE
+            + c.SIGN_ADDRESS_BROADCAST
+            + body
+            + b"%04X" % sum(body)
+            + c.EOT
+        )
+
+        await registry.refresh()
+
+        assert picture_writes(transport), what
+
+    async def test_a_registry_with_a_write_that_did_not_land_gets_everything_back(
+        self, registry, transport
+    ):
+        # Every path that sets the dirty flag is a failure or a rollback that
+        # leaves the repair to the next refresh by name. What the sign holds in
+        # one picture file says nothing about any of that, so the question is
+        # not asked at all.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        registry._dirty = True
+
+        await registry.refresh()
+
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert picture_writes(transport)
+        assert registry.in_sync
+
+    async def test_a_sign_that_never_answers_is_only_asked_once(
+        self, registry, transport
+    ):
+        # The sign simulator decodes reads and answers none of them, so without
+        # this every refresh against it would wait out the read's three second
+        # deadline with the sign's lock held and then do what it would have done
+        # anyway. One unanswered read is enough to stop asking.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
+
+        transport.clear()
+        await registry.refresh()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        # And it still re-pushes, which is the whole point of giving up safely.
+        assert picture_writes(transport)
+
+    async def test_the_alert_is_still_re_asserted_when_nothing_was_re_pushed(
+        self, wired, transport
+    ):
+        # What the sign holds in its priority file is a separate question from
+        # what it holds in a picture file, and this does not ask it. So the skip
+        # leaves the alert to the caller exactly as a re-push without a
+        # hand-back would, and a sign that lost only its alert is still repaired.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport) == []
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+
+
 class TestAcrossARestart:
     async def test_an_icon_comes_back_in_the_file_it_was_in(
         self, controller, layout, store, state, clock, transport
