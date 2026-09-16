@@ -559,9 +559,15 @@ def read_memory_config() -> bytes:
     """Ask the sign for its memory configuration table.
 
     Note when comparing the reply against a plan: the sign hands whatever is
-    left of the memory pool to the first file in the configuration once it
-    starts running, so the first file's size will not match what was sent.
-    Compare the plan semantically, not byte for byte.
+    left of the memory pool to the first file in the configuration once it is
+    playing, so the first file's size will not match what was sent. Compare the
+    plan semantically, not byte for byte.
+
+    "Once it is playing" is the part that matters. A configuration read back
+    straight after it was written, with nothing written into its first file and
+    then with a message written, gave that file's size exactly as sent both
+    times, measured on 2026-09-12. So the read is only misleading about a sign
+    that has been running.
     """
     return read_special(c.SF_SET_MEMORY_CONFIG)
 
