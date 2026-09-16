@@ -1290,6 +1290,31 @@ class TestAskingBeforeRePushing:
         assert picture_writes(transport)
         assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
 
+    async def test_an_answer_in_a_shape_it_does_not_know_gets_everything_back(
+        self, registry, transport
+    ):
+        # The dangerous direction. Emptiness means "repair everything" and
+        # anything else means "do nothing", so an answer this does not
+        # understand must not land on the second: a sign answering in some shape
+        # the spike never saw would be told it was fine every interval, for
+        # good, and the repair would quietly stop happening.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        transport.clear()
+        body = c.STX + c.COMMAND_WRITE_DOTS + b"6" + b"not hex" + c.ETX
+        transport.replies.append(
+            c.NUL * 20
+            + c.SOH
+            + c.SIGN_TYPE_RESPONSE
+            + c.SIGN_ADDRESS_BROADCAST
+            + body
+            + b"%04X" % sum(body)
+            + c.EOT
+        )
+
+        await registry.refresh()
+
+        assert picture_writes(transport)
+
     async def test_a_sign_that_never_answers_is_only_asked_once(
         self, registry, transport
     ):

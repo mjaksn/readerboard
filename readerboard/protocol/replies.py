@@ -113,8 +113,31 @@ def picture_contents(reply: bytes, label: bytes) -> bytes:
     a comparison that never matched would turn every refresh into a read
     followed by the same full re-push it was meant to avoid. Written or not is
     what was measured, so written or not is what is asked.
+
+    The shape is checked even so, and the asymmetry of the failure is why. A
+    caller reads emptiness as "the sign lost it, repair everything" and anything
+    else as "the sign is fine, do nothing", so an answer this does not
+    understand must not come back looking like the second one: a sign answering
+    in some shape the spike never saw would then be told it was fine every
+    interval, for good, and the repair would quietly stop happening. Raising
+    instead sends the caller down the path it takes when nothing came back at
+    all, which costs a read and repairs exactly as it did before.
     """
-    return unwrap(reply, label, command=c.COMMAND_WRITE_DOTS)
+    contents = unwrap(reply, label, command=c.COMMAND_WRITE_DOTS)
+    if not contents:
+        # Allocated and never written, which is an answer rather than a
+        # malformed one, and the one the caller acts on.
+        return contents
+
+    height_and_width = contents[:4]
+    if len(height_and_width) < 4 or any(
+        byte not in b"0123456789ABCDEFabcdef" for byte in height_and_width
+    ):
+        raise ReplyError(
+            "the sign answered for picture %r with something that is neither an empty "
+            "file nor a height and width in hex: %r" % (label, contents[:16])
+        )
+    return contents
 
 
 def parse_general_information(reply: bytes) -> GeneralInformation:
