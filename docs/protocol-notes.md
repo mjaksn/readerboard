@@ -598,6 +598,13 @@ dim red, dim green, brown, orange and yellow.
 - **The colour status matters, and only 8-colour gives the full palette.** A 3-colour
   picture draws three colours and maps the rest onto them, consistent with the pixel code
   taken modulo 4. A monochrome one draws the same as a 3-colour one, not one colour.
+- **A pixel takes four bits, packed two to a byte.** Table 22's nine colour codes fit in a
+  nibble, and a picture's own data came out at half its pixel count in bytes when weighed
+  against a TEXT file held still, measured on 2026-09-12. That is what makes a picture's
+  data `rows * columns / 2` bytes rather than `rows * columns`, and what `readerboard.config`
+  charges pool space against, and it confirms the 13 bytes above that in "The memory pool,
+  measured on the sign" is a genuine per-file overhead rather than a rounding of an odd
+  pixel count.
 - **The display is 80 to 89 dots wide and seven high.** A wider picture is cut at the
   right in HOLD and scrolls through whole in ROTATE. A taller one shows its top seven rows.
 - **A picture draws at the width it was written**, not the width allocated. One narrower
@@ -618,6 +625,10 @@ dim red, dim green, brown, orange and yellow.
   that decides a read's cost: every other read leaves a message held still alone and costs
   a scrolling one about half a second. So the stray dots belong to a picture read, and the
   blank may belong to the motion rather than to the read.
+
+Three icons from a draft icon set were tried on 2026-09-12 and each drew as what it is,
+alone and beside the word it labels. That draft is not in this tree; the observation is
+recorded here so the session is not lost.
 
 ### A picture written under an alert is not taken, found 2026-09-13
 
@@ -728,12 +739,20 @@ with the alert keeping the sign throughout, and the TEXT write in the run that p
 this finding landed too, since the message came back with its text intact and only its
 icons missing.
 
-Three questions are left open. The session's memory configuration read and picture read
-were both cut short by the reader, which took one byte a poll over `socket://` until that
-was fixed, so how the memory configuration lists a picture and what the rest of a read
-reply holds are still unmeasured. And a picture between two runs of text too long for the
-display flashed on and off in HOLD while the text shifted; most likely HOLD showing the line
-in parts, which a rerun with a shorter line would confirm.
+Three questions were left open after that session, and one of them is now settled below.
+The session's memory configuration read and picture read were both cut short by the reader,
+which took one byte a poll over `socket://` until that was fixed, so how the memory
+configuration lists a picture and what the rest of a read reply holds were left unmeasured.
+And a picture between two runs of text too long for the display flashed on and off in HOLD
+while the text shifted; most likely HOLD showing the line in parts, which a rerun with a
+shorter line would confirm.
+
+**How the memory configuration lists a picture, measured 2026-09-12.** With the reader
+fixed, two configurations were read back after allocating picture files: both divided evenly
+into ordinary eleven-character entries, every allocated label appeared at an entry's first
+character, and every one of those entries carried `D` as its second, exactly like a TEXT or
+STRING file's entry. The size and colour-status fields were not checked against what was
+sent, so that half of the entry is still worth a look.
 
 What this settles for the service, if it ever sends pictures:
 
@@ -1135,8 +1154,14 @@ configuration.
 
 One trap when comparing a read-back memory configuration against a plan: the sign gives
 whatever is left of the memory pool to the **first** file in the configuration once it
-starts running. The first file's size will therefore never match what was sent. Compare
-the plan semantically, not byte for byte.
+starts running. The first file's size will therefore not match what was sent. Compare the
+plan semantically, not byte for byte.
+
+"Once it starts running" turned out to be doing real work in that sentence. On 2026-09-12 a
+configuration was read back both with nothing written into its first file and with a message
+written into it, and the file read back at the size it was sent both times. The absorption
+seems to want the sign actually playing a run sequence, so a read taken just after
+configuring shows the plan as sent.
 
 ## What this sign cannot do, audited against the whole document
 
