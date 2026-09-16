@@ -46,15 +46,15 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
-- **An alert flickered twice on every refresh, and on every sign reboot.**
-  the sign back for a picture write means putting the alert on again afterwards,
-  and the sign restarts an alert when it takes one. The periodic refresh then
-  re-asserted the alert straight after, restarting it a second time for nothing,
-  once per refresh interval for as long as the alert was up. The refresh and the
-  reboot now say whether they put the alert back, and the alert is re-asserted
-  only when they did not, which is a service with no icons: nothing hands the
-  sign back there, so the re-assert is still the only thing that would repair a
-  sign power cycled mid-alert.
+- **An alert flickered twice on every refresh, and twice on every sign reboot.**
+  Handing the sign back for a picture write means putting the alert on again
+  afterwards, and the sign restarts an alert when it takes one. The periodic
+  refresh then re-asserted the alert straight after, restarting it a second time
+  for nothing, once per refresh interval for as long as the alert was up. The
+  refresh and the reboot now say whether they put the alert back, and the alert
+  is re-asserted only when they did not, which is a service with no icons:
+  nothing hands the sign back there, so the re-assert is still the only thing
+  that would repair a sign power cycled mid-alert.
 
   Two smaller ones went with it. An alert with no message, which only a state
   file written by an older version can hold, was written back to the priority
