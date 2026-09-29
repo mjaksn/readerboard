@@ -155,6 +155,12 @@ graphics. It is nearly five times the pool this hardware actually has, so the ch
 was supposed to catch an oversized configuration could not: 26 slots of 800 bytes would
 pass validation and reach a sign with room for a fraction of it.
 
+The reply was decoded by hand as well as by the parser, and the two agreed. It came back as
+`10264001e04972334S00156A,14D7`: firmware 10264001 revision e, released 04/97, a clock
+reading 23:34 in 12 hour format, the speaker enabled, and `156A,14D7` for the pool. That
+was the second time `parse_general_information` had been checked against the sign, the
+first being 2026-09-09.
+
 **What the sign does with a configuration bigger than its pool has not been measured.**
 The document says only that the sum "should not exceed the total amount of available
 memory in the pool", and says nothing about what happens when it does. So the service does
@@ -166,6 +172,13 @@ The same session measured what a file costs on top of its own size:
 
 - A TEXT file allocated on its own cost its size plus **19**.
 - Each further picture file cost its data plus **13**.
+
+The picture figure is exact rather than fitted. A rerun the same day weighed four pictures
+at a time against a TEXT file held still, at 7 by 16, 7 by 64 and 31 by 64, which is 112
+pixels to 1984. They came out at 69, 237 and 1005 bytes each, every one of them half its
+pixel count plus 13, so `rows * columns / 2 + 13` predicts all three configurations to the
+byte. Being a difference against an unchanged baseline, it owes nothing to either of the
+models below.
 
 Two models fit every reading equally well. Either files of different types cost different
 amounts, a TEXT file 19 and a picture 13; or every file costs 13 and a configuration costs
@@ -753,6 +766,16 @@ into ordinary eleven-character entries, every allocated label appeared at an ent
 character, and every one of those entries carried `D` as its second, exactly like a TEXT or
 STRING file's entry. The size and colour-status fields were not checked against what was
 sent, so that half of the entry is still worth a look.
+
+**Which labels a picture can take, measured 2026-09-12.** Every one tried. Thirty-two
+candidates were allocated as picture files across two configurations: `6` to `9`, `:` to
+`@`, `[` to `_`, `{` to `}`, and the punctuation from `!` to `/` apart from `"` and `$`,
+which are special function labels and were left out rather than risk a configuration the
+sign reads as a command. The sign listed every one, and a coloured block written into each
+drew when called, which the listing alone would not have proved. So Appendix A's "any
+character 20H to 7EH" holds for a picture, and a picture pool has room that collides with
+neither the TEXT files at `A` to `Z` nor the STRING files at `a` to `z`. Those thirty-two
+are `constants.PICTURE_FILE_LABELS`.
 
 What this settles for the service, if it ever sends pictures:
 
