@@ -52,7 +52,7 @@ dependencies = [
     # watchfiles, which only makes --reload quicker. That flag is for working on
     # the service rather than for running one, and uvicorn polls the tree
     # without it.
-    "uvicorn>=0.52.1,<0.53",
+    "uvicorn>=0.52.1,<0.54",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
     "pyserial>=3.5,<4",
