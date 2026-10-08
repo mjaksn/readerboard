@@ -594,8 +594,9 @@ each is pinned separately so that nothing the service installs ever pulls Qt in.
 with `--with-client` the client as well, so the whole loop comes up from one command.
 Both editors carry it as a launch configuration under the same name, "readerboard and
 the sign simulator", in `.vscode/launch.json` and in `.idea/runConfigurations/`, beside
-configurations for running the pieces separately. Both carry the three way one as
-"readerboard, the sign simulator and the client" as well.
+configurations for running the pieces separately, the client among them as
+"readerboard client". Both carry the three way one as "readerboard, the sign simulator
+and the client" as well.
 
 `scripts/run_against_a_sign.py` is the other one, for when the sign is real: the
 service and the client, no simulator, and the sign's address passed as an argument so

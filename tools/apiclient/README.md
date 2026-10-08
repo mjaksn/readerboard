@@ -13,6 +13,12 @@ python tools/apiclient/run.py
 python tools/apiclient/run.py --base-url http://192.168.2.40:5001
 ```
 
+Both editors carry the first of those as "readerboard client", in
+`.vscode/launch.json` and in `.idea/runConfigurations/`, for a service that is
+already running somewhere else. To bring the service up with it, use
+"readerboard, the sign simulator and the client" or "readerboard against the real
+sign and the client" instead.
+
 Qt is not a dependency of the service and must not become one. This tool has its
 own hash-pinned lock file, `tools/` is in `.dockerignore`, and `pyproject.toml`
 names no Qt package at all. It does mention this directory, in `testpaths`, the

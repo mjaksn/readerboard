@@ -31,6 +31,8 @@ To run only the simulator, because the service is already up somewhere else:
 python tools/signsim/run.py
 ```
 
+Both editors carry that as "readerboard sign simulator".
+
 It listens on `127.0.0.1:4001` and prints the setting to paste into the service:
 
 ```
