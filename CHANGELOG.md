@@ -98,7 +98,8 @@ library, and the names inside it may move without that being a breaking change.
 - **A "readerboard client" launch configuration in both editors**, which starts
   the client on its own for a service that is already running somewhere else.
   Until now the client could be started from an editor only alongside a service
-  it had just started itself.
+  it had just started itself. VSCode also gains "readerboard sign simulator",
+  the simulator on its own, which PyCharm already had.
 
 - **Load all in the client**, which sends every enumeration read in turn from one
   press. The client keeps one call in flight, so this is a chain rather than five
