@@ -94,6 +94,10 @@ jobs:
       # unrun: the picture panel paints a bitmap through QPainter, and a
       # window that is only constructed never reaches it. So the second build
       # is given a sign holding a picture and asked to redraw.
+      #
+      # The client is built twice too. Its second build types into one form,
+      # selects another operation and comes back, because a form that kept
+      # nothing across a switch would still construct without complaint.
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on
@@ -103,6 +107,42 @@ jobs:
       - name: build the tools' windows once
         run: |
           python -c "import sys; sys.path.insert(0, 'tools/apiclient'); from PySide6.QtWidgets import QApplication; from apiclient.window import MainWindow; app = QApplication([]); MainWindow()"
+          python - <<'SMOKE'
+          import sys
+
+          sys.path.insert(0, "tools/apiclient")
+          from PySide6.QtCore import Qt
+          from PySide6.QtWidgets import QApplication
+          from apiclient.window import MainWindow
+
+          app = QApplication([])
+          window = MainWindow()
+
+          def select(operation_id):
+              flags = Qt.MatchFlag.MatchWildcard | Qt.MatchFlag.MatchRecursive
+              for item in window._tree.findItems("*", flags):
+                  if item.data(0, Qt.ItemDataRole.UserRole) == operation_id:
+                      window._tree.setCurrentItem(item)
+                      return
+              raise AssertionError("no %s in the operation list" % operation_id)
+
+          select("put_slot")
+          form = window._form
+          form._path["key"].setCurrentText("porch")
+          form._body["message"].setPlainText("HELLO <red>")
+          form._body["active"].setCurrentText("false")
+          select("get_slot")
+          select("put_slot")
+
+          # Read from the form on screen rather than the one typed into. A form
+          # dropped with deleteLater outlives its replacement when no event loop
+          # runs, so the old one would still hold the text and prove nothing.
+          shown = window._form
+          assert shown.path_values() == {"key": "porch"}, "the key was lost"
+          kept = shown.body_values()
+          assert kept["message"] == "HELLO <red>", "the message was lost"
+          assert kept["active"] == "false", "the choice in a list was lost"
+          SMOKE
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
           python - <<'SMOKE'
           import sys

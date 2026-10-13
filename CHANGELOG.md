@@ -11,6 +11,19 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Changed
+
+- **The client keeps each operation's form when another is selected.** Every
+  form used to be built afresh on selection, so a look at another operation
+  threw away whatever had been typed, the choices in its lists and any keys it
+  had loaded. Each operation now has one form for as long as the client is open,
+  and selecting it brings that form back as it was left. A set loaded on the
+  left reaches every form rather than only the one on screen, and a **Load
+  keys** or **Load From Sign** reply goes to the form that asked for it even
+  when another is showing by the time it arrives.
+
 ## [0.7.0] - 2026-10-08
 
 **This is the release that adds icons.** A message can draw one of 148 built-in

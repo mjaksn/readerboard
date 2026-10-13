@@ -30,7 +30,9 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QTextBrowser,
     QTreeWidget,
     QTreeWidgetItem,
@@ -629,6 +631,19 @@ def _remaining(expires_at: object) -> str:
     return str(round(remaining))
 
 
+def _set_counted(form: QWidget, counted: bool) -> None:
+    """Say whether a kept form counts towards the size of the pane holding it.
+
+    A stacked widget is as big as the biggest page in it, shown or not, so with
+    every form kept the window's minimum would be the message form's all the
+    time. A page whose size policy is Ignored contributes nothing, which leaves
+    the minimum following the form on screen, as it did when that was the only
+    form there was.
+    """
+    policy = QSizePolicy.Policy.Preferred if counted else QSizePolicy.Policy.Ignored
+    form.setSizePolicy(policy, policy)
+
+
 def _set_text(widget: QWidget, value: str) -> None:
     """Put text into a field widget, whichever kind it is. The mirror of ``_text_of``."""
     if isinstance(widget, QPlainTextEdit):
@@ -802,9 +817,21 @@ class MainWindow(QMainWindow):
         return holder
 
     def _build_form_side(self) -> QWidget:
-        """Build the pane the generated form lives in."""
-        self._form_holder = QVBoxLayout()
-        self._form_holder.setContentsMargins(0, 0, 0, 0)
+        """Build the pane the generated forms live in, one for every operation.
+
+        Every form is built here and kept for the life of the window, and
+        selecting an operation only brings its form to the front. Building one
+        afresh on each selection threw away whatever had been typed into the
+        last one, along with any keys it had loaded, so going to read a slot
+        and coming back to the message being written meant writing it again.
+        """
+        self._forms: dict[str, OperationForm] = {}
+        self._form_stack = QStackedWidget()
+        for operation in catalogue.OPERATIONS:
+            form = OperationForm(operation, self)
+            _set_counted(form, False)
+            self._forms[operation.id] = form
+            self._form_stack.addWidget(form)
 
         self.send_button = QPushButton("Send")
         self.send_button.clicked.connect(self._send_current)
@@ -819,7 +846,7 @@ class MainWindow(QMainWindow):
         buttons.addStretch(1)
 
         outer = QVBoxLayout()
-        outer.addLayout(self._form_holder, 1)
+        outer.addWidget(self._form_stack, 1)
         outer.addLayout(buttons)
 
         holder = QWidget()
@@ -858,7 +885,7 @@ class MainWindow(QMainWindow):
             self._tree.setCurrentItem(first)
 
     def _selected(self) -> None:
-        """Swap the form for the highlighted operation."""
+        """Bring the highlighted operation's form to the front, as it was left."""
         item = self._tree.currentItem()
         if item is None:
             return
@@ -867,16 +894,10 @@ class MainWindow(QMainWindow):
             return
 
         if self._form is not None:
-            self._form_holder.removeWidget(self._form)
-            # Removing from a layout does not hide it. Until the deferred delete
-            # runs it is still a child at its old geometry, overlapping the new
-            # form, and whether that is ever seen depends on event loop timing
-            # rather than on anything here.
-            self._form.setParent(None)
-            self._form.deleteLater()
-
-        self._form = OperationForm(catalogue.BY_ID[operation_id], self)
-        self._form_holder.addWidget(self._form)
+            _set_counted(self._form, False)
+        self._form = self._forms[operation_id]
+        _set_counted(self._form, True)
+        self._form_stack.setCurrentWidget(self._form)
 
     # == sending ==========================================================
 
@@ -1066,13 +1087,14 @@ class MainWindow(QMainWindow):
         not the one the form is showing and the form's own values are only
         offered for its own operation.
 
-        What is remembered is the form object, not its name. ``_selected``
-        builds a fresh form on every swap, so identity is what says the answer
-        is still going to the fields that asked for it, and a form that has
-        since been replaced is one this must not write into. The key asked for
-        is remembered with it for the same reason: a reply is matched to the
-        question by nothing but arriving next, so a key retyped while the call
-        was out would otherwise be answered with the previous key's message.
+        What is remembered is the form that asked, so the answer goes to its
+        fields whichever form is on screen when it arrives. Every form is kept
+        for the life of the window, so one left for another operation while the
+        call was out is still there to take it, and is found filled in on the
+        way back. The key asked for is remembered with it: a reply is matched to
+        the question by nothing but arriving next, so a key retyped while the
+        call was out would otherwise be answered with the previous key's
+        message.
         """
         form = self._form
         if form is None:
@@ -1165,7 +1187,6 @@ class MainWindow(QMainWindow):
                 ok
                 and same_service
                 and isinstance(payload, dict)
-                and self._form is form
                 and _trimmed(form.path_values()) == asked
             ):
                 form.fill_from(payload)
@@ -1173,12 +1194,13 @@ class MainWindow(QMainWindow):
         asking = self._pending_keys
         if asking is not None and operation.id == asking[1]:
             self._pending_keys = None
-            # Only to the form that asked. The tree stays live while a call is
-            # out, and offering keys now clears a typed key the list does not
-            # contain, so a reply landing on a form selected since would erase a
-            # key typed into it by somebody who never pressed Load keys there.
+            # Only to the form that asked, whether or not it is still the one on
+            # screen. Offering keys clears a typed key the list does not
+            # contain, so a reply handed to whichever form was selected since
+            # would erase a key typed into it by somebody who never pressed Load
+            # keys there.
             form, listed_by = asking
-            if ok and same_service and isinstance(payload, list) and self._form is form:
+            if ok and same_service and isinstance(payload, list):
                 form.offer_keys(listed_by, payload)
 
         if self._queued:
@@ -1222,8 +1244,11 @@ class MainWindow(QMainWindow):
 
         self.store.load(operation.loads, operation.signature, entries)
         self.enumerations.refresh()
-        if self._form is not None:
-            self._form.refresh_enumerations()
+        # Every form, not only the one on screen. The others are kept as they
+        # were left, and one refreshed only when it was next shown would offer
+        # the set it was built with rather than the one just loaded.
+        for form in self._forms.values():
+            form.refresh_enumerations()
         return True
 
     def _check_surface(self, address: str) -> None:
