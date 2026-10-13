@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTextBrowser,
@@ -630,6 +631,19 @@ def _remaining(expires_at: object) -> str:
     return str(round(remaining))
 
 
+def _set_counted(form: QWidget, counted: bool) -> None:
+    """Say whether a kept form counts towards the size of the pane holding it.
+
+    A stacked widget is as big as the biggest page in it, shown or not, so with
+    every form kept the window's minimum would be the message form's all the
+    time. A page whose size policy is Ignored contributes nothing, which leaves
+    the minimum following the form on screen, as it did when that was the only
+    form there was.
+    """
+    policy = QSizePolicy.Policy.Preferred if counted else QSizePolicy.Policy.Ignored
+    form.setSizePolicy(policy, policy)
+
+
 def _set_text(widget: QWidget, value: str) -> None:
     """Put text into a field widget, whichever kind it is. The mirror of ``_text_of``."""
     if isinstance(widget, QPlainTextEdit):
@@ -815,6 +829,7 @@ class MainWindow(QMainWindow):
         self._form_stack = QStackedWidget()
         for operation in catalogue.OPERATIONS:
             form = OperationForm(operation, self)
+            _set_counted(form, False)
             self._forms[operation.id] = form
             self._form_stack.addWidget(form)
 
@@ -878,7 +893,10 @@ class MainWindow(QMainWindow):
         if not operation_id:
             return
 
+        if self._form is not None:
+            _set_counted(self._form, False)
         self._form = self._forms[operation_id]
+        _set_counted(self._form, True)
         self._form_stack.setCurrentWidget(self._form)
 
     # == sending ==========================================================
