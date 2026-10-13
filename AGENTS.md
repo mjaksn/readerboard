@@ -398,6 +398,13 @@ handed a sign holding a picture and asked to redraw, which is the only place
 that code runs before somebody sends a picture to the simulator by hand. A panel
 that draws something no test can assert about wants one of these.
 
+The client is built twice for the same kind of reason. Its window keeps one form
+per operation for its whole life, so that switching operations loses nothing
+typed, and the second build types into one, selects another and comes back. It
+reads the form on screen rather than the one it typed into, because a form
+dropped with `deleteLater` outlives its replacement when no event loop runs, and
+the old one would still hold the text.
+
 The one worth knowing
 about in the simulator round trips the frame builders above through its
 decoder: whatever the service builds has to read back as the command that built

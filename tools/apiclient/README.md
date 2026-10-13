@@ -32,10 +32,12 @@ pip install --require-hashes -r tools/apiclient/requirements.lock
 ## What it does
 
 **Every endpoint, on one screen.** All twenty-three operations are listed at once,
-grouped by what they act on. Selecting one swaps the form beside it. There is no
-drill-down and no wizard: the things that would need a quarter of the window to
-show properly, a set of markup tokens or a call's full detail, open as dialogs
-instead.
+grouped by what they act on. Selecting one brings its form up beside it, exactly
+as it was left: each operation keeps its own form for as long as the client is
+open, so the fields, the choices in its lists and any keys it loaded are still
+there after a look at another operation. There is no drill-down and no wizard:
+the things that would need a quarter of the window to show properly, a set of
+markup tokens or a call's full detail, open as dialogs instead.
 
 **Nothing is hardcoded.** The markup tokens, value tokens, display modes, control
 commands and icons all start empty. Press the button beside a set and the client
@@ -258,7 +260,9 @@ Runs without Qt, and is collected by the repository's own `pytest` run. Because
 of that, nothing in it builds a window, so CI additionally constructs one
 offscreen in the job that already has Qt installed. A signal connected to an
 attribute that does not exist yet raises on construction and nowhere else, and
-that is otherwise nobody's job to notice.
+that is otherwise nobody's job to notice. It builds a second one to type into a
+form, select another operation and come back, which is the only check that the
+form is still as it was left.
 
 Type checking is a separate invocation, because the root `mypy` config names
 only the service:
