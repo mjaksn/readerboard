@@ -23,6 +23,12 @@ library, and the names inside it may move without that being a breaking change.
   left reaches every form rather than only the one on screen, and a **Load
   keys** or **Load From Sign** reply goes to the form that asked for it even
   when another is showing by the time it arrives.
+- **`packaging/docker-compose.yml` turns icons on.** It sets
+  `READERBOARD_PICTURE_COUNT` to 16, so a deployment brought up from it can draw
+  icons without editing the file first. A deployment already running from an
+  earlier copy of it, and so with icons off, has its sign reallocated on the
+  first start with this one, which erases every message on the sign before the
+  service puts them back. Take the line out to keep icons off.
 
 ## [0.7.0] - 2026-10-08
 
