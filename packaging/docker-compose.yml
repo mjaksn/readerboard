@@ -41,6 +41,13 @@ services:
       # than written here, so that this file can be committed and the key cannot.
       READERBOARD_API_KEY: ${READERBOARD_API_KEY:?set READERBOARD_API_KEY before starting}
 
+      # How many icons can be on the sign at once. The service's own default is
+      # 0, which turns icons off; 16 is comfortable alongside the default slot and
+      # variable settings and about 32 is the ceiling. Changing it ERASES every message on the sign
+      # on the next start, including the first start with this file over a
+      # deployment that ran without it, so set it once and leave it.
+      READERBOARD_PICTURE_COUNT: "16"
+
       # Every setting in packaging/config.example.toml is available here with a
       # READERBOARD_ prefix. A few worth knowing about:
       #
@@ -48,12 +55,11 @@ services:
       #   The sign's clock. Unset means the container's own local time, which is
       #   UTC unless you have changed it.
       #
-      # READERBOARD_SLOT_COUNT, READERBOARD_SLOT_CAPACITY, READERBOARD_VARIABLE_COUNT,
-      # READERBOARD_VARIABLE_CAPACITY and READERBOARD_PICTURE_COUNT
+      # READERBOARD_SLOT_COUNT, READERBOARD_SLOT_CAPACITY, READERBOARD_VARIABLE_COUNT
+      # and READERBOARD_VARIABLE_CAPACITY
       #   Changing any of them reallocates the sign's memory on the next start,
-      #   and that ERASES every message on it. Not settings to fiddle with.
-      #   The last one is how many icons can be on the sign at once, and it
-      #   starts at 0, so turning icons on is one deliberate erase.
+      #   and that ERASES every message on it, exactly as the icon count above
+      #   does. Not settings to fiddle with.
       #
       # READERBOARD_LOG_LEVEL: INFO
       #   Logs go to stderr, where `docker compose logs` collects them.
