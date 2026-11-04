@@ -77,6 +77,17 @@ def test_a_bitmap_missing_a_field_is_refused(missing):
         parse([item])
 
 
+@pytest.mark.parametrize("name", [None, "", 7], ids=["null", "empty", "a number"])
+def test_a_bitmap_whose_name_is_not_a_tag_is_refused(name):
+    with pytest.raises(MalformedBitmap, match="not a tag"):
+        parse([{**CHECK, "name": name}])
+
+
+def test_two_bitmaps_under_one_name_are_refused_rather_than_one_drawn_twice():
+    with pytest.raises(MalformedBitmap, match="again"):
+        parse([CHECK, {**CHECK, "rows": ["###", "###", "###"]}])
+
+
 def test_ragged_rows_are_refused_rather_than_drawn_skewed():
     with pytest.raises(MalformedBitmap, match="one width"):
         parse([{**CHECK, "rows": ["...", "..", "##."]}])

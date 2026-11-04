@@ -168,7 +168,13 @@ def parse(payload: object) -> dict[str, Bitmap]:
                     ", ".join(sorted(item)) or "none",
                 )
             )
-        name = str(item["name"])
+        name = item["name"]
+        if not isinstance(name, str) or not name:
+            raise MalformedBitmap("entry %d has a name of %r, not a tag" % (index, name))
+        if name in found:
+            # A second entry under one name would replace the first here while
+            # the response table still showed both rows, each drawn as the last.
+            raise MalformedBitmap("entry %d is %s again" % (index, name))
         found[name] = Bitmap(
             name=name,
             rows=_rows(name, item["rows"]),
