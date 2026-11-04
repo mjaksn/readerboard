@@ -452,10 +452,18 @@ three seconds, for the same reason.
 The periodic refresh now asks a question too, and would cost those three seconds
 every interval rather than once. It does not, and the rule is worth knowing
 because it is the one place the service changes its mind about the thing on the
-other end: one unanswered read and it stops asking for the life of the process
-and goes back to re-pushing everything. So the simulator sees the old behaviour
-after the first refresh, which is what makes it still a fair rehearsal of what a
-sign gets when a sign stops answering.
+other end: one unanswered read and it stops asking and goes back to re-pushing
+everything, until the link has been down and come back. That condition is what
+tells a network adapter that dropped off apart from the simulator, since at the
+moment of the read the two look identical, and only the adapter's link then
+drops. Not every missed answer is followed by a drop, though. The common one
+that is not is a sign switched off behind a connected adapter for longer than a
+refresh interval; a sign power cycled while a refresh lands, or a network
+outage shorter than the time the connection takes to give up, does the same.
+Each stops the asking until the link next drops or the service restarts, and
+every refresh until then rewrites every picture. So the simulator sees the old
+behaviour after the first refresh, which is what makes it still a fair rehearsal
+of what a sign gets when a sign stops answering.
 
 Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in

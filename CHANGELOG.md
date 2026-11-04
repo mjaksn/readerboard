@@ -11,6 +11,28 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Fixed
+
+- **A sign with icons no longer blanks every refresh after its adapter drops
+  off the network.** The refresh reads one picture back before deciding whether
+  to push everything again, and stops asking after one read that goes
+  unanswered, so that the sign simulator, which answers no reads, does not cost
+  three seconds every interval. An adapter that has just dropped off looks the
+  same at that moment, so one drop used to stop the asking until the service was
+  restarted, and every refresh after it rewrote every picture, blanking the
+  display once for each. The refresh now asks again once the link has gone down
+  and come back, which an adapter's does and the simulator's never does. **A
+  sign switched off behind an adapter that stays connected still stops the
+  asking**, as soon as one refresh lands while it is off, which is any time it is
+  off for longer than `refresh_interval_seconds`. From then on every refresh
+  rewrites every picture, blanking the display once for each, until the link
+  next drops or the service restarts. A refresh landing while a power cycled
+  sign starts up does the same, and so does a network outage that outlasts the
+  read's three seconds but is over before the connection gives up. No link
+  drops in any of these, so nothing asks again.
+
 ## [0.8.0] - 2026-11-04
 
 **Icon thumbnails in the client.** Two new enumerations say what each icon

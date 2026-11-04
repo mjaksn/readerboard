@@ -1124,8 +1124,8 @@ reads through it on 2026-09-09, and answered them again during the soft reset ch
 which read two text files back with `B` as well, and answered all four again on 2026-09-12
 with a TEXT file and a STRING file read back beside them. The refresh above is the first
 thing in the service to depend on that, and it depends on it softly: one read that does not
-come and it stops asking for the life of the process and re-pushes as it always did. The
-rest of the reads are still available and still unused.
+come and it stops asking and re-pushes as it always did, until the link has been down and
+come back. The rest of the reads are still available and still unused.
 
 The trap when reading is pyserial's, not the sign's. Over `socket://`, which is how this
 sign has always been reached, `in_waiting` is not a byte count: it is 1 while anything is

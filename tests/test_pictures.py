@@ -15,13 +15,15 @@ hidden slot and the alert hold their icons as firmly as a visible message does.
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 from dataclasses import replace
 
 import pytest
 
 from readerboard import icons
-from readerboard.api.app import _refresh_and_reassert
+from readerboard.api.app import _after_reconnect, _refresh_and_reassert
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
@@ -1389,6 +1391,65 @@ class TestAskingBeforeRePushing:
         assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
         # And it still re-pushes, which is the whole point of giving up safely.
         assert picture_writes(transport)
+
+    async def test_a_link_that_comes_back_lets_the_sign_be_asked_again(
+        self, wired, controller, transport
+    ):
+        # An adapter that drops off the network looks, at the moment of the
+        # read, exactly like the simulator: the write lands in the local socket
+        # buffer and nothing comes back. What differs is that its link then goes
+        # down and comes back. Without asking again after that, one adapter drop
+        # left a sign with icons re-pushing every picture, and blanking once for
+        # each, on every refresh until a restart.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await registry.refresh()
+        transport.clear()
+        await registry.refresh()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+
+        # The link drops and comes back, through the controller's own reconnect,
+        # which forgets what the sign holds before it runs the hook. So the
+        # refresh on the reconnect puts the picture back without asking: the
+        # sign behind the link may have been power cycled.
+        controller.on_reconnect(functools.partial(_after_reconnect, registry, alerts))
+        transport.close()
+        transport.clear()
+        await controller._connect()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert picture_writes(transport)
+
+        # And every refresh after it asks again, and blanks nothing when the
+        # sign answers with the picture it was given.
+        rows = icons.resolve("lock", None)
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        transport.clear()
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
+        assert picture_writes(transport) == []
+
+    async def test_a_refresh_under_way_finishes_before_the_sign_is_asked_again(
+        self, wired, controller, transport
+    ):
+        # A refresh that had a read out when the link came back can fail that
+        # read after the reconnect, and would put the flag straight back if the
+        # reset did not wait for it. Holding the lock stands in for that refresh.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        # What a reconnect does before its hooks run.
+        controller.forget_sign_contents()
+
+        async with registry._lock:
+            reconnect = asyncio.create_task(_after_reconnect(registry, alerts))
+            await asyncio.sleep(0)
+            registry._sign_answers_a_read = False
+        await reconnect
+
+        rows = icons.resolve("lock", None)
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        transport.clear()
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
 
     async def test_the_alert_is_still_re_asserted_when_nothing_was_re_pushed(
         self, wired, transport
