@@ -140,6 +140,13 @@ sign shows nothing or shows rubbish, and the adapter answers on port 23, it is
 probably negotiating telnet rather than passing bytes through, and `rfc2217://`
 is the form that speaks that.
 
+An adapter that drops off the network says nothing as it goes. The service asks
+the operating system to probe a network link and give it up after about a
+minute without an answer, so `GET /health` shows `"connected": false` at the
+next write or refresh after that, rather than a quarter of an hour later. Its
+`link.connected` is a reasonable thing for a monitor to watch, and needs no key.
+A ping of the adapter answers sooner still, and is the better alarm.
+
 ### The API key, and config.local.toml
 
 The key is not an argument. A launch configuration is a tracked file and a

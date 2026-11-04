@@ -14,7 +14,14 @@ import pytest
 
 from readerboard.transport.base import Transport, TransportError
 from readerboard.transport.fake import FakeTransport
-from readerboard.transport.serial_link import READ_LIMIT_BYTES, SerialTransport
+from readerboard.transport.serial_link import (
+    KEEPALIVE_IDLE_SECONDS,
+    KEEPALIVE_INTERVAL_SECONDS,
+    KEEPALIVE_PROBES,
+    READ_LIMIT_BYTES,
+    UNACKNOWLEDGED_TIMEOUT_SECONDS,
+    SerialTransport,
+)
 
 
 class Clock:
@@ -149,6 +156,38 @@ class TestSerialTransportOverASocket:
             transport.close()
             listener.close()
             server.join(5)
+
+    def test_the_link_is_told_to_notice_an_adapter_that_has_gone(self):
+        # An adapter that drops off the network says nothing as it goes. These
+        # options are what make the operating system find out, and the link
+        # stays reported as up until it does.
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        transport = SerialTransport("socket://127.0.0.1:%d" % listener.getsockname()[1])
+        try:
+            transport.ensure_open()
+            # The socket is a private attribute of pyserial's. This is the
+            # assertion that fails if an upgrade renames it, rather than the
+            # link quietly opening without any of what follows.
+            sock = transport._port._socket
+            assert isinstance(sock, socket.socket)
+
+            assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+            expected = {
+                "TCP_KEEPIDLE": KEEPALIVE_IDLE_SECONDS,
+                "TCP_KEEPINTVL": KEEPALIVE_INTERVAL_SECONDS,
+                "TCP_KEEPCNT": KEEPALIVE_PROBES,
+                "TCP_USER_TIMEOUT": UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000,
+            }
+            for name, value in expected.items():
+                option = getattr(socket, name, None)
+                if option is None:
+                    continue
+                assert sock.getsockopt(socket.IPPROTO_TCP, option) == value, name
+        finally:
+            transport.close()
+            listener.close()
 
     def test_a_link_that_never_stops_delivering_still_hands_back(self):
         # Without the cap this read would never return, and the controller
