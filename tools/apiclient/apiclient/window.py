@@ -1099,9 +1099,10 @@ class MainWindow(QMainWindow):
             self._set_strip("Still loading the sets. Nothing else was sent.", None)
             return
 
-        # The bitmaps go last. A service older than the endpoint answers it
-        # with a 404, which stops the chain, and last is where that costs no
-        # set anything.
+        # The bitmaps go last, after the icon tints, which are the last set. A
+        # service older than both answers the tints with a 404 and the chain
+        # stops there, with every set that service has already loaded and the
+        # bitmaps never asked for.
         pending = [
             operation
             for set_key in catalogue.SET_ORDER
@@ -1223,7 +1224,12 @@ class MainWindow(QMainWindow):
             "%s  %s  %d ms" % (operation.signature, rendered.headline, result.duration_ms),
             ok,
         )
-        self.response.setHtml(fmt.as_html(rendered, self.theme, self._pictures))
+        # A bitmaps answer is drawn with no pictures until it has been taken
+        # in: the ones in hand are from the load before, and drawing those
+        # beside an answer that turns out to be unreadable would show a picture
+        # of something this service did not send.
+        drawn_now = self._pictures if operation.draws is None else {}
+        self.response.setHtml(fmt.as_html(rendered, self.theme, drawn_now))
 
         if ok:
             # Whether the reply was one this client could actually use, which is
@@ -1310,7 +1316,7 @@ class MainWindow(QMainWindow):
         reads to decide whether to ask for the next set. An operation that loads
         nothing had nothing to take and answers True, because there was no
         failure in it. A body that arrived 200 and is not a set this can read
-        answers False, which stops the chain asking four more sets of a service
+        answers False, which stops the chain asking for the rest from a service
         that has just shown it cannot answer one.
         """
         if operation.draws is not None:

@@ -16,15 +16,15 @@ library, and the names inside it may move without that being a breaking change.
 ### Added
 
 - **`GET /enumerations/icons/bitmaps` gives the dots each icon is drawn with.**
-  One call answers the whole library, in the same order as
-  `GET /enumerations/icons` and named by the same tags. Each icon comes with its
-  rows, one character a dot, and the colour word every character stands for, so
-  a caller can show an icon rather than only name it. A tintable icon is given
-  in the colour it takes when no tint is asked for. Like the list beside it, it
-  needs no API key.
+  One call answers the whole library, in the same order as `GET
+  /enumerations/icons` and named by the same tags. Each icon comes with its
+  rows, one character a dot, and the colour word every lit character stands for,
+  so a caller can show an icon rather than only name it. A tintable icon is
+  given in the colour it takes when no tint is asked for. Like the list beside
+  it, it needs no API key.
 - **`GET /enumerations/icon-tints` lists the colours a tint may name.** They
   are the colour tokens' own words, as in `<icon:check:red>`, in the same
-  `name` and `description` shape as every other enumeration.
+  `name` and `description` shape as the markup tokens.
 - **The client shows a thumbnail of each icon.** The Icons row has a **Load
   bitmaps** button, and once it has been pressed every list of icons, whether
   opened with View or with Insert icon, draws each one dot for dot in front of

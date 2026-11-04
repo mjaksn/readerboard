@@ -85,9 +85,9 @@ class EntryPicker(QDialog):
     double clicking inserts.
 
     Given bitmaps, it draws each entry that has one in a column of its own
-    before the name. An entry with none gets an empty cell, which is what a
-    service older than the bitmaps endpoint looks like, so the list still works
-    with nothing to draw.
+    before the name. An entry the bitmaps do not name gets an empty cell. With
+    no bitmaps at all, which is what a service older than the bitmaps endpoint
+    gives, there is no picture column and the list is the one it always was.
 
     Given tints as well, it offers them in a list beside the filter. Choosing
     one redraws every icon that takes a tint in that colour and rewrites its
@@ -235,11 +235,14 @@ class EntryPicker(QDialog):
     def _apply_filter(self, text: str) -> None:
         """Show only the entries matching what has been typed."""
         needle = text.strip().lower()
+        # The name as shown as well as the name as listed, so that a tag typed
+        # exactly as a tinted row spells it finds that row.
         matching = [
             entry
             for entry in self._entries
             if not needle
             or needle in entry.name.lower()
+            or needle in self._shown_name(entry).lower()
             or needle in entry.description.lower()
         ]
         self._table.setRowCount(len(matching))

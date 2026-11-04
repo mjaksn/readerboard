@@ -398,15 +398,15 @@ handed a sign holding a picture and asked to redraw, which is the only place
 that code runs before somebody sends a picture to the simulator by hand. A panel
 that draws something no test can assert about wants one of these.
 
-The client is built twice for the same kind of reason. Its window keeps one form
+The client is built three times for the same kind of reason. Its window keeps one form
 per operation for its whole life, so that switching operations loses nothing
 typed, and the second build types into one, selects another and comes back. It
 reads the form on screen rather than the one it typed into, because a form
 dropped with `deleteLater` outlives its replacement when no event loop runs, and
-the old one would still hold the text. After that it opens an icon list holding
-a bitmap and chooses a tint in it, and asks the response panel for a picture,
-which is the client's own QPainter path: the thumbnails beside each icon are
-painted there and nowhere else.
+the old one would still hold the text. The third opens an icon list holding a
+bitmap, chooses a tint in it and asks the response panel for a picture, which is
+the client's own QPainter path: the thumbnails beside each icon are painted
+there and nowhere else.
 
 The one worth knowing
 about in the simulator round trips the frame builders above through its

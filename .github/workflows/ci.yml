@@ -95,10 +95,10 @@ jobs:
       # window that is only constructed never reaches it. So the second build
       # is given a sign holding a picture and asked to redraw.
       #
-      # The client is built twice too. Its second build types into one form,
+      # The client is built three times. Its second build types into one form,
       # selects another operation and comes back, because a form that kept
-      # nothing across a switch would still construct without complaint. Then
-      # an icon list is opened holding a bitmap, for the simulator's reason: the
+      # nothing across a switch would still construct without complaint. The
+      # third opens an icon list holding a bitmap, for the simulator's reason: the
       # thumbnails are painted through QPainter, and nothing else runs that
       # before somebody presses Load bitmaps. A tint is chosen in it too, which
       # is the only thing that runs the repaint and the renaming behind it. And
@@ -175,6 +175,8 @@ jobs:
           assert tinted.toImage() != thumbnail.toImage(), "the tint was not drawn"
           picker._take()
           assert picker.selected == "<icon:check:red>", "the tint was not inserted"
+          picker._filter.setText("check:red")
+          assert picker._table.rowCount() == 1, "a tinted name typed as shown was not found"
 
           from PySide6.QtCore import QUrl
           from PySide6.QtGui import QTextDocument

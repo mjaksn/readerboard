@@ -1035,11 +1035,20 @@ class TestEnumerations:
         for entry in client.get("/enumerations/icon-tints").json():
             assert "<%s>" % entry["name"] in tokens
 
-    def test_every_tint_listed_is_one_the_service_accepts(self, client):
-        # Draw the tintable check in each colour offered. A word listed here and
+    def test_every_tint_listed_is_one_a_message_can_use(self, drawing_client):
+        # Put the tintable check up in each colour offered, through the markup
+        # parser and the route rather than the library alone: the parser checks
+        # a tint's spelling with a pattern of its own, and a word listed here and
         # refused there would be a list that sends callers into a 400.
-        for entry in client.get("/enumerations/icon-tints").json():
-            assert icons.resolve("check", entry["name"])
+        listed = drawing_client.get("/enumerations/icon-tints").json()
+        assert listed
+        for entry in listed:
+            response = drawing_client.put(
+                "/slots/tinted",
+                json={"message": "<icon:check:%s> OK" % entry["name"]},
+                headers=HEADERS,
+            )
+            assert response.status_code == 200, (entry["name"], response.text)
 
     def test_the_bitmaps_need_no_api_key(self, client):
         # A read of the library, like the list beside it.

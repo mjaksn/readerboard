@@ -74,8 +74,10 @@ dialog show those tables as text, as they always did. A tintable icon is shown i
 the colour it takes when a message asks for none. The bitmaps and the names are
 separate answers joined on the tag, so either can be loaded first, and the list
 works as it always did when the bitmaps are not loaded or the service is too old
-to have them. Load all asks for them last, so that a service without the endpoint
-stops the chain only after every set has arrived.
+to have them. Load all asks for them last, after the icon tints, which are the
+last set. A service older than both stops the chain at the tints, with one dialog
+reporting the 404, every set it does have already loaded, and the bitmaps never
+asked for.
 
 The shapes and the colour of every dot come from the service, which names each
 ink by the same colour word a message writes, such as `red` or `dimgreen`. What
@@ -302,10 +304,10 @@ offscreen in the job that already has Qt installed. A signal connected to an
 attribute that does not exist yet raises on construction and nowhere else, and
 that is otherwise nobody's job to notice. It builds a second one to type into a
 form, select another operation and come back, which is the only check that the
-form is still as it was left. Then it opens an icon list holding a bitmap and
-chooses a tint in it, because the thumbnails are painted through QPainter and
-nothing else runs that code before somebody presses Load bitmaps, and it asks
-the response panel for one of the pictures it would draw.
+form is still as it was left. A third opens an icon list holding a bitmap,
+chooses a tint in it and asks the response panel for one of the pictures it
+would draw, because the thumbnails are painted through QPainter and nothing else
+runs that code before somebody presses Load bitmaps.
 
 Type checking is a separate invocation, because the root `mypy` config names
 only the service:

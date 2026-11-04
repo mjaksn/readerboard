@@ -417,10 +417,11 @@ class TokenInfo(BaseModel):
 class IconInfo(BaseModel):
     """One icon from the built-in library.
 
-    ``name`` is the whole tag rather than the bare icon name, which is what
-    every other enumeration answers too: the caller writes what it is given,
-    and a client that had to wrap the answer in ``<icon:`` first would be a
-    client that knows a piece of syntax nobody told it.
+    ``name`` is the whole tag rather than the bare icon name, as the markup
+    tokens are: the caller writes what it is given, and a client that had to
+    wrap the answer in ``<icon:`` first would be a client that knows a piece of
+    syntax nobody told it. The icon tints are the exception, and say so: a tint
+    is a colour word that goes inside the tag, as ``<icon:check:red>``.
 
     The three fields after the description are the same facts in a form
     something can sort or filter on without reading prose.
@@ -443,8 +444,8 @@ class IconBitmap(BaseModel):
     """The dots one icon is drawn with, for a caller that wants to show it.
 
     The rows are the library's own, so a dot reads the same here as it does in
-    ``readerboard/icons.py``, and every character in them is named in ``inks``
-    rather than left for the caller to know. The ink a tint replaces is given as
+    ``readerboard/icons.py``. Every character in them other than the unlit
+    ``.`` is named in ``inks`` rather than left for the caller to know. The ink a tint replaces is given as
     the colour the icon takes when no tint is asked for, which is what a message
     calling it bare would draw.
     """

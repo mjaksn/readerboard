@@ -662,7 +662,7 @@ def _bitmaps(payload: object) -> list[Block]:
         rows.append((str(item.get("name", "")), size, colours))
     return [
         Note(
-            "%d bitmap%s, drawn here and beside each name in the icon lists."
+            "%d bitmap%s."
             % (len(rows), "" if len(rows) == 1 else "s")
         ),
         Table(
