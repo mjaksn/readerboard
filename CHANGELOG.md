@@ -38,14 +38,14 @@ library, and the names inside it may move without that being a breaking change.
   quarter of an hour, and `GET /health` said the link was up the whole time. A
   `socket://` or `rfc2217://` link now turns on TCP keepalive, and on Linux
   gives up on unacknowledged data after a minute, so the operating system drops
-  the link about a minute after the adapter goes, or a minute after the last
-  write sent to it, whichever is later. The service finds out at its first read
-  or write after that, and from then `/health` reports it and the reconnect
-  loop takes over. On a sign left alone that is a refresh, every
-  `refresh_interval_seconds` and 15 minutes by default, and a refresh that lands
-  before the link has timed out only starts the clock again, so it can be the
-  one after. A ping of the adapter is still the faster alarm. A serial cable is
-  unaffected.
+  the link about a minute after the adapter stops answering. A platform that
+  does not take one of these options keeps its own default for it. The service
+  finds out at its first read or write after the link has gone, and from then
+  `/health` reports it and the reconnect loop takes over. On a sign left alone
+  that is a refresh, every `refresh_interval_seconds` and 15 minutes by
+  default, and a refresh that lands before the link has gone is buffered like
+  any other write, so it can be the one after. A ping of the adapter is still
+  the faster alarm. A serial cable is unaffected.
 
 ## [0.7.0] - 2026-10-08
 
