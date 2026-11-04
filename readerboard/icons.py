@@ -80,6 +80,9 @@ TINT_INKS = {
     "yellow": "y",
 }
 
+# The same pairs the other way round: the colour word each ink is drawn in.
+INK_WORDS = {ink: word for word, ink in TINT_INKS.items()}
+
 class IconError(ValueError):
     """An icon could not be drawn as asked.
 
@@ -124,6 +127,23 @@ class Icon:
         yellow, and a green one is not a sun.
         """
         return self.tint is not None
+
+    def inks(self) -> dict[str, str]:
+        """Return the colour word for each ink this icon's rows use.
+
+        The tint marker is given as the icon's default ink, which is what a
+        message calling it with no colour draws. Only the inks that appear are
+        named, so a caller drawing the rows needs nothing else.
+        """
+        found: dict[str, str] = {}
+        for row in self.rows:
+            for dot in row:
+                if dot == "." or dot in found:
+                    continue
+                ink = self.tint if dot == INK_MARKER else dot
+                if ink is not None:
+                    found[dot] = INK_WORDS[ink]
+        return found
 
     def pixels(self, tint: str | None = None) -> list[str]:
         """Return the rows as Table 22 pixel codes, ready for a picture write.

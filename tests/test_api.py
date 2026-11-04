@@ -990,6 +990,41 @@ class TestEnumerations:
         assert len(set(groups)) == len(icons.GROUPS)
         assert groups == sorted(groups, key=icons.GROUPS.index)
 
+    def test_every_icon_has_a_bitmap_named_as_the_list_names_it(self, client):
+        # The two answers are joined on the name, so a caller drawing the list
+        # loses any icon whose bitmap is spelled differently or missing.
+        listed = [entry["name"] for entry in client.get("/enumerations/icons").json()]
+        drawn = [entry["name"] for entry in client.get("/enumerations/icons/bitmaps").json()]
+        assert drawn == listed
+
+    def test_each_bitmap_is_the_library_rows_exactly(self, client):
+        by_name = {
+            entry["name"]: entry for entry in client.get("/enumerations/icons/bitmaps").json()
+        }
+        for name, icon in icons.ICONS.items():
+            assert by_name["<icon:%s>" % name]["rows"] == list(icon.rows)
+
+    def test_every_dot_that_is_lit_has_its_colour_named(self, client):
+        # A character the caller is not told about is one it can only guess at,
+        # and the client is built to guess nothing.
+        for entry in client.get("/enumerations/icons/bitmaps").json():
+            used = {dot for row in entry["rows"] for dot in row} - {"."}
+            assert set(entry["inks"]) == used, entry["name"]
+            assert set(entry["inks"].values()) <= set(icons.TINT_INKS), entry["name"]
+
+    def test_a_tintable_icon_is_drawn_in_the_colour_it_takes_by_default(self, client):
+        by_name = {
+            entry["name"]: entry for entry in client.get("/enumerations/icons/bitmaps").json()
+        }
+        # check is green unless asked otherwise, and sun is never tinted at all.
+        assert by_name["<icon:check>"]["inks"] == {"#": "green"}
+        assert icons.INK_MARKER not in by_name["<icon:sun>"]["inks"]
+        assert by_name["<icon:sun>"]["inks"] == {"o": "orange", "y": "yellow"}
+
+    def test_the_bitmaps_need_no_api_key(self, client):
+        # A read of the library, like the list beside it.
+        assert client.get("/enumerations/icons/bitmaps").status_code == 200
+
 
 class TestVariables:
     def put_variable(self, client, name="temp", **body):

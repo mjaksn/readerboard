@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from html import escape
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 
 from apiclient import catalogue
 from apiclient import format as fmt
+from apiclient.bitmaps import GROUND, Bitmap
 from apiclient.enums import Entry
 from apiclient.history import History, Record
 from apiclient.request import API_KEY_VARIABLE
@@ -44,6 +45,36 @@ MONO = "font-family:Consolas,'DejaVu Sans Mono',monospace;font-size:12px"
 SERVICE_PROBLEM = "The service reported a problem"
 NOTHING_ANSWERED = "Nothing answered"
 
+# How many pixels each dot of a thumbnail gets at a scale of one, which puts an
+# icon seven dots high at a little over a line of text.
+DOT_PITCH = 4
+
+
+def bitmap_pixmap(bitmap: Bitmap, pitch: int = DOT_PITCH, ratio: float = 1.0) -> QPixmap:
+    """Paint one icon as the dots it is, on the dark ground of the sign.
+
+    Unlit dots are drawn rather than left out, as the sign simulator draws its
+    picture files, so a narrow icon reads as narrow rather than as a gap.
+
+    ``ratio`` is the screen's device pixel ratio. The dots are laid out in
+    whole device pixels and the pixmap told its ratio afterwards, so a desktop
+    scaled to 150% gets crisp dots rather than a small picture stretched.
+    """
+    step = max(round(pitch * ratio), 2)
+    pixmap = QPixmap(max(bitmap.width, 1) * step, max(bitmap.height, 1) * step)
+    pixmap.fill(QColor(GROUND))
+    painter = QPainter(pixmap)
+    try:
+        for y in range(bitmap.height):
+            for x in range(bitmap.width):
+                painter.fillRect(
+                    x * step, y * step, step - 1, step - 1, QColor(bitmap.colour_at(x, y))
+                )
+    finally:
+        painter.end()
+    pixmap.setDevicePixelRatio(ratio)
+    return pixmap
+
 
 class EntryPicker(QDialog):
     """Shows one enumeration, and optionally hands a name back to be inserted.
@@ -51,6 +82,11 @@ class EntryPicker(QDialog):
     The same dialog does both jobs. Opened from the enumerations panel it is a
     reference; opened from the button beside a message field it is a picker, and
     double clicking inserts.
+
+    Given bitmaps, it draws each entry that has one in a column of its own
+    before the name. An entry with none gets an empty cell, which is what a
+    service older than the bitmaps endpoint looks like, so the list still works
+    with nothing to draw.
     """
 
     def __init__(
@@ -60,6 +96,7 @@ class EntryPicker(QDialog):
         *,
         parent: QWidget | None = None,
         insert: bool = False,
+        bitmaps: dict[str, Bitmap] | None = None,
     ) -> None:
         """Build the dialog for a set of entries."""
         super().__init__(parent)
@@ -67,6 +104,13 @@ class EntryPicker(QDialog):
         self.resize(620, 520)
         self.selected: str | None = None
         self._entries = entries
+        # Painted once here rather than on every keystroke in the filter, which
+        # rebuilds the rows each time.
+        ratio = self.devicePixelRatioF()
+        self._pixmaps = {
+            name: bitmap_pixmap(bitmap, ratio=ratio) for name, bitmap in (bitmaps or {}).items()
+        }
+        self._name_column = 1 if self._pixmaps else 0
 
         layout = QVBoxLayout(self)
 
@@ -76,14 +120,26 @@ class EntryPicker(QDialog):
         self._filter.textChanged.connect(self._apply_filter)
         layout.addWidget(self._filter)
 
-        self._table = QTableWidget(0, 2)
-        self._table.setHorizontalHeaderLabels(["name", "description"])
+        labels = ["name", "description"]
+        if self._pixmaps:
+            labels.insert(0, "")
+        self._table = QTableWidget(0, len(labels))
+        self._table.setHorizontalHeaderLabels(labels)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
+            len(labels) - 1, QHeaderView.ResizeMode.Stretch
         )
+        if self._pixmaps:
+            # In the pixmaps' own logical size, which is what a cell lays out by.
+            sizes = [pixmap.deviceIndependentSize() for pixmap in self._pixmaps.values()]
+            widest = round(max(size.width() for size in sizes))
+            tallest = round(max(size.height() for size in sizes))
+            self._table.setIconSize(QSize(widest, tallest))
+            self._table.verticalHeader().setDefaultSectionSize(
+                max(tallest + 8, self._table.verticalHeader().defaultSectionSize())
+            )
         self._table.itemDoubleClicked.connect(lambda _item: self._take())
         layout.addWidget(self._table, 1)
 
@@ -110,16 +166,24 @@ class EntryPicker(QDialog):
             or needle in entry.description.lower()
         ]
         self._table.setRowCount(len(matching))
+        names = self._name_column
         for row, entry in enumerate(matching):
-            self._table.setItem(row, 0, QTableWidgetItem(entry.name))
-            self._table.setItem(row, 1, QTableWidgetItem(entry.description))
-        self._table.resizeColumnToContents(0)
+            if self._pixmaps:
+                picture = QTableWidgetItem()
+                pixmap = self._pixmaps.get(entry.name)
+                if pixmap is not None:
+                    picture.setData(Qt.ItemDataRole.DecorationRole, pixmap)
+                self._table.setItem(row, 0, picture)
+            self._table.setItem(row, names, QTableWidgetItem(entry.name))
+            self._table.setItem(row, names + 1, QTableWidgetItem(entry.description))
+        for column in range(names + 1):
+            self._table.resizeColumnToContents(column)
         if matching:
             self._table.selectRow(0)
 
     def _take(self) -> None:
         """Accept the highlighted row as the choice."""
-        item = self._table.item(self._table.currentRow(), 0)
+        item = self._table.item(self._table.currentRow(), self._name_column)
         if item is not None:
             self.selected = item.text()
             self.accept()

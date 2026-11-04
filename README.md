@@ -428,7 +428,9 @@ in a single ink; the colour words are the colour tokens' own, down to `dimred` a
 `dimgreen`, so a message that can say `<red>` needs no second spelling. An icon
 drawn in its own colours, such as the sun, takes no tint and asking for one is
 refused rather than ignored. `GET /enumerations/icons` lists every icon with its
-group, its width and whether it takes a tint.
+group, its width and whether it takes a tint, and `GET /enumerations/icons/bitmaps`
+gives the dots each one is drawn with and the colour of each, for anything that
+wants to show the icons rather than only name them.
 
 Icons are off until `picture_count` is set, because each one on the sign needs a
 picture file of its own and allocating those reallocates the sign's memory, which

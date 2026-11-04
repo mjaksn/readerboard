@@ -59,11 +59,12 @@ Changing it rewrites only the variable, so the sign shows the new value without
 blanking or restarting what calls it.
 
 An **icon** is one of the built-in bitmaps, drawn where `<icon:name>` sits in a
-message or an alert. `GET /enumerations/icons` lists them. There is a fixed pool
-of picture files on the sign and it is far smaller than the library, so a file is
-claimed by whichever icon a message calls and kept until another icon needs it.
-Icons are off until `picture_count` is raised, because raising it reallocates the
-sign's memory and clears it.
+message or an alert. `GET /enumerations/icons` lists them, and
+`GET /enumerations/icons/bitmaps` gives the dots each is drawn with. There is a
+fixed pool of picture files on the sign and it is far smaller than the library, so
+a file is claimed by whichever icon a message calls and kept until another icon
+needs it. Icons are off until `picture_count` is raised, because raising it
+reallocates the sign's memory and clears it.
 
 Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
 which reads the sign rather than the service: it puts a question on the wire and

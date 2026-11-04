@@ -26,6 +26,7 @@ from readerboard.api.models import (
     AlertResponse,
     ClockResponse,
     ControlCommandRequest,
+    IconBitmap,
     IconInfo,
     SignInformationResponse,
     SlotActiveRequest,
@@ -504,6 +505,28 @@ async def icon_library() -> list[IconInfo]:
             group=icon.group,
             width=icon.width,
             tintable=icon.tintable,
+        )
+        for icon in icons.ICONS.values()
+    ]
+
+
+@enumerations.get("/icons/bitmaps", summary="The dots each icon is drawn with")
+async def icon_bitmaps() -> list[IconBitmap]:
+    """List every built-in icon's bitmap, in the same order as GET /enumerations/icons.
+
+    One call for the whole library rather than one per icon, so a caller
+    showing the icons beside their names can draw all of them from a single
+    answer. Each is named by the same tag the list gives, which is what the two
+    are joined on.
+
+    An icon that takes a tint is drawn here in its default colour, which is
+    what a message calling it with no colour gets.
+    """
+    return [
+        IconBitmap(
+            name="<icon:%s>" % icon.name,
+            rows=list(icon.rows),
+            inks=icon.inks(),
         )
         for icon in icons.ICONS.values()
     ]

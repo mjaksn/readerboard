@@ -97,7 +97,10 @@ jobs:
       #
       # The client is built twice too. Its second build types into one form,
       # selects another operation and comes back, because a form that kept
-      # nothing across a switch would still construct without complaint.
+      # nothing across a switch would still construct without complaint. Then
+      # an icon list is opened holding a bitmap, for the simulator's reason: the
+      # thumbnails are painted through QPainter, and nothing else runs that
+      # before somebody presses Load bitmaps.
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on
@@ -142,6 +145,27 @@ jobs:
           kept = shown.body_values()
           assert kept["message"] == "HELLO <red>", "the message was lost"
           assert kept["active"] == "false", "the choice in a list was lost"
+          SMOKE
+          python - <<'SMOKE'
+          import sys
+
+          sys.path.insert(0, "tools/apiclient")
+          from PySide6.QtCore import Qt
+          from PySide6.QtWidgets import QApplication
+          from apiclient import bitmaps, enums
+          from apiclient.dialogs import EntryPicker
+
+          app = QApplication([])
+          entries = enums.parse([{"name": "<icon:check>", "description": "status"}])
+          drawn = bitmaps.parse([{
+              "name": "<icon:check>",
+              "rows": ["...", "..#", "##."],
+              "inks": {"#": "green"},
+          }])
+          picker = EntryPicker("Icons", entries, bitmaps=drawn)
+          thumbnail = picker._table.item(0, 0).data(Qt.ItemDataRole.DecorationRole)
+          assert thumbnail is not None and not thumbnail.isNull(), "the icon was drawn as nothing"
+          assert picker._table.item(0, 1).text() == "<icon:check>", "the name moved"
           SMOKE
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
           python - <<'SMOKE'

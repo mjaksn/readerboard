@@ -437,3 +437,31 @@ class IconInfo(BaseModel):
             "rather than ignored"
         )
     )
+
+
+class IconBitmap(BaseModel):
+    """The dots one icon is drawn with, for a caller that wants to show it.
+
+    The rows are the library's own, so a dot reads the same here as it does in
+    ``readerboard/icons.py``, and every character in them is named in ``inks``
+    rather than left for the caller to know. The ink a tint replaces is given as
+    the colour the icon takes when no tint is asked for, which is what a message
+    calling it bare would draw.
+    """
+
+    name: str = Field(
+        description="the tag that draws it, exactly as GET /enumerations/icons lists it"
+    )
+    rows: list[str] = Field(
+        description=(
+            "the icon top to bottom, one character a dot: '.' is unlit and every "
+            "other character is a key into inks. Every row is the same length"
+        )
+    )
+    inks: dict[str, str] = Field(
+        description=(
+            "the colour each character in rows is drawn in, as the colour words "
+            "<red> and <icon:check:red> use. On an icon that takes a tint, '#' is "
+            "the ink the tint replaces, given as the colour it is when none is asked for"
+        )
+    )

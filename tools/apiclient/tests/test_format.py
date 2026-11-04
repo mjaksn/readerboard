@@ -138,6 +138,16 @@ def test_an_enumeration_renders_as_a_table():
     assert "Set text colour to red" in text
 
 
+def test_the_bitmaps_read_as_their_size_and_colours_rather_than_as_raw_rows():
+    body = json.dumps(
+        [{"name": "<icon:sun>", "rows": ["o.y", "y.o"], "inks": {"o": "orange", "y": "yellow"}}]
+    )
+    result, text = rendered_text("icon_bitmaps", 200, body)
+    assert result.ok
+    assert "<icon:sun> | 3 by 2 | orange, yellow" in text
+    assert "o.y" not in text
+
+
 # ===========================================================================
 # Failures
 # ===========================================================================

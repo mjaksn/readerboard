@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from twenty-three hand-written
+The window builds its forms from this table rather than from twenty-four hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -108,6 +108,11 @@ class Operation:
     it. ``confirm`` carries the text for a warning-coloured prompt in front of an
     operation that is not about losing data but is disruptive to run, such as
     rebooting the sign. An operation sets one or the other, not both.
+
+    ``loads`` names the set an operation fills, and ``draws`` names the set
+    whose entries it supplies pictures for. They are kept apart because a
+    picture is not an entry: the icons are listed by one endpoint and drawn by
+    another, and the set is still filled by exactly one of them.
     """
 
     id: str
@@ -120,6 +125,7 @@ class Operation:
     body: tuple[Input, ...] = ()
     formatter: str = "generic"
     loads: str | None = None
+    draws: str | None = None
     destructive: bool = False
     confirm: str = ""
     note: str = ""
@@ -497,6 +503,20 @@ OPERATIONS: tuple[Operation, ...] = (
             "reports how many of those files are in use."
         ),
     ),
+    Operation(
+        id="icon_bitmaps",
+        group="Enumerations",
+        method="GET",
+        path="/enumerations/icons/bitmaps",
+        summary="The dots each icon is drawn with",
+        formatter="bitmaps",
+        draws=ICONS,
+        note=(
+            "Every icon's rows of dots, named by the same tag the icon list "
+            "gives. Loading them puts a thumbnail beside each icon wherever the "
+            "icons are listed. A tintable icon is drawn in its default colour."
+        ),
+    ),
     # == Health ===========================================================
     Operation(
         id="health",
@@ -527,5 +547,10 @@ def grouped() -> list[tuple[str, list[Operation]]]:
 def loaders_for(set_key: str) -> list[Operation]:
     """Return every operation that can fill the given enumeration set."""
     return [op for op in OPERATIONS if op.loads == set_key]
+
+
+def drawers_for(set_key: str) -> list[Operation]:
+    """Return every operation that supplies pictures for the given set's entries."""
+    return [op for op in OPERATIONS if op.draws == set_key]
 
 

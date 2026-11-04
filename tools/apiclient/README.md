@@ -31,7 +31,7 @@ pip install --require-hashes -r tools/apiclient/requirements.lock
 
 ## What it does
 
-**Every endpoint, on one screen.** All twenty-three operations are listed at once,
+**Every endpoint, on one screen.** All twenty-four operations are listed at once,
 grouped by what they act on. Selecting one brings its form up beside it, exactly
 as it was left: each operation keeps its own form for as long as the client is
 open, so the fields, the choices in its lists and any keys it loaded are still
@@ -57,11 +57,32 @@ That is the point of the design rather than an inconvenience. A client that ship
 its own copy of the vocabulary is a client that goes on offering a token for a
 year after the service stopped answering it.
 
-Each of the four sets has exactly one endpoint that fills it, so the button
-beside a set is unambiguous. All four answer the same shape, `name` and
+Each of the five sets has exactly one endpoint that fills it, so the button
+beside a set is unambiguous. All five answer the same shape, `name` and
 `description`, and the parsing insists on it: a payload that is a list of
 objects but not *this* list of objects is refused rather than quietly producing
 a set of empty names, which on screen looks exactly like a healthy one.
+
+**The icons are drawn, not only named.** The Icons row has a second button,
+**Load bitmaps**, which calls `GET /enumerations/icons/bitmaps` and keeps the dots
+of every icon. From then on each list of icons, whether opened with View or with
+Insert icon beside a message, shows a thumbnail in front of each name, painted dot
+for dot on the dark ground of the sign as the sign simulator paints its picture
+files. A tintable icon is shown in the colour it takes when a message asks for
+none. The bitmaps and the names are separate answers joined on the tag, so either
+can be loaded first, and the list works as it always did when the bitmaps are not
+loaded or the service is too old to have them. Load all asks for them last, so
+that a service without the endpoint stops the chain only after every set has
+arrived.
+
+The shapes and the colour of every dot come from the service, which names each
+ink by the same colour word a message writes, such as `red` or `dimgreen`. What
+each word looks like on a screen is the one thing the client supplies itself,
+because the service has no way to say. Those shades are the simulator's, and a
+word the client has no shade for is drawn in magenta rather than as an unlit dot,
+so a new ink shows up as something to fix rather than as a hole in the icon. The
+bitmaps are parsed as strictly as the sets: ragged rows, or a lit dot whose colour
+nobody named, refuse the whole answer.
 
 **The key boxes offer what is registered, and say when what you typed is not.**
 Any form taking a slot key or a variable name has a **Load keys** button beside the
@@ -188,11 +209,12 @@ reason.
 | `request.py` | no | inputs to a request, and the curl equivalent |
 | `format.py` | no | responses to readable blocks, and those to HTML |
 | `enums.py` | no | the loaded sets, normalised from either shape |
+| `bitmaps.py` | no | the icons' dots, and the shade each colour word is painted in |
 | `history.py` | no | the run's calls, with the key already gone |
 | `names.py` | no | the three names this tool answers to, and the QSettings location they build |
 | `net.py` | yes | `QNetworkAccessManager`, one call in flight at a time |
 | `window.py` | yes | the one screen |
-| `dialogs.py` | yes | enumerations, errors, history |
+| `dialogs.py` | yes | enumerations and their thumbnails, errors, history |
 | `app.py` | yes | the command line and `main()` |
 
 The forms are generated from `catalogue.py` rather than written out one by one,
@@ -262,7 +284,9 @@ offscreen in the job that already has Qt installed. A signal connected to an
 attribute that does not exist yet raises on construction and nowhere else, and
 that is otherwise nobody's job to notice. It builds a second one to type into a
 form, select another operation and come back, which is the only check that the
-form is still as it was left.
+form is still as it was left. Then it opens an icon list holding a bitmap,
+because the thumbnails are painted through QPainter and nothing else runs that
+code before somebody presses Load bitmaps.
 
 Type checking is a separate invocation, because the root `mypy` config names
 only the service:

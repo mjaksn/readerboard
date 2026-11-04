@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty-three
+Everything the tool does is on it: the connection, the enumerations, all twenty-four
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from apiclient import catalogue, enums, names, skew
+from apiclient import bitmaps, catalogue, enums, names, skew
 from apiclient import format as fmt
 from apiclient import request as request_module
 from apiclient.catalogue import Input, Operation
@@ -126,6 +126,7 @@ class EnumerationPanel(QGroupBox):
         super().__init__("Enumerations")
         self._window = window
         self._status: dict[str, QLabel] = {}
+        self._drawn: dict[str, QLabel] = {}
         self._view: dict[str, QPushButton] = {}
 
         # The rows sit in a scroll area so that this panel's height is not the
@@ -213,6 +214,30 @@ class EnumerationPanel(QGroupBox):
         self._status[set_key] = status
         rows.addWidget(status)
 
+        # A set whose entries can be drawn gets a button for that apart from
+        # Load, so that each button still calls exactly one endpoint. It sits
+        # on a line of its own with its own status under it: beside Load and
+        # View it was measured pushing this panel's minimum from 190 pixels to
+        # 284, past the 266 it gets in a window at its default size.
+        drawers = catalogue.drawers_for(set_key)
+        if drawers:
+            drawing = QHBoxLayout()
+            drawing.setSpacing(6)
+            for operation in drawers:
+                button = QPushButton("Load bitmaps")
+                button.setToolTip(operation.signature)
+                button.clicked.connect(
+                    lambda _checked=False, op=operation: self._window.run(op)
+                )
+                drawing.addWidget(button)
+            drawing.addStretch(1)
+            rows.addLayout(drawing)
+
+            drawn = QLabel("bitmaps not loaded")
+            drawn.setStyleSheet(_muted(self._window.theme))
+            self._drawn[set_key] = drawn
+            rows.addWidget(drawn)
+
         return holder
 
     def refresh(self) -> None:
@@ -229,6 +254,16 @@ class EnumerationPanel(QGroupBox):
                 label.setToolTip(loaded.provenance())
                 label.setStyleSheet("color:%s" % self._window.theme.ok)
                 self._view[set_key].setEnabled(True)
+        for set_key, label in self._drawn.items():
+            drawn = self._window.store.bitmaps(set_key)
+            if drawn is None:
+                label.setText("bitmaps not loaded")
+                label.setToolTip("")
+                label.setStyleSheet(_muted(self._window.theme))
+            else:
+                label.setText(drawn.summary())
+                label.setToolTip(drawn.provenance())
+                label.setStyleSheet("color:%s" % self._window.theme.ok)
 
     def _show(self, set_key: str) -> None:
         """Open the set for reading."""
@@ -236,7 +271,10 @@ class EnumerationPanel(QGroupBox):
         if loaded is None:
             return
         picker = EntryPicker(
-            catalogue.SET_TITLES[set_key], loaded.entries, parent=self._window
+            catalogue.SET_TITLES[set_key],
+            loaded.entries,
+            parent=self._window,
+            bitmaps=self._window.bitmaps_for(set_key),
         )
         picker.exec()
         # Parented to the window, so nothing else will ever drop it. One per
@@ -483,7 +521,11 @@ class OperationForm(QWidget):
         if loaded is None:
             return
         picker = EntryPicker(
-            catalogue.SET_TITLES[tokens], loaded.entries, parent=self._window, insert=True
+            catalogue.SET_TITLES[tokens],
+            loaded.entries,
+            parent=self._window,
+            insert=True,
+            bitmaps=self._window.bitmaps_for(tokens),
         )
         chosen = picker.selected if picker.exec() else None
         # Read first, dropped second. The read is why this one cannot carry
@@ -702,7 +744,7 @@ class MainWindow(QMainWindow):
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
         # What Load all has left to send. One call is in flight at a time, so
-        # loading every set is a chain rather than five requests: each is sent
+        # loading every set is a chain rather than six requests: each is sent
         # from the completion of the one before it.
         self._queued: list[Operation] = []
         self._pending_keys: tuple[OperationForm, str] | None = None
@@ -1013,10 +1055,10 @@ class MainWindow(QMainWindow):
         return box.exec() == QMessageBox.StandardButton.Yes
 
     def load_every_set(self) -> None:
-        """Load every enumeration the catalogue knows, one call after another.
+        """Load every enumeration the catalogue knows, then the icons' bitmaps, one by one.
 
-        Not five sends. The caller holds one call in flight and refuses the
-        rest, so four of five would be turned away on the spot. The first goes
+        Not six sends. The caller holds one call in flight and refuses the
+        rest, so five of six would be turned away on the spot. The first goes
         now and the others wait in ``_queued``, where ``_completed`` picks up
         the next one.
         """
@@ -1026,10 +1068,17 @@ class MainWindow(QMainWindow):
             self._set_strip("Still loading the sets. Nothing else was sent.", None)
             return
 
+        # The bitmaps go last. A service older than the endpoint answers it
+        # with a 404, which stops the chain, and last is where that costs no
+        # set anything.
         pending = [
             operation
             for set_key in catalogue.SET_ORDER
             for operation in catalogue.loaders_for(set_key)
+        ] + [
+            operation
+            for set_key in catalogue.SET_ORDER
+            for operation in catalogue.drawers_for(set_key)
         ]
         if not pending:
             return
@@ -1220,7 +1269,7 @@ class MainWindow(QMainWindow):
                 )
 
     def _absorb(self, operation: Operation, payload: object) -> bool:
-        """Take an enumeration into the store, if that is what just came back.
+        """Take an enumeration or a set's bitmaps into the store, if that is what came back.
 
         Returns whether the reply was one this client could use, which Load all
         reads to decide whether to ask for the next set. An operation that loads
@@ -1229,6 +1278,8 @@ class MainWindow(QMainWindow):
         answers False, which stops the chain asking four more sets of a service
         that has just shown it cannot answer one.
         """
+        if operation.draws is not None:
+            return self._absorb_bitmaps(operation, operation.draws, payload)
         if operation.loads is None:
             return True
         try:
@@ -1250,6 +1301,27 @@ class MainWindow(QMainWindow):
         for form in self._forms.values():
             form.refresh_enumerations()
         return True
+
+    def _absorb_bitmaps(self, operation: Operation, set_key: str, payload: object) -> bool:
+        """Take the pictures for a set's entries into the store, if they read as pictures."""
+        try:
+            by_name = bitmaps.parse(payload)
+        except bitmaps.MalformedBitmap as err:
+            QMessageBox.warning(
+                self,
+                "That did not look like a set of bitmaps",
+                "%s answered something this client could not draw: %s"
+                % (operation.signature, err),
+            )
+            return False
+        self.store.load_bitmaps(set_key, operation.signature, by_name)
+        self.enumerations.refresh()
+        return True
+
+    def bitmaps_for(self, set_key: str) -> dict[str, bitmaps.Bitmap] | None:
+        """Return the pictures loaded for a set's entries, or None if there are none."""
+        drawn = self.store.bitmaps(set_key)
+        return drawn.by_name if drawn is not None else None
 
     def _check_surface(self, address: str) -> None:
         """Ask an address to describe itself, the first time it answers anything."""

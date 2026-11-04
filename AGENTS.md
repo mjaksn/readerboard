@@ -403,7 +403,9 @@ per operation for its whole life, so that switching operations loses nothing
 typed, and the second build types into one, selects another and comes back. It
 reads the form on screen rather than the one it typed into, because a form
 dropped with `deleteLater` outlives its replacement when no event loop runs, and
-the old one would still hold the text.
+the old one would still hold the text. After that it opens an icon list holding
+a bitmap, which is the client's own QPainter path: the thumbnails beside each
+icon are painted there and nowhere else.
 
 The one worth knowing
 about in the simulator round trips the frame builders above through its
@@ -463,7 +465,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-three endpoints, formats
+it at a running service and it can call all twenty-four endpoints, formats
 every response as text rather than JSON, and knows no vocabulary it was not
 told.
 

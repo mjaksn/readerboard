@@ -603,6 +603,42 @@ def _tokens(payload: object) -> list[Block]:
     ]
 
 
+def _bitmaps(payload: object) -> list[Block]:
+    """Render the icons' bitmaps as what can be read of them as text.
+
+    The dots themselves are drawn in the icon lists once these are loaded,
+    which is the only form a person can check one in. Here each is its size and
+    the colours it uses, so the panel says what arrived without pretending
+    seven rows of characters are a picture.
+    """
+    if not isinstance(payload, list):
+        return _generic(payload)
+    rows: list[tuple[str, ...]] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        dots = item.get("rows")
+        inks = item.get("inks")
+        size = (
+            "%d by %d" % (len(dots[0]), len(dots))
+            if isinstance(dots, list) and dots and isinstance(dots[0], str)
+            else ""
+        )
+        colours = (
+            ", ".join(sorted({str(word) for word in inks.values()}))
+            if isinstance(inks, dict)
+            else ""
+        )
+        rows.append((str(item.get("name", "")), size, colours))
+    return [
+        Note(
+            "%d bitmap%s. The icon lists draw them beside each name."
+            % (len(rows), "" if len(rows) == 1 else "s")
+        ),
+        Table(title="", columns=("name", "dots", "colours"), rows=tuple(rows)),
+    ]
+
+
 def _empty(payload: object) -> list[Block]:
     """Render a response that is meant to have no body."""
     if payload is None:
@@ -646,6 +682,7 @@ _FORMATTERS = {
     "clock": _clock,
     "sign_information": _sign_information,
     "tokens": _tokens,
+    "bitmaps": _bitmaps,
     "empty": _empty,
     "generic": _generic,
 }
