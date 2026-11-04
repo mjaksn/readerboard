@@ -6,6 +6,9 @@ sign is touched and no port is listened on. CI regenerates it and fails if the
 committed file has drifted from the routes.
 
     python scripts/dump_openapi.py docs/openapi.json
+
+With no path, or with ``-``, it goes to stdout. ``-`` used to be taken as a file
+name, and the 0.7.0 release committed a copy of the description under it.
 """
 
 from __future__ import annotations
@@ -21,11 +24,11 @@ from readerboard.config import Settings
 
 
 def main() -> int:
-    """Write the description to the path given, or to stdout if none is given."""
+    """Write the description to the path given, or to stdout for none or ``-``."""
     schema = create_app(Settings(serial_url="loop://")).openapi()
     text = json.dumps(schema, indent=2, sort_keys=True) + "\n"
 
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 2 or sys.argv[1] == "-":
         sys.stdout.write(text)
         return 0
 

@@ -11,7 +11,15 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.7.1] - 2026-11-03
+
+**A fix for signs reached through an Ethernet adapter.** The service now notices
+when the adapter drops off the network, and `GET /health` says so, where until
+now it went on reporting the link as up. Upgrading erases nothing, with one
+exception: **a Compose deployment with icons off that takes the new
+`packaging/docker-compose.yml` turns them on, and its first start erases every
+message on the sign** before the service puts them back. Read the Changed
+section before replacing a Compose file.
 
 ### Changed
 
@@ -1647,7 +1655,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.1
 [0.7.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.6.0
 [0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1
