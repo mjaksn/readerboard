@@ -140,6 +140,22 @@ sign shows nothing or shows rubbish, and the adapter answers on port 23, it is
 probably negotiating telnet rather than passing bytes through, and `rfc2217://`
 is the form that speaks that.
 
+An adapter that drops off the network says nothing as it goes. The service asks
+the operating system to give a network link up about a minute after the adapter
+stops answering: on Linux, a minute after the first write it did not
+acknowledge, or, if nothing was written, about a minute after it last answered,
+found by keepalive probes. A platform that does not take one of these options
+keeps its own default for it, which can be much longer. The service itself only
+finds out at its first read or write after the link has gone, and `GET /health`
+shows `"connected": false` from then on. A sign with a variable updated every
+minute is written to that often. One left alone is written to at the refresh,
+every `refresh_interval_seconds`, which is 15 minutes by default, and a refresh
+that lands before the link has gone is buffered like any other write, so on a
+quiet sign `link.connected` can stay true for a refresh interval and a minute
+after the adapter has gone. It is still worth a monitor watching, and needs no
+key, but a ping of the adapter answers within a minute however quiet the sign
+is, and is the better alarm.
+
 ### The API key, and config.local.toml
 
 The key is not an argument. A launch configuration is a tracked file and a

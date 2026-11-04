@@ -30,6 +30,23 @@ library, and the names inside it may move without that being a breaking change.
   first start with this one, which erases every message on the sign before the
   service puts them back. Take the line out to keep icons off.
 
+### Fixed
+
+- **An Ethernet to RS-232 adapter that drops off the network is noticed.**
+  Nothing on the link was watching for it, so the operating system kept
+  accepting writes to an adapter that was not there, on Linux for about a
+  quarter of an hour, and `GET /health` said the link was up the whole time. A
+  `socket://` or `rfc2217://` link now turns on TCP keepalive, and on Linux
+  gives up on unacknowledged data after a minute, so the operating system drops
+  the link about a minute after the adapter stops answering. A platform that
+  does not take one of these options keeps its own default for it. The service
+  finds out at its first read or write after the link has gone, and from then
+  `/health` reports it and the reconnect loop takes over. On a sign left alone
+  that is a refresh, every `refresh_interval_seconds` and 15 minutes by
+  default, and a refresh that lands before the link has gone is buffered like
+  any other write, so it can be the one after. A ping of the adapter is still
+  the faster alarm. A serial cable is unaffected.
+
 ## [0.7.0] - 2026-10-08
 
 **This is the release that adds icons.** A message can draw one of 148 built-in
