@@ -178,6 +178,24 @@ jobs:
           picker._filter.setText("check:red")
           assert picker._table.rowCount() == 1, "a tinted name typed as shown was not found"
 
+          # A tint renames rows, so the filter can let one in ahead of the row
+          # that was chosen. The choice is the icon, not its place in the list.
+          entries = enums.parse([
+              {"name": "<icon:check>", "description": "status"},
+              {"name": "<icon:cross>", "description": "status"},
+          ])
+          drawn = bitmaps.parse([
+              {"name": "<icon:check>", "rows": ["..#", "##."], "inks": {"#": "green"}},
+              {"name": "<icon:cross>", "rows": ["R.R", ".R."], "inks": {"R": "red"}},
+          ])
+          picker = EntryPicker("Icons", entries, insert=True, bitmaps=drawn, tints=("red",))
+          picker._filter.setText("r")
+          assert picker._table.item(0, 1).text() == "<icon:cross>", "the filter missed the cross"
+          picker._tints.setCurrentIndex(picker._tints.findData("red"))
+          assert picker._table.rowCount() == 2, "the tinted check was not let in"
+          picker._take()
+          assert picker.selected == "<icon:cross>", "a tint moved the choice to another icon"
+
           from PySide6.QtCore import QUrl
           from PySide6.QtGui import QTextDocument
           from apiclient import catalogue

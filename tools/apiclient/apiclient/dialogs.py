@@ -118,6 +118,8 @@ class EntryPicker(QDialog):
         self._insert = insert
         self._tint: str | None = None
         self._pixmaps: dict[str, QPixmap] = {}
+        # The entries in the rows on screen, in their order.
+        self._shown: list[Entry] = []
         # Painted here and again when the tint changes, rather than on every
         # keystroke in the filter, which rebuilds the rows each time.
         self._paint()
@@ -210,13 +212,19 @@ class EntryPicker(QDialog):
         return entry.name
 
     def _retint(self) -> None:
-        """Redraw and rename for the tint just chosen, keeping the row that was highlighted."""
+        """Redraw and rename for the tint just chosen, keeping the entry that was highlighted.
+
+        The entry rather than the row number: a tint renames rows, the filter
+        matches the new names, and so the rows it keeps can change around the
+        one that was chosen.
+        """
+        row = self._table.currentRow()
+        chosen = self._shown[row] if 0 <= row < len(self._shown) else None
         self._tint = self._tints.currentData() if self._tints is not None else None
         self._paint()
-        row = self._table.currentRow()
         self._apply_filter(self._filter.text())
-        if 0 <= row < self._table.rowCount():
-            self._table.selectRow(row)
+        if chosen is not None and chosen in self._shown:
+            self._table.selectRow(self._shown.index(chosen))
         if self._tint:
             if self._insert:
                 note = (
@@ -245,6 +253,7 @@ class EntryPicker(QDialog):
             or needle in self._shown_name(entry).lower()
             or needle in entry.description.lower()
         ]
+        self._shown = matching
         self._table.setRowCount(len(matching))
         names = self._name_column
         for row, entry in enumerate(matching):
