@@ -32,15 +32,17 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
-- **An Ethernet to RS-232 adapter that drops off the network is noticed within
-  about a minute.** Nothing on the link was watching for it, so the operating
-  system kept accepting writes to an adapter that was not there: on Linux for
-  about a quarter of an hour, and on an idle link for good. `GET /health` said
-  the link was up the whole time. A `socket://` or `rfc2217://` link now turns
-  on TCP keepalive, and on Linux gives up on unacknowledged data after a minute,
-  so the link drops, `/health` reports it, and the reconnect loop takes over.
-  The service sees it at its next write or refresh after that. A serial cable is
-  unaffected.
+- **An Ethernet to RS-232 adapter that drops off the network is noticed at
+  the first write after it has been gone a minute.** Nothing on the link was watching for it, so the operating
+  system kept accepting writes to an adapter that was not there, on Linux for
+  about a quarter of an hour, and `GET /health` said the link was up the whole
+  time. A `socket://` or `rfc2217://` link now turns on TCP keepalive, and on
+  Linux gives up on unacknowledged data after a minute, so the operating system
+  drops the link about a minute after the adapter goes. The service finds out
+  at its next write or read, and from then `/health` reports it and the
+  reconnect loop takes over. On a sign left alone that is the next refresh,
+  every `refresh_interval_seconds` and 15 minutes by default, so a ping of the
+  adapter is still the faster alarm. A serial cable is unaffected.
 
 ## [0.7.0] - 2026-10-08
 
