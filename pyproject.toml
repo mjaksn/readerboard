@@ -63,7 +63,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.1.1,<10",
+    # pytest 9.2 renamed CallSpec2 and deprecated the old name, which the anyio
+    # held below 4.15 further down still imports in its pytest plugin. That is
+    # the same collection error again, raised as the plugin loads, so no test
+    # runs at all. anyio 4.16 copes with the rename, so this ceiling comes off
+    # when the anyio one does.
+    "pytest>=9.1.1,<9.2",
     "pytest-asyncio>=1.4.0,<2",
     # starlette's TestClient moved to httpx2; plain httpx now raises a
     # deprecation warning, which this suite is configured to treat as an error.
