@@ -7,6 +7,8 @@ import pytest
 from apiclient import catalogue
 from apiclient.bitmaps import (
     COLOURS,
+    MAX_COLUMNS,
+    MAX_ROWS,
     STRAY,
     UNLIT_COLOUR,
     MalformedBitmap,
@@ -55,6 +57,14 @@ def test_every_colour_the_service_can_name_has_a_shade():
     assert set(COLOURS) == set(icons.TINT_INKS)
 
 
+def test_the_size_limit_is_the_protocols_own():
+    # Read from the service at test time, as above. A limit tighter than the
+    # protocol's would refuse a picture a sign could hold.
+    from readerboard.protocol import constants
+
+    assert (MAX_ROWS, MAX_COLUMNS) == (constants.DOTS_MAX_ROWS, constants.DOTS_MAX_COLUMNS)
+
+
 def test_a_payload_that_is_not_a_list_is_refused():
     with pytest.raises(MalformedBitmap):
         parse(CHECK)
@@ -70,6 +80,20 @@ def test_a_bitmap_missing_a_field_is_refused(missing):
 def test_ragged_rows_are_refused_rather_than_drawn_skewed():
     with pytest.raises(MalformedBitmap, match="one width"):
         parse([{**CHECK, "rows": ["...", "..", "##."]}])
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [["." * (MAX_COLUMNS + 1)] * 3, ["..."] * (MAX_ROWS + 1)],
+    ids=["too wide", "too high"],
+)
+def test_a_bitmap_bigger_than_any_picture_file_is_refused_before_it_is_painted(rows):
+    with pytest.raises(MalformedBitmap, match="no picture file holds more"):
+        parse([{**CHECK, "rows": rows}])
+
+
+def test_a_bitmap_as_big_as_a_picture_file_can_be_is_drawn():
+    assert parse([{**CHECK, "rows": ["." * MAX_COLUMNS] * MAX_ROWS}])
 
 
 def test_no_rows_at_all_is_refused():

@@ -88,8 +88,9 @@ the simulator paints through the service's icon library; the simulator's table
 lives in a module that imports Qt, which is why the check is there rather than in
 this suite. A word the client has no shade for is drawn in magenta rather than as
 an unlit dot, so a new ink shows up as something to fix rather than as a hole in
-the icon. The bitmaps are parsed as strictly as the sets: ragged rows, or a lit
-dot whose colour nobody named, refuse the whole answer.
+the icon. The bitmaps are parsed as strictly as the sets: ragged rows, a lit dot
+whose colour nobody named, or a bitmap bigger than the 31 rows by 255 columns a
+picture file can hold, refuse the whole answer.
 
 **An icon can be previewed and inserted in a tint.** With the bitmaps loaded, an
 icon list has a colour list beside its filter, filled from the Icon tints set and

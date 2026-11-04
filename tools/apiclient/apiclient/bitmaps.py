@@ -36,6 +36,13 @@ UNLIT = "."
 # it takes a tint; one whose inks do not is drawn in fixed colours.
 TINT_MARKER = "#"
 
+# The most rows and columns a bitmap may have, which are the most a SMALL DOTS
+# PICTURE can have by the protocol's Table 22. No sign holds a bigger one, and a
+# bitmap past them is not an icon but an answer that would have this client
+# allocate and paint a picture the size of the screen several times over.
+MAX_ROWS = 31
+MAX_COLUMNS = 255
+
 # What each colour word is painted as. Taken from the sign simulator's picture
 # panel, so a thumbnail here and a picture file there agree, and checked against
 # it by the lint job in CI.
@@ -180,6 +187,12 @@ def _rows(name: str, rows: object) -> tuple[str, ...]:
         raise MalformedBitmap(
             "%s has rows of %s dots, not one width"
             % (name, ", ".join(str(width) for width in sorted(widths)))
+        )
+    (width,) = widths
+    if len(rows) > MAX_ROWS or width > MAX_COLUMNS:
+        raise MalformedBitmap(
+            "%s is %d rows of %d dots, and no picture file holds more than %d rows of %d"
+            % (name, len(rows), width, MAX_ROWS, MAX_COLUMNS)
         )
     return tuple(rows)
 
