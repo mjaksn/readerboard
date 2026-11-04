@@ -128,7 +128,7 @@ async def _after_reconnect(registry: SlotRegistry, alerts: AlertService) -> None
     read went unanswered while the link was on its way down. See
     ``SlotRegistry.ask_the_sign_again``.
     """
-    registry.ask_the_sign_again()
+    await registry.ask_the_sign_again()
     await _refresh_and_reassert(registry, alerts)
 
 

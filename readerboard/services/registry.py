@@ -623,7 +623,7 @@ class SlotRegistry:
         await self._apply_run_sequence()
         return handed_the_alert_back
 
-    def ask_the_sign_again(self) -> None:
+    async def ask_the_sign_again(self) -> None:
         """Let the next refresh ask the sign a question, even if one went unanswered.
 
         Called when the link comes back up. An unanswered read stops the refresh
@@ -635,8 +635,13 @@ class SlotRegistry:
         or so, and later comes back, and the simulator's never does. Without
         this, one adapter drop left a sign with icons blanking once for every
         picture on every refresh until a restart.
+
+        It takes the lock so that a refresh already under way finishes first. A
+        read that refresh had out could otherwise fail after the reset and put
+        the flag straight back.
         """
-        self._sign_answers_a_read = True
+        async with self._lock:
+            self._sign_answers_a_read = True
 
     async def refresh(self) -> bool:
         """Check that the sign still holds what it was given, and push it all again if not.

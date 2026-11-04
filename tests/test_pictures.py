@@ -15,6 +15,7 @@ hidden slot and the alert hold their icons as firmly as a visible message does.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import replace
 
@@ -1420,6 +1421,29 @@ class TestAskingBeforeRePushing:
         await registry.refresh()
         assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
         assert picture_writes(transport) == []
+
+    async def test_a_refresh_under_way_finishes_before_the_sign_is_asked_again(
+        self, wired, controller, transport
+    ):
+        # A refresh that had a read out when the link came back can fail that
+        # read after the reconnect, and would put the flag straight back if the
+        # reset did not wait for it. Holding the lock stands in for that refresh.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        # What a reconnect does before its hooks run.
+        controller.forget_sign_contents()
+
+        async with registry._lock:
+            reconnect = asyncio.create_task(_after_reconnect(registry, alerts))
+            await asyncio.sleep(0)
+            registry._sign_answers_a_read = False
+        await reconnect
+
+        rows = icons.resolve("lock", None)
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        transport.clear()
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
 
     async def test_the_alert_is_still_re_asserted_when_nothing_was_re_pushed(
         self, wired, transport
