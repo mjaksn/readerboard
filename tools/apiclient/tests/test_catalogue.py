@@ -108,6 +108,31 @@ def test_each_set_is_filled_by_exactly_one_endpoint():
         assert len(catalogue.loaders_for(set_key)) == 1, set_key
 
 
+def test_only_the_icons_are_drawn_and_by_exactly_one_endpoint():
+    # The second button on the icons row. Like Load, it calls one endpoint, and
+    # a set gaining pictures is a change to the panel rather than to the table.
+    drawn = {
+        set_key: [op.id for op in catalogue.drawers_for(set_key)]
+        for set_key in catalogue.SET_ORDER
+        if catalogue.drawers_for(set_key)
+    }
+    assert drawn == {catalogue.ICONS: ["icon_bitmaps"]}
+
+
+def test_the_icons_are_tinted_by_a_set_something_can_load():
+    # The picker's colour list is filled from this set, so a mapping to a set
+    # nothing loads would be a list that can never be anything but disabled.
+    assert catalogue.TINTED_BY == {catalogue.ICONS: catalogue.ICON_TINTS}
+    for tinted, tinting in catalogue.TINTED_BY.items():
+        assert tinted in catalogue.SET_ORDER
+        assert len(catalogue.loaders_for(tinting)) == 1
+
+
+def test_no_operation_both_fills_a_set_and_draws_one():
+    for operation in catalogue.OPERATIONS:
+        assert not (operation.loads and operation.draws), operation.id
+
+
 def test_the_markup_fields_are_the_ones_that_take_markup():
     markup = {
         (operation.id, item.name, item.markup)

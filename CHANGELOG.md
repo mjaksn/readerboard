@@ -11,6 +11,33 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Added
+
+- **`GET /enumerations/icons/bitmaps` gives the dots each icon is drawn with.**
+  One call answers the whole library, in the same order as `GET
+  /enumerations/icons` and named by the same tags. Each icon comes with its
+  rows, one character a dot, and the colour word every lit character stands for,
+  so a caller can show an icon rather than only name it. A tintable icon is
+  given in the colour it takes when no tint is asked for. Like the list beside
+  it, it needs no API key.
+- **`GET /enumerations/icon-tints` lists the colours a tint may name.** They
+  are the colour tokens' own words, as in `<icon:check:red>`, in the same
+  `name` and `description` shape as the markup tokens.
+- **The client shows a thumbnail of each icon.** The Icons row has a **Load
+  bitmaps** button, and once it has been pressed every list of icons, whether
+  opened with View or with Insert icon, draws each one dot for dot in front of
+  its name, and so does the response panel for the icon list and the bitmaps.
+- **The client can preview and insert a tinted icon.** With the bitmaps and the
+  new Icon tints set loaded, an icon list offers a colour beside its filter.
+  Choosing one redraws the icons that take a tint in it, and Insert icon puts in
+  the tinted tag, `<icon:check:red>` for the check.
+- **Load all asks for the tints and then the bitmaps after every other set.**
+  A service older than both endpoints stops the chain at the tints, with one
+  dialog reporting the 404 and every set it does have already loaded; the
+  client then works as before, without thumbnails or tints.
+
 ## [0.7.1] - 2026-11-03
 
 **A fix for signs reached through an Ethernet adapter.** The service now notices
