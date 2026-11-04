@@ -16,6 +16,7 @@ hidden slot and the alert hold their icons as firmly as a visible message does.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 from dataclasses import replace
 
@@ -1392,7 +1393,7 @@ class TestAskingBeforeRePushing:
         assert picture_writes(transport)
 
     async def test_a_link_that_comes_back_lets_the_sign_be_asked_again(
-        self, wired, transport
+        self, wired, controller, transport
     ):
         # An adapter that drops off the network looks, at the moment of the
         # read, exactly like the simulator: the write lands in the local socket
@@ -1407,15 +1408,20 @@ class TestAskingBeforeRePushing:
         await registry.refresh()
         assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
 
-        rows = icons.resolve("lock", None)
-        transport.replies.append(picture_reply(b"6", list(rows)))
+        # The link drops and comes back, through the controller's own reconnect,
+        # which forgets what the sign holds before it runs the hook. So the
+        # refresh on the reconnect puts the picture back without asking: the
+        # sign behind the link may have been power cycled.
+        controller.on_reconnect(functools.partial(_after_reconnect, registry, alerts))
+        transport.close()
         transport.clear()
-        await _after_reconnect(registry, alerts)
+        await controller._connect()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert picture_writes(transport)
 
-        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
-        # The sign answered with the picture it was given, so nothing blanked.
-        assert picture_writes(transport) == []
-
+        # And every refresh after it asks again, and blanks nothing when the
+        # sign answers with the picture it was given.
+        rows = icons.resolve("lock", None)
         transport.replies.append(picture_reply(b"6", list(rows)))
         transport.clear()
         await registry.refresh()
