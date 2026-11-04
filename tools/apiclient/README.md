@@ -63,17 +63,19 @@ beside a set is unambiguous. All six answer the same shape, `name` and
 objects but not *this* list of objects is refused rather than quietly producing
 a set of empty names, which on screen looks exactly like a healthy one.
 
-**The icons are drawn, not only named.** The Icons row has a second button,
-**Load bitmaps**, which calls `GET /enumerations/icons/bitmaps` and keeps the dots
-of every icon. From then on each list of icons, whether opened with View or with
+**The icons are drawn, not only named.** The Icons row has a second button, **Load
+bitmaps**, which calls `GET /enumerations/icons/bitmaps` and keeps the dots of
+every icon. From then on each list of icons, whether opened with View or with
 Insert icon beside a message, shows a thumbnail in front of each name, painted dot
 for dot on the dark ground of the sign as the sign simulator paints its picture
-files. A tintable icon is shown in the colour it takes when a message asks for
-none. The bitmaps and the names are separate answers joined on the tag, so either
-can be loaded first, and the list works as it always did when the bitmaps are not
-loaded or the service is too old to have them. Load all asks for them last, so
-that a service without the endpoint stops the chain only after every set has
-arrived.
+files. The response panel draws them too, in front of each row of `GET
+/enumerations/icons` and of the bitmaps call itself; the history and the error
+dialog show those tables as text, as they always did. A tintable icon is shown in
+the colour it takes when a message asks for none. The bitmaps and the names are
+separate answers joined on the tag, so either can be loaded first, and the list
+works as it always did when the bitmaps are not loaded or the service is too old
+to have them. Load all asks for them last, so that a service without the endpoint
+stops the chain only after every set has arrived.
 
 The shapes and the colour of every dot come from the service, which names each
 ink by the same colour word a message writes, such as `red` or `dimgreen`. What
@@ -297,9 +299,10 @@ offscreen in the job that already has Qt installed. A signal connected to an
 attribute that does not exist yet raises on construction and nowhere else, and
 that is otherwise nobody's job to notice. It builds a second one to type into a
 form, select another operation and come back, which is the only check that the
-form is still as it was left. Then it opens an icon list holding a bitmap,
-because the thumbnails are painted through QPainter and nothing else runs that
-code before somebody presses Load bitmaps.
+form is still as it was left. Then it opens an icon list holding a bitmap and
+chooses a tint in it, because the thumbnails are painted through QPainter and
+nothing else runs that code before somebody presses Load bitmaps, and it asks
+the response panel for one of the pictures it would draw.
 
 Type checking is a separate invocation, because the root `mypy` config names
 only the service:

@@ -15,6 +15,7 @@ from apiclient import catalogue
 from apiclient.format import (
     UNREADABLE,
     Note,
+    Picture,
     Section,
     Table,
     as_html,
@@ -146,6 +147,43 @@ def test_the_bitmaps_read_as_their_size_and_colours_rather_than_as_raw_rows():
     assert result.ok
     assert "<icon:sun> | 3 by 2 | orange, yellow" in text
     assert "o.y" not in text
+
+
+ICON_LIST = json.dumps(
+    [
+        {"name": "<icon:check>", "description": "status"},
+        {"name": "<icon:sun>", "description": "weather"},
+    ]
+)
+
+
+def test_an_icon_list_draws_the_pictures_it_is_handed_in_front_of_each_row():
+    result = render(catalogue.BY_ID["icons"], 200, "OK", ICON_LIST)
+    html = as_html(result, pictures={"<icon:check>": Picture("bitmap:0", 28, 28)})
+    assert "<img src='bitmap:0' width='28' height='28'>" in html
+    # One picture, and one row without: the sun's cell is there and empty.
+    assert html.count("<img") == 1
+
+
+def test_an_icon_list_with_no_pictures_handed_over_is_the_table_it_was():
+    result = render(catalogue.BY_ID["icons"], 200, "OK", ICON_LIST)
+    assert as_html(result) == as_html(result, pictures={})
+    assert "<img" not in as_html(result)
+
+
+def test_a_table_none_of_whose_rows_has_a_picture_gets_no_picture_column():
+    # The markup tokens name a picture per row like every enumeration, and no
+    # icon bitmap is called <red>, so the table must not grow an empty column.
+    body = json.dumps([{"name": "<red>", "description": "red"}])
+    result = render(catalogue.BY_ID["markup_tokens"], 200, "OK", body)
+    pictures = {"<icon:check>": Picture("bitmap:0", 28, 28)}
+    assert as_html(result, pictures=pictures) == as_html(result)
+
+
+def test_a_picture_source_is_escaped_like_everything_else():
+    result = render(catalogue.BY_ID["icons"], 200, "OK", ICON_LIST)
+    html = as_html(result, pictures={"<icon:check>": Picture("x'><b>", 1, 1)})
+    assert "x'><b>" not in html
 
 
 # ===========================================================================

@@ -36,7 +36,7 @@ section before replacing a Compose file.
 - **The client shows a thumbnail of each icon.** The Icons row has a **Load
   bitmaps** button, and once it has been pressed every list of icons, whether
   opened with View or with Insert icon, draws each one dot for dot in front of
-  its name. Load all asks for the bitmaps after every set, so pointing the
+  its name, and so does the response panel for the icon list and the bitmaps. Load all asks for the bitmaps after every set, so pointing the
   client at a service without the endpoint costs the thumbnails and one dialog
   reporting the 404 at the end of the chain, and every set still arrives.
 - **The client can preview and insert a tinted icon.** With the bitmaps and the

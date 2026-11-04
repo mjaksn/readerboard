@@ -101,7 +101,9 @@ jobs:
       # an icon list is opened holding a bitmap, for the simulator's reason: the
       # thumbnails are painted through QPainter, and nothing else runs that
       # before somebody presses Load bitmaps. A tint is chosen in it too, which
-      # is the only thing that runs the repaint and the renaming behind it.
+      # is the only thing that runs the repaint and the renaming behind it. And
+      # the response panel is asked for a picture, which is the one place the
+      # panel answers a source of its own rather than leaving it to Qt.
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on
@@ -173,6 +175,23 @@ jobs:
           assert tinted.toImage() != thumbnail.toImage(), "the tint was not drawn"
           picker._take()
           assert picker.selected == "<icon:check:red>", "the tint was not inserted"
+
+          from PySide6.QtCore import QUrl
+          from PySide6.QtGui import QTextDocument
+          from apiclient import catalogue
+          from apiclient.window import MainWindow
+
+          window = MainWindow()
+          assert window._absorb(catalogue.BY_ID["icon_bitmaps"], [{
+              "name": "<icon:check>",
+              "rows": ["...", "..#", "##."],
+              "inks": {"#": "green"},
+          }])
+          picture = window._pictures["<icon:check>"]
+          answered = window.response.loadResource(
+              QTextDocument.ResourceType.ImageResource.value, QUrl(picture.src)
+          )
+          assert answered is not None and not answered.isNull(), "the panel drew nothing"
           SMOKE
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
           python - <<'SMOKE'

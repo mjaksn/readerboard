@@ -15,6 +15,7 @@ error page looks like. :func:`is_error` is the whole of that rule.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from html import escape
@@ -41,11 +42,33 @@ class Section:
 
 @dataclass(frozen=True, slots=True)
 class Table:
-    """A grid, for the responses that are lists of the same shape."""
+    """A grid, for the responses that are lists of the same shape.
+
+    ``pictures`` names, for each row, the picture that may be drawn in front of
+    it, which is the icon's tag for a row listing an icon. Naming one draws
+    nothing by itself: :func:`as_html` draws only the pictures it is handed, so
+    a row whose icon has no bitmap loaded reads exactly as it did before.
+    """
 
     title: str
     columns: tuple[str, ...]
     rows: tuple[tuple[str, ...], ...]
+    pictures: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Picture:
+    """Where the panel finds one picture, and the size to draw it at.
+
+    The source is whatever the window answers for when the panel asks, and the
+    size is in the panel's own pixels, so that a picture painted for a scaled
+    screen is drawn at the size it was meant to be rather than at its pixel
+    count.
+    """
+
+    src: str
+    width: int
+    height: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -599,17 +622,24 @@ def _tokens(payload: object) -> list[Block]:
         rows.append((str(item.get("name", "")), str(item.get("description", ""))))
     return [
         Note("%d entr%s." % (len(rows), "y" if len(rows) == 1 else "ies")),
-        Table(title="", columns=("name", "description"), rows=tuple(rows)),
+        # Every row names its own picture, and only the icons will ever have
+        # one, so the markup tokens and the rest come out as they always did.
+        Table(
+            title="",
+            columns=("name", "description"),
+            rows=tuple(rows),
+            pictures=tuple(row[0] for row in rows),
+        ),
     ]
 
 
 def _bitmaps(payload: object) -> list[Block]:
-    """Render the icons' bitmaps as what can be read of them as text.
+    """Render the icons' bitmaps as their size and the colours they use.
 
-    The dots themselves are drawn in the icon lists once these are loaded,
-    which is the only form a person can check one in. Here each is its size and
-    the colours it uses, so the panel says what arrived without pretending
-    seven rows of characters are a picture.
+    The dots themselves are drawn as pictures in front of each row, when the
+    panel is handed them, which is the only form a person can check one in. The
+    rows of characters are never shown as text, because seven of them are not a
+    picture of anything.
     """
     if not isinstance(payload, list):
         return _generic(payload)
@@ -632,10 +662,15 @@ def _bitmaps(payload: object) -> list[Block]:
         rows.append((str(item.get("name", "")), size, colours))
     return [
         Note(
-            "%d bitmap%s. The icon lists draw them beside each name."
+            "%d bitmap%s, drawn here and beside each name in the icon lists."
             % (len(rows), "" if len(rows) == 1 else "s")
         ),
-        Table(title="", columns=("name", "dots", "colours"), rows=tuple(rows)),
+        Table(
+            title="",
+            columns=("name", "dots", "colours"),
+            rows=tuple(rows),
+            pictures=tuple(row[0] for row in rows),
+        ),
     ]
 
 
@@ -768,21 +803,42 @@ def _rows_html(rows: tuple[Row, ...], theme: Theme) -> str:
     return "<table style='border-collapse:collapse'>%s</table>" % "".join(cells)
 
 
-def _table_html(block: Table, theme: Theme) -> str:
-    """Render a grid."""
+def _picture_html(picture: Picture | None, theme: Theme) -> str:
+    """Render the cell in front of a row, holding its picture or nothing."""
+    inside = (
+        "<img src='%s' width='%d' height='%d'>"
+        % (escape(picture.src, quote=True), picture.width, picture.height)
+        if picture is not None
+        else ""
+    )
+    return (
+        "<td style='padding:4px 10px 4px 0;vertical-align:top;"
+        "border-bottom:1px solid %s'>%s</td>" % (theme.faint_rule, inside)
+    )
+
+
+def _table_html(
+    block: Table, theme: Theme, pictures: Mapping[str, Picture] | None = None
+) -> str:
+    """Render a grid, with a column of pictures in front when any row has one."""
+    drawn = pictures or {}
+    framed = bool(block.pictures) and any(key in drawn for key in block.pictures)
     head = "".join(
         "<th style='text-align:left;padding:4px 14px 4px 0;color:%s;"
         "font-weight:normal;border-bottom:1px solid %s;white-space:nowrap'>%s</th>"
         % (theme.muted, theme.rule, escape(column))
-        for column in block.columns
+        for column in (("",) if framed else ()) + block.columns
     )
     body = []
-    for row in block.rows:
+    for index, row in enumerate(block.rows):
         cells = "".join(
             "<td style='padding:4px 14px 4px 0;vertical-align:top;"
             "border-bottom:1px solid %s'>%s</td>" % (theme.faint_rule, escape(cell) or "&#183;")
             for cell in row
         )
+        if framed:
+            key = block.pictures[index] if index < len(block.pictures) else ""
+            cells = _picture_html(drawn.get(key), theme) + cells
         body.append("<tr>%s</tr>" % cells)
     title = (
         "<div style='margin:10px 0 4px;color:%s'>%s</div>" % (theme.muted, escape(block.title))
@@ -796,12 +852,20 @@ def _table_html(block: Table, theme: Theme) -> str:
     )
 
 
-def as_html(rendered: Rendered, theme: Theme = LIGHT) -> str:
+def as_html(
+    rendered: Rendered,
+    theme: Theme = LIGHT,
+    pictures: Mapping[str, Picture] | None = None,
+) -> str:
     """Render a response as the HTML the panel displays.
 
     Never a JSON dump. The raw body is available from the history pane, which is
     a network tab and would be useless without it, but the main panel shows only
     what the formatters made of it.
+
+    ``pictures`` is what the caller can draw, by the name a table row gives.
+    The response panel passes the icons' bitmaps once they are loaded; the
+    history and the error dialog pass nothing, and show the tables as text.
     """
     colour = theme.ok if rendered.ok else theme.bad
     parts = [
@@ -823,7 +887,7 @@ def as_html(rendered: Rendered, theme: Theme = LIGHT) -> str:
                 )
             parts.append(_rows_html(block.rows, theme))
         else:
-            parts.append(_table_html(block, theme))
+            parts.append(_table_html(block, theme, pictures))
 
     parts.append("</div>")
     return "".join(parts)

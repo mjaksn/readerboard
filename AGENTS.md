@@ -404,8 +404,9 @@ typed, and the second build types into one, selects another and comes back. It
 reads the form on screen rather than the one it typed into, because a form
 dropped with `deleteLater` outlives its replacement when no event loop runs, and
 the old one would still hold the text. After that it opens an icon list holding
-a bitmap and chooses a tint in it, which is the client's own QPainter path: the
-thumbnails beside each icon are painted there and nowhere else.
+a bitmap and chooses a tint in it, and asks the response panel for a picture,
+which is the client's own QPainter path: the thumbnails beside each icon are
+painted there and nowhere else.
 
 The one worth knowing
 about in the simulator round trips the frame builders above through its

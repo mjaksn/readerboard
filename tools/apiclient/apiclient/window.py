@@ -15,8 +15,8 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-from PySide6.QtCore import QMargins, QSettings, Qt, QTimer
-from PySide6.QtGui import QGuiApplication, QPalette
+from PySide6.QtCore import QMargins, QSettings, Qt, QTimer, QUrl
+from PySide6.QtGui import QGuiApplication, QPalette, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -51,6 +51,7 @@ from apiclient.dialogs import (
     EntryPicker,
     ErrorDialog,
     HistoryDialog,
+    bitmap_pixmap,
 )
 from apiclient.history import History
 from apiclient.net import Caller, Completed, DescriptionFetcher
@@ -111,6 +112,31 @@ def _muted(theme: fmt.Theme) -> str:
     taking the light ink the palette had already chosen for it.
     """
     return "color:%s" % theme.muted
+
+
+class PictureBrowser(QTextBrowser):
+    """The response panel, which can also draw the icons' pictures in a table.
+
+    A table row names its picture by a ``bitmap:`` source, and this answers for
+    those from what the window has painted. Every other source goes to Qt as it
+    would have.
+    """
+
+    SCHEME = "bitmap"
+
+    def __init__(self) -> None:
+        """Start with nothing to draw."""
+        super().__init__()
+        self.pictures: dict[str, QPixmap] = {}
+
+    def loadResource(self, type: int, name: QUrl | str) -> object:
+        """Answer a ``bitmap:`` source from the painted pictures."""
+        url = name if isinstance(name, QUrl) else QUrl(name)
+        if url.scheme() == self.SCHEME:
+            pixmap = self.pictures.get(url.toString())
+            if pixmap is not None:
+                return pixmap
+        return super().loadResource(type, name)
 
 
 class EnumerationPanel(QGroupBox):
@@ -752,6 +778,9 @@ class MainWindow(QMainWindow):
         self._pending_keys: tuple[OperationForm, str] | None = None
         self._pending_fill: tuple[OperationForm, str, dict[str, str]] | None = None
         self._started_at = datetime.now()
+        # What the response panel can draw in front of a table row, by the name
+        # the row gives. Filled when the bitmaps are loaded, and empty until then.
+        self._pictures: dict[str, fmt.Picture] = {}
 
         self.setCentralWidget(self._build())
         self._select_first()
@@ -902,7 +931,7 @@ class MainWindow(QMainWindow):
         self.status_strip = QLabel("No call made yet.")
         self.status_strip.setStyleSheet("padding:7px 10px;border-radius:4px")
 
-        self.response = QTextBrowser()
+        self.response = PictureBrowser()
         self.response.setHtml(
             "<div style='font-family:sans-serif;color:%s'>"
             "Pick an operation, fill anything it needs and press Send."
@@ -1194,7 +1223,7 @@ class MainWindow(QMainWindow):
             "%s  %s  %d ms" % (operation.signature, rendered.headline, result.duration_ms),
             ok,
         )
-        self.response.setHtml(fmt.as_html(rendered, self.theme))
+        self.response.setHtml(fmt.as_html(rendered, self.theme, self._pictures))
 
         if ok:
             # Whether the reply was one this client could actually use, which is
@@ -1202,6 +1231,10 @@ class MainWindow(QMainWindow):
             # that is not a set this can read is a failure no status code shows,
             # and Load all has to stop for it exactly as for a 500.
             taken = self._absorb(operation, payload)
+            if taken and operation.draws is not None:
+                # The panel was filled before these bitmaps were taken in, so
+                # it is filled again now that it can draw them.
+                self.response.setHtml(fmt.as_html(rendered, self.theme, self._pictures))
         else:
             taken = False
             # Required: every failure opens with its full content, not just a colour.
@@ -1317,8 +1350,27 @@ class MainWindow(QMainWindow):
             )
             return False
         self.store.load_bitmaps(set_key, operation.signature, by_name)
+        self._paint_pictures(by_name)
         self.enumerations.refresh()
         return True
+
+    def _paint_pictures(self, by_name: dict[str, bitmaps.Bitmap]) -> None:
+        """Paint every bitmap once for the response panel, replacing what was there.
+
+        Named by position rather than by tag, so that a source never has to
+        carry the brackets and colons a tag is made of.
+        """
+        ratio = self.response.devicePixelRatioF()
+        self.response.pictures = {}
+        self._pictures = {}
+        for index, (name, bitmap) in enumerate(by_name.items()):
+            src = "%s:%d" % (PictureBrowser.SCHEME, index)
+            pixmap = bitmap_pixmap(bitmap, ratio=ratio)
+            size = pixmap.deviceIndependentSize()
+            self.response.pictures[src] = pixmap
+            self._pictures[name] = fmt.Picture(
+                src=src, width=round(size.width()), height=round(size.height())
+            )
 
     def bitmaps_for(self, set_key: str) -> dict[str, bitmaps.Bitmap] | None:
         """Return the pictures loaded for a set's entries, or None if there are none."""
