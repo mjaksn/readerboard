@@ -11,6 +11,8 @@ import threading
 import time
 
 import pytest
+import serial
+from serial.rfc2217 import PortManager
 
 from readerboard.transport.base import Transport, TransportError
 from readerboard.transport.fake import FakeTransport
@@ -22,6 +24,31 @@ from readerboard.transport.serial_link import (
     UNACKNOWLEDGED_TIMEOUT_SECONDS,
     SerialTransport,
 )
+
+
+def assert_told_to_notice_a_dead_peer(transport: SerialTransport) -> None:
+    """Check that an open network link's socket has every option it was given.
+
+    The socket is a private attribute of pyserial's. The first assertion is the
+    one that fails if an upgrade renames it, rather than the link quietly opening
+    without any of what follows. An option this platform does not define is not
+    set, so it is not checked either.
+    """
+    sock = transport._port._socket
+    assert isinstance(sock, socket.socket)
+
+    assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+    expected = {
+        "TCP_KEEPIDLE": KEEPALIVE_IDLE_SECONDS,
+        "TCP_KEEPINTVL": KEEPALIVE_INTERVAL_SECONDS,
+        "TCP_KEEPCNT": KEEPALIVE_PROBES,
+        "TCP_USER_TIMEOUT": UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000,
+    }
+    for name, value in expected.items():
+        option = getattr(socket, name, None)
+        if option is None:
+            continue
+        assert sock.getsockopt(socket.IPPROTO_TCP, option) == value, name
 
 
 class Clock:
@@ -167,27 +194,58 @@ class TestSerialTransportOverASocket:
         transport = SerialTransport("socket://127.0.0.1:%d" % listener.getsockname()[1])
         try:
             transport.ensure_open()
-            # The socket is a private attribute of pyserial's. This is the
-            # assertion that fails if an upgrade renames it, rather than the
-            # link quietly opening without any of what follows.
-            sock = transport._port._socket
-            assert isinstance(sock, socket.socket)
-
-            assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
-            expected = {
-                "TCP_KEEPIDLE": KEEPALIVE_IDLE_SECONDS,
-                "TCP_KEEPINTVL": KEEPALIVE_INTERVAL_SECONDS,
-                "TCP_KEEPCNT": KEEPALIVE_PROBES,
-                "TCP_USER_TIMEOUT": UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000,
-            }
-            for name, value in expected.items():
-                option = getattr(socket, name, None)
-                if option is None:
-                    continue
-                assert sock.getsockopt(socket.IPPROTO_TCP, option) == value, name
+            assert_told_to_notice_a_dead_peer(transport)
         finally:
             transport.close()
             listener.close()
+
+    # pyserial's RFC 2217 client starts its reader thread with the deprecated
+    # setDaemon and setName. They are not ours to fix, and filterwarnings =
+    # ["error"] would otherwise fail the open before anything here is checked.
+    @pytest.mark.filterwarnings(
+        "ignore:set(Daemon|Name)\\(\\) is deprecated:DeprecationWarning"
+    )
+    def test_an_rfc2217_link_is_told_the_same(self):
+        # pyserial's RFC 2217 handler is a separate class from its socket one
+        # and keeps its own socket, so it is pinned separately. It will not
+        # open against a listener that only accepts: it negotiates first, so
+        # the other end is pyserial's own RFC 2217 server, driving a loop://
+        # port that stands in for the serial side of an adapter.
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        done = threading.Event()
+
+        def serve() -> None:
+            conn, _ = listener.accept()
+            with conn, serial.serial_for_url("loop://") as port:
+                conn.settimeout(0.1)
+
+                class Connection:
+                    def write(self, data: bytes) -> None:
+                        conn.sendall(data)
+
+                manager = PortManager(port, Connection())
+                while not done.is_set():
+                    try:
+                        data = conn.recv(1024)
+                    except TimeoutError:
+                        continue
+                    if not data:
+                        return
+                    port.write(b"".join(manager.filter(data)))
+
+        server = threading.Thread(target=serve, daemon=True)
+        server.start()
+        transport = SerialTransport("rfc2217://127.0.0.1:%d" % listener.getsockname()[1])
+        try:
+            transport.ensure_open()
+            assert_told_to_notice_a_dead_peer(transport)
+        finally:
+            done.set()
+            transport.close()
+            listener.close()
+            server.join(5)
 
     def test_a_link_that_never_stops_delivering_still_hands_back(self):
         # Without the cap this read would never return, and the controller
