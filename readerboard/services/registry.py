@@ -74,6 +74,16 @@ from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
+# How long the refresh goes without asking the sign a question after one went
+# unanswered. It bounds two costs at once, whatever the refresh interval is: the
+# sign simulator, which answers no read, stalls one read's three second deadline
+# per period with the sign's lock held, and a sign switched off behind a
+# connected adapter has every picture rewritten on every refresh for at most
+# this long after it comes back. It matches the default refresh interval, so a
+# service left at that default asks every refresh and the simulator costs three
+# seconds in fifteen minutes; it is shorter intervals that this spares.
+ASK_AGAIN_AFTER = timedelta(minutes=15)
+
 
 class RegistryError(Exception):
     """Something was wrong with a request to change the registry."""
@@ -272,13 +282,14 @@ class SlotRegistry:
         self._lock = asyncio.Lock()
         self._dirty = False
         self._priority_hold: PriorityHold | None = None
-        # Whether asking the sign a question is worth doing at all. The sign
-        # simulator decodes reads and answers none of them, so without this
-        # every refresh against it would wait out the read's three second
-        # deadline, with the sign's lock held, and then do exactly what it would
-        # have done anyway. One unanswered read is enough to stop asking, until
-        # the link comes back from being down: see :meth:`ask_the_sign_again`.
-        self._sign_answers_a_read = True
+        # When asking the sign a question is worth doing again, or None while it
+        # is worth doing every time. The sign simulator decodes reads and
+        # answers none of them, so without this every refresh against it would
+        # wait out the read's three second deadline, with the sign's lock held,
+        # and then do exactly what it would have done anyway. One unanswered
+        # read is enough to stop asking for ASK_AGAIN_AFTER, or until the link
+        # comes back from being down: see :meth:`ask_the_sign_again`.
+        self._ask_again_at: datetime | None = None
 
     def set_priority_hold(self, hold: PriorityHold) -> None:
         """Give the registry a way to hand the sign back while it writes a picture.
@@ -633,22 +644,22 @@ class SlotRegistry:
         after it hears nothing, with the link still looking up. What tells them
         apart is what happens next. The adapter's link goes down within a minute
         or so, and later comes back, and the simulator's never does. Without
-        this, one adapter drop left a sign with icons blanking once for every
-        picture on every refresh until a restart.
+        this, one adapter drop would leave a sign with icons blanking once for
+        every picture on every refresh until :data:`ASK_AGAIN_AFTER` ran out.
 
         It only helps where a link drops. A sign switched off behind a connected
         adapter for longer than a refresh interval stops the asking with no
         reconnect to follow, and so does a sign power cycled while a refresh
         lands, or an outage that outlasts the read's deadline and is over before
-        the connection gives up. The asking stays stopped until the link next
-        drops or the service restarts.
+        the connection gives up. Those wait out :data:`ASK_AGAIN_AFTER` instead,
+        and every refresh until then rewrites every picture.
 
         It takes the lock so that a refresh already under way finishes first. A
-        read that refresh had out could otherwise fail after the reset and put
-        the flag straight back.
+        read that refresh had out could otherwise fail after the reset and stop
+        the asking straight away again.
         """
         async with self._lock:
-            self._sign_answers_a_read = True
+            self._ask_again_at = None
 
     async def refresh(self) -> bool:
         """Check that the sign still holds what it was given, and push it all again if not.
@@ -749,7 +760,8 @@ class SlotRegistry:
             # sign's lock held, and the re-push is about to fail anyway.
             return False
 
-        if not self._sign_answers_a_read:
+        if self._ask_again_at is not None and self._now() < self._ask_again_at:
+            # A read went unanswered not long ago. See ASK_AGAIN_AFTER.
             return False
 
         written = set(self._controller.cached_labels())
@@ -765,15 +777,17 @@ class SlotRegistry:
             # every read, what a sign that has stopped listening does, and what
             # an adapter that has dropped off the network looks like before its
             # link is declared down. Asking again every interval would cost the
-            # deadline each time and answer nothing, so stop until the link has
-            # been down and come back, which is the adapter case and never the
-            # simulator's.
-            self._sign_answers_a_read = False
+            # deadline each time and answer nothing, so stop for a while: until
+            # the link has been down and come back, which is the adapter case
+            # and never the simulator's, or until ASK_AGAIN_AFTER has passed,
+            # which is what brings back a sign that was only switched off.
+            self._ask_again_at = self._now() + ASK_AGAIN_AFTER
             logger.info(
                 "the sign did not answer a read (%s), so the periodic re-push will "
                 "stop asking and go back to pushing everything every time. It asks "
-                "again once the link has dropped and come back, or after a restart.",
+                "again in %d minutes, or sooner if the link drops and comes back.",
                 err,
+                ASK_AGAIN_AFTER // timedelta(minutes=1),
             )
             return False
         except replies.ReplyError as err:

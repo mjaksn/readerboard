@@ -95,7 +95,7 @@ def test_a_reconnect_lets_the_refresh_ask_the_sign_again(client):
     # The reconnect hook is what tells an adapter that dropped off the network
     # apart from the simulator, which never answers a read. Wired to the plain
     # refresh instead, a read that went unanswered while the link was on its
-    # way down would stop the refresh asking until a restart.
+    # way down would stop the refresh asking for the next fifteen minutes.
     hooks = client.app.state.controller._reconnect_hooks
     assert [getattr(hook, "func", None) for hook in hooks] == [_after_reconnect]
 
