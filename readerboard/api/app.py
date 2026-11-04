@@ -120,6 +120,18 @@ async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) ->
         await alerts.reassert()
 
 
+async def _after_reconnect(registry: SlotRegistry, alerts: AlertService) -> None:
+    """Refresh a sign whose link has just come back, and let it be asked again.
+
+    The asking comes first, so that the refresh on this reconnect and every one
+    after it reads a picture back rather than re-pushing everything because a
+    read went unanswered while the link was on its way down. See
+    ``SlotRegistry.ask_the_sign_again``.
+    """
+    registry.ask_the_sign_again()
+    await _refresh_and_reassert(registry, alerts)
+
+
 async def _refresh_loop(app: FastAPI, interval: float) -> None:
     """Push everything to the sign again, periodically.
 
@@ -262,9 +274,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # The alert goes back on with everything else: it was only the slots
         # before, so a reconnect to a sign that had lost an alert left the
         # priority file empty until the next tick of the timer above.
-        controller.on_reconnect(
-            functools.partial(_refresh_and_reassert, registry, alerts)
-        )
+        controller.on_reconnect(functools.partial(_after_reconnect, registry, alerts))
 
         if settings.clock_sync_enabled:
             await clock.start()

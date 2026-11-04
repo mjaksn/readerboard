@@ -21,7 +21,7 @@ from dataclasses import replace
 import pytest
 
 from readerboard import icons
-from readerboard.api.app import _refresh_and_reassert
+from readerboard.api.app import _after_reconnect, _refresh_and_reassert
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
@@ -1389,6 +1389,37 @@ class TestAskingBeforeRePushing:
         assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
         # And it still re-pushes, which is the whole point of giving up safely.
         assert picture_writes(transport)
+
+    async def test_a_link_that_comes_back_lets_the_sign_be_asked_again(
+        self, wired, transport
+    ):
+        # An adapter that drops off the network looks, at the moment of the
+        # read, exactly like the simulator: the write lands in the local socket
+        # buffer and nothing comes back. What differs is that its link then goes
+        # down and comes back. Without asking again after that, one adapter drop
+        # left a sign with icons re-pushing every picture, and blanking once for
+        # each, on every refresh until a restart.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await registry.refresh()
+        transport.clear()
+        await registry.refresh()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+
+        rows = icons.resolve("lock", None)
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        transport.clear()
+        await _after_reconnect(registry, alerts)
+
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
+        # The sign answered with the picture it was given, so nothing blanked.
+        assert picture_writes(transport) == []
+
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        transport.clear()
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
+        assert picture_writes(transport) == []
 
     async def test_the_alert_is_still_re_asserted_when_nothing_was_re_pushed(
         self, wired, transport

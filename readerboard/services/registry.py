@@ -276,8 +276,8 @@ class SlotRegistry:
         # simulator decodes reads and answers none of them, so without this
         # every refresh against it would wait out the read's three second
         # deadline, with the sign's lock held, and then do exactly what it would
-        # have done anyway. One unanswered read is enough to stop asking; a
-        # restart is what tries again.
+        # have done anyway. One unanswered read is enough to stop asking, until
+        # the link comes back from being down: see :meth:`ask_the_sign_again`.
         self._sign_answers_a_read = True
 
     def set_priority_hold(self, hold: PriorityHold) -> None:
@@ -623,6 +623,21 @@ class SlotRegistry:
         await self._apply_run_sequence()
         return handed_the_alert_back
 
+    def ask_the_sign_again(self) -> None:
+        """Let the next refresh ask the sign a question, even if one went unanswered.
+
+        Called when the link comes back up. An unanswered read stops the refresh
+        asking, which is right for the sign simulator, but it cannot be told
+        apart from a network adapter that has dropped off: a write to an adapter
+        that has gone lands in the local socket buffer and returns, and the read
+        after it hears nothing, with the link still looking up. What tells them
+        apart is what happens next. The adapter's link goes down within a minute
+        or so, and later comes back, and the simulator's never does. Without
+        this, one adapter drop left a sign with icons blanking once for every
+        picture on every refresh until a restart.
+        """
+        self._sign_answers_a_read = True
+
     async def refresh(self) -> bool:
         """Check that the sign still holds what it was given, and push it all again if not.
 
@@ -735,14 +750,17 @@ class SlotRegistry:
             return bool(replies.picture_contents(reply, label))
         except TransportError as err:
             # Nothing came back at all, which is what the sign simulator does to
-            # every read and what a sign that has stopped listening does. Asking
-            # again every interval would cost the deadline each time and answer
-            # nothing, so stop.
+            # every read, what a sign that has stopped listening does, and what
+            # an adapter that has dropped off the network looks like before its
+            # link is declared down. Asking again every interval would cost the
+            # deadline each time and answer nothing, so stop until the link has
+            # been down and come back, which is the adapter case and never the
+            # simulator's.
             self._sign_answers_a_read = False
             logger.info(
                 "the sign did not answer a read (%s), so the periodic re-push will "
-                "stop asking and go back to pushing everything every time. A restart "
-                "tries again.",
+                "stop asking and go back to pushing everything every time. It asks "
+                "again once the link has dropped and come back, or after a restart.",
                 err,
             )
             return False

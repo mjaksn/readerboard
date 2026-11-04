@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from readerboard import icons
 from readerboard.api import errors
-from readerboard.api.app import create_app
+from readerboard.api.app import _after_reconnect, create_app
 from readerboard.config import Settings
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
@@ -89,6 +89,15 @@ def drawing_client(settings, sign) -> Iterator[TestClient]:
     settings.picture_count = 4
     with TestClient(create_app(settings, transport=sign)) as client:
         yield client
+
+
+def test_a_reconnect_lets_the_refresh_ask_the_sign_again(client):
+    # The reconnect hook is what tells an adapter that dropped off the network
+    # apart from the simulator, which never answers a read. Wired to the plain
+    # refresh instead, a read that went unanswered while the link was on its
+    # way down would stop the refresh asking until a restart.
+    hooks = client.app.state.controller._reconnect_hooks
+    assert [getattr(hook, "func", None) for hook in hooks] == [_after_reconnect]
 
 
 class TestHealth:
