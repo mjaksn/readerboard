@@ -11,7 +11,13 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.8.0] - 2026-11-04
+
+**Icon thumbnails in the client.** Two new enumerations say what each icon
+looks like and which colours a tint may name, and the client draws every icon
+from them, in its own colours or in a tint chosen beside the list. Upgrading
+erases nothing: no setting, state file or memory configuration changes, and
+the client still works against an older service, without the pictures.
 
 ### Added
 
@@ -1682,7 +1688,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.0
 [0.7.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.1
 [0.7.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.6.0
