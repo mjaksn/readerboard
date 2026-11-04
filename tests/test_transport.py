@@ -38,8 +38,11 @@ def assert_told_to_notice_a_dead_peer(transport: SerialTransport) -> None:
     assert isinstance(sock, socket.socket)
 
     assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
+    # The same choice of name the code makes: macOS calls the idle time
+    # TCP_KEEPALIVE, and checking only TCP_KEEPIDLE would check nothing there.
+    idle_option = "TCP_KEEPIDLE" if hasattr(socket, "TCP_KEEPIDLE") else "TCP_KEEPALIVE"
     expected = {
-        "TCP_KEEPIDLE": KEEPALIVE_IDLE_SECONDS,
+        idle_option: KEEPALIVE_IDLE_SECONDS,
         "TCP_KEEPINTVL": KEEPALIVE_INTERVAL_SECONDS,
         "TCP_KEEPCNT": KEEPALIVE_PROBES,
         "TCP_USER_TIMEOUT": UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000,
