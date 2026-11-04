@@ -23,10 +23,12 @@ library, and the names inside it may move without that being a breaking change.
   same at that moment, so one drop used to stop the asking until the service was
   restarted, and every refresh after it rewrote every picture, blanking the
   display once for each. The refresh now asks again once the link has gone down
-  and come back, which an adapter's does and the simulator's never does. A sign
-  power cycled behind an adapter that stays connected, with a refresh landing
-  while it starts up, can still stop the asking until a restart, since no link
-  drops there.
+  and come back, which an adapter's does and the simulator's never does. Two
+  cases can still stop the asking until the link next drops or the service
+  restarts, since no link drops in either: a sign power cycled behind an adapter
+  that stays connected, with a refresh landing while it starts up, and a network
+  outage that outlasts the read's three seconds but is over before the
+  connection gives up.
 
 ## [0.8.0] - 2026-11-04
 

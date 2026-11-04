@@ -456,9 +456,12 @@ other end: one unanswered read and it stops asking and goes back to re-pushing
 everything, until the link has been down and come back. That condition is what
 tells a network adapter that dropped off apart from the simulator, since at the
 moment of the read the two look identical, and only the adapter's link then
-drops. So the simulator sees the old behaviour after the first refresh, which is
-what makes it still a fair rehearsal of what a sign gets when a sign stops
-answering.
+drops. Not every missed answer is followed by a drop, though: a network outage
+shorter than the time the connection takes to give up, or a sign power cycled
+behind a connected adapter, stops the asking until the link next drops or the
+service restarts. So the simulator sees the old behaviour after the first
+refresh, which is what makes it still a fair rehearsal of what a sign gets when
+a sign stops answering.
 
 Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in

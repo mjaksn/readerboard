@@ -636,6 +636,12 @@ class SlotRegistry:
         this, one adapter drop left a sign with icons blanking once for every
         picture on every refresh until a restart.
 
+        It only helps where a link drops. An outage that outlasts the read's
+        deadline and is over before the connection gives up, or a sign power
+        cycled behind a connected adapter, stops the asking with no reconnect to
+        follow, and it stays stopped until the link next drops or the service
+        restarts.
+
         It takes the lock so that a refresh already under way finishes first. A
         read that refresh had out could otherwise fail after the reset and put
         the flag straight back.
