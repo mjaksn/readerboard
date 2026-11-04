@@ -144,9 +144,10 @@ An adapter that drops off the network says nothing as it goes. The service asks
 the operating system to give a network link up about a minute after the adapter
 stops answering: on Linux, a minute after the first write it did not
 acknowledge, or, if nothing was written, about a minute after it last answered,
-found by keepalive probes. A platform that does not take one of these options keeps its own
-default for it, which can be much longer. The service itself only finds out at
-its first read or write after the link has gone, and `GET /health` shows
+found by keepalive probes. A platform that does not take one of these options
+keeps its own default for it, which can be much longer. The service itself only
+finds out at its first read or write after the link has gone, and
+`GET /health` shows
 `"connected": false` from then on. A sign with a variable updated every minute
 is written to that often. One left alone is written to at the refresh, every
 `refresh_interval_seconds`, which is 15 minutes by default, and a refresh that
