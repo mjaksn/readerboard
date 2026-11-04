@@ -1180,7 +1180,9 @@ _STRAY = "#ff00ff"
 # Table 22's nine pixel codes, as this sign draws them. Code 0 is an unlit dot,
 # which is drawn rather than left out so that the shape of a picture reads even
 # where it is empty. The eight lit ones are the colour tokens in the order the
-# table gives them, which is the order readerboard.icons names its inks in.
+# table gives them, which is the order readerboard.icons names its inks in. The
+# client paints its icon thumbnails in the same shades, and the lint job in CI
+# fails if the two tables part, so a change here is a change there too.
 _PIXEL_COLOURS = {
     ord("0"): _UNLIT,
     ord("1"): "#ff3a24",

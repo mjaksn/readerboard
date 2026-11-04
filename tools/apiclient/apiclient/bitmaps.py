@@ -8,9 +8,10 @@ and the reason this is a set of its own rather than a copy of the library.
 The one thing this module does know is what each colour word looks like on a
 screen, because the service has no way to say and a thumbnail has to be painted
 in something. Those are the same shades the sign simulator paints its picture
-files in. A word not among them is drawn in magenta rather than skipped, as the
-simulator does with a pixel code it does not have, because something
-conspicuous beats a hole that reads as an unlit dot.
+files in, which the lint job in CI checks, since the simulator's table is in a
+module that imports Qt. A word not among them is drawn in magenta rather than
+skipped, as the simulator does with a pixel code it does not have, because
+something conspicuous beats a hole that reads as an unlit dot.
 
 The parsing is strict for the same reason the enumerations' is: a bitmap that
 is quietly wrong looks exactly like a right one at seven dots high.
@@ -36,7 +37,8 @@ UNLIT = "."
 TINT_MARKER = "#"
 
 # What each colour word is painted as. Taken from the sign simulator's picture
-# panel, so a thumbnail here and a picture file there agree.
+# panel, so a thumbnail here and a picture file there agree, and checked against
+# it by the lint job in CI.
 COLOURS = {
     "red": "#ff3a24",
     "green": "#36e05c",

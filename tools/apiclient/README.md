@@ -80,11 +80,14 @@ stops the chain only after every set has arrived.
 The shapes and the colour of every dot come from the service, which names each
 ink by the same colour word a message writes, such as `red` or `dimgreen`. What
 each word looks like on a screen is the one thing the client supplies itself,
-because the service has no way to say. Those shades are the simulator's, and a
-word the client has no shade for is drawn in magenta rather than as an unlit dot,
-so a new ink shows up as something to fix rather than as a hole in the icon. The
-bitmaps are parsed as strictly as the sets: ragged rows, or a lit dot whose colour
-nobody named, refuse the whole answer.
+because the service has no way to say. Those shades are the simulator's, and
+the lint job checks that they still are, going from each word to the pixel code
+the simulator paints through the service's icon library; the simulator's table
+lives in a module that imports Qt, which is why the check is there rather than in
+this suite. A word the client has no shade for is drawn in magenta rather than as
+an unlit dot, so a new ink shows up as something to fix rather than as a hole in
+the icon. The bitmaps are parsed as strictly as the sets: ragged rows, or a lit
+dot whose colour nobody named, refuse the whole answer.
 
 **An icon can be previewed and inserted in a tint.** With the bitmaps loaded, an
 icon list has a colour list beside its filter, filled from the Icon tints set and

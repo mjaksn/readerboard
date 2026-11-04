@@ -232,6 +232,33 @@ jobs:
           SMOKE
         env:
           QT_QPA_PLATFORM: offscreen
+      # The client paints an icon from colour words, and the simulator paints a
+      # picture file from pixel codes. Both claim to be showing the same sign,
+      # and a thumbnail that disagreed with the simulator about what amber looks
+      # like would be the client inventing a colour. The simulator's table lives
+      # in a module that imports Qt, so the comparison is made here rather than
+      # in either suite, going from word to ink to code through the service's
+      # own icon library, which is the one place all three are written down.
+      - name: the client paints icons in the simulator's colours
+        run: |
+          python - <<'PALETTE'
+          import sys
+
+          sys.path[:0] = ["tools/apiclient", "tools/signsim"]
+          from apiclient import bitmaps
+          from readerboard import icons
+          from signsim import window
+
+          for word, ink in icons.TINT_INKS.items():
+              code = ord(icons.INK_CODES[ink])
+              assert bitmaps.COLOURS[word] == window._PIXEL_COLOURS[code], word
+          assert set(bitmaps.COLOURS) == set(icons.TINT_INKS), "a colour word has no shade"
+          assert bitmaps.UNLIT_COLOUR == window._PIXEL_COLOURS[ord(icons.INK_CODES["."])]
+          assert bitmaps.GROUND == window._PANEL
+          assert bitmaps.STRAY == window._STRAY
+          PALETTE
+        env:
+          QT_QPA_PLATFORM: offscreen
       # Each tool's icon.ico is rendered from the icon.svg beside it, and the
       # drawing is the file a person edits. This renders both afresh and
       # compares, so an edited drawing cannot land without its rendering. It
