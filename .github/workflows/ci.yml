@@ -100,7 +100,8 @@ jobs:
       # nothing across a switch would still construct without complaint. Then
       # an icon list is opened holding a bitmap, for the simulator's reason: the
       # thumbnails are painted through QPainter, and nothing else runs that
-      # before somebody presses Load bitmaps.
+      # before somebody presses Load bitmaps. A tint is chosen in it too, which
+      # is the only thing that runs the repaint and the renaming behind it.
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on
@@ -162,10 +163,16 @@ jobs:
               "rows": ["...", "..#", "##."],
               "inks": {"#": "green"},
           }])
-          picker = EntryPicker("Icons", entries, bitmaps=drawn)
+          picker = EntryPicker("Icons", entries, insert=True, bitmaps=drawn, tints=("red",))
           thumbnail = picker._table.item(0, 0).data(Qt.ItemDataRole.DecorationRole)
           assert thumbnail is not None and not thumbnail.isNull(), "the icon was drawn as nothing"
           assert picker._table.item(0, 1).text() == "<icon:check>", "the name moved"
+
+          picker._tints.setCurrentIndex(picker._tints.findData("red"))
+          tinted = picker._table.item(0, 0).data(Qt.ItemDataRole.DecorationRole)
+          assert tinted.toImage() != thumbnail.toImage(), "the tint was not drawn"
+          picker._take()
+          assert picker.selected == "<icon:check:red>", "the tint was not inserted"
           SMOKE
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
           python - <<'SMOKE'

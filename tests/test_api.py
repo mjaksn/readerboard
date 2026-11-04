@@ -910,6 +910,7 @@ class TestEnumerations:
             "/enumerations/display-modes",
             "/enumerations/control-commands",
             "/enumerations/icons",
+            "/enumerations/icon-tints",
         ],
     )
     def test_each_lists_something_described(self, client, path):
@@ -1020,6 +1021,25 @@ class TestEnumerations:
         assert by_name["<icon:check>"]["inks"] == {"#": "green"}
         assert icons.INK_MARKER not in by_name["<icon:sun>"]["inks"]
         assert by_name["<icon:sun>"]["inks"] == {"o": "orange", "y": "yellow"}
+
+    def test_the_tints_are_the_library_words_in_its_order(self, client):
+        names = [entry["name"] for entry in client.get("/enumerations/icon-tints").json()]
+        assert names == list(icons.TINT_INKS)
+
+    def test_every_tint_is_a_colour_a_message_can_also_say(self, client):
+        # One spelling for both: <red> in a message and <icon:check:red> on an
+        # icon. A tint word that was not a colour token would be a second one.
+        tokens = {
+            entry["name"] for entry in client.get("/enumerations/markup-tokens").json()
+        }
+        for entry in client.get("/enumerations/icon-tints").json():
+            assert "<%s>" % entry["name"] in tokens
+
+    def test_every_tint_listed_is_one_the_service_accepts(self, client):
+        # Draw the tintable check in each colour offered. A word listed here and
+        # refused there would be a list that sends callers into a 400.
+        for entry in client.get("/enumerations/icon-tints").json():
+            assert icons.resolve("check", entry["name"])
 
     def test_the_bitmaps_need_no_api_key(self, client):
         # A read of the library, like the list beside it.

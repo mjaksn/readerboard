@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from twenty-four hand-written
+The window builds its forms from this table rather than from twenty-five hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -26,6 +26,7 @@ VALUE_TOKENS = "value-tokens"
 DISPLAY_MODES = "display-modes"
 CONTROL_COMMANDS = "control-commands"
 ICONS = "icons"
+ICON_TINTS = "icon-tints"
 
 SET_TITLES = {
     MARKUP_TOKENS: "Markup tokens",
@@ -33,10 +34,15 @@ SET_TITLES = {
     DISPLAY_MODES: "Display modes",
     CONTROL_COMMANDS: "Control commands",
     ICONS: "Icons",
+    ICON_TINTS: "Icon tints",
 }
 
 # The order the enumeration panel lists them in.
-SET_ORDER = (MARKUP_TOKENS, VALUE_TOKENS, DISPLAY_MODES, CONTROL_COMMANDS, ICONS)
+SET_ORDER = (MARKUP_TOKENS, VALUE_TOKENS, DISPLAY_MODES, CONTROL_COMMANDS, ICONS, ICON_TINTS)
+
+# Which set's names colour another set's entries: an icon list offers the tints,
+# and nothing else is tinted.
+TINTED_BY = {ICONS: ICON_TINTS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,6 +507,20 @@ OPERATIONS: tuple[Operation, ...] = (
             "What the library holds, not what the sign is holding. How many "
             "icons fit at once is the service's picture_count, and GET /health "
             "reports how many of those files are in use."
+        ),
+    ),
+    Operation(
+        id="icon_tints",
+        group="Enumerations",
+        method="GET",
+        path="/enumerations/icon-tints",
+        summary="Colours an icon that takes a tint can be drawn in",
+        formatter="tokens",
+        loads=ICON_TINTS,
+        note=(
+            "Once these and the bitmaps are loaded, an icon list can draw the "
+            "icons that take a tint in any of them, and Insert icon puts the "
+            "tinted tag in the message."
         ),
     ),
     Operation(

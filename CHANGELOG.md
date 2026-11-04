@@ -30,12 +30,22 @@ section before replacing a Compose file.
   a caller can show an icon rather than only name it. A tintable icon is given
   in the colour it takes when no tint is asked for. Like the list beside it, it
   needs no API key.
+- **`GET /enumerations/icon-tints` lists the colours a tint may name.** They
+  are the colour tokens' own words, as in `<icon:check:red>`, in the same
+  `name` and `description` shape as every other enumeration.
 - **The client shows a thumbnail of each icon.** The Icons row has a **Load
   bitmaps** button, and once it has been pressed every list of icons, whether
   opened with View or with Insert icon, draws each one dot for dot in front of
   its name. Load all asks for the bitmaps after every set, so pointing the
   client at a service without the endpoint costs the thumbnails and one dialog
   reporting the 404 at the end of the chain, and every set still arrives.
+- **The client can preview and insert a tinted icon.** With the bitmaps and the
+  new Icon tints set loaded, an icon list offers a colour beside its filter.
+  Choosing one redraws the icons that take a tint in it, and Insert icon puts in
+  the tinted tag, `<icon:check:red>` for the check. Load all asks for the tints
+  after the other sets, so a service without that endpoint stops the chain
+  there, with every set it does have already loaded and the bitmaps not asked
+  for.
 
 ### Changed
 

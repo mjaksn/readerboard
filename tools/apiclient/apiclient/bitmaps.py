@@ -14,6 +14,12 @@ conspicuous beats a hole that reads as an unlit dot.
 
 The parsing is strict for the same reason the enumerations' is: a bitmap that
 is quietly wrong looks exactly like a right one at seven dots high.
+
+Two pieces of shape are taken from the service's description of this endpoint
+rather than from an answer, and both are written down there: ``#`` is the ink a
+tint replaces, and a tint is asked for by adding ``:colour`` inside the tag, as
+``<icon:check:red>``. Everything else, including which colour words a tint may
+be, is loaded.
 """
 
 from __future__ import annotations
@@ -24,6 +30,10 @@ from datetime import datetime
 # The character every bitmap uses for an unlit dot. It is the one character the
 # service does not name in ``inks``, so it is the one this has to know.
 UNLIT = "."
+
+# The character standing for the ink a tint replaces. An icon whose inks name
+# it takes a tint; one whose inks do not is drawn in fixed colours.
+TINT_MARKER = "#"
 
 # What each colour word is painted as. Taken from the sign simulator's picture
 # panel, so a thumbnail here and a picture file there agree.
@@ -67,6 +77,17 @@ class Bitmap:
         """How many dots high it is."""
         return len(self.rows)
 
+    @property
+    def takes_tint(self) -> bool:
+        """Whether a colour may be asked for, which is whether it has a tint ink."""
+        return TINT_MARKER in self.inks
+
+    def tinted(self, word: str | None) -> Bitmap:
+        """Return the bitmap as it is drawn with a tint, or itself if it takes none."""
+        if not word or not self.takes_tint:
+            return self
+        return Bitmap(name=self.name, rows=self.rows, inks={**self.inks, TINT_MARKER: word})
+
     def colour_at(self, x: int, y: int) -> str:
         """Return the screen colour to paint one dot in."""
         dot = self.rows[y][x]
@@ -99,6 +120,17 @@ class LoadedBitmaps:
             self.endpoint,
             self.loaded_at.strftime("%H:%M:%S"),
         )
+
+
+def tinted_tag(name: str, word: str | None) -> str:
+    """Return the tag that draws an icon in a tint, as <icon:check:red>.
+
+    The colour goes inside the closing bracket. A name not shaped like a tag is
+    handed back as it is, since there is nowhere in it to put a colour.
+    """
+    if not word or not name.endswith(">"):
+        return name
+    return "%s:%s>" % (name[:-1], word)
 
 
 def colour_for(word: str) -> str:

@@ -31,7 +31,7 @@ pip install --require-hashes -r tools/apiclient/requirements.lock
 
 ## What it does
 
-**Every endpoint, on one screen.** All twenty-four operations are listed at once,
+**Every endpoint, on one screen.** All twenty-five operations are listed at once,
 grouped by what they act on. Selecting one brings its form up beside it, exactly
 as it was left: each operation keeps its own form for as long as the client is
 open, so the fields, the choices in its lists and any keys it loaded are still
@@ -40,7 +40,7 @@ the things that would need a quarter of the window to show properly, a set of
 markup tokens or a call's full detail, open as dialogs instead.
 
 **Nothing is hardcoded.** The markup tokens, value tokens, display modes, control
-commands and icons all start empty. Press the button beside a set and the client
+commands, icons and icon tints all start empty. Press the button beside a set and the client
 calls the endpoint for it; the row then says how many arrived, from which
 endpoint and when, and a View button opens the list. Only then do the fields that
 use that set offer it: before that they are free text, and the button that
@@ -57,8 +57,8 @@ That is the point of the design rather than an inconvenience. A client that ship
 its own copy of the vocabulary is a client that goes on offering a token for a
 year after the service stopped answering it.
 
-Each of the five sets has exactly one endpoint that fills it, so the button
-beside a set is unambiguous. All five answer the same shape, `name` and
+Each of the six sets has exactly one endpoint that fills it, so the button
+beside a set is unambiguous. All six answer the same shape, `name` and
 `description`, and the parsing insists on it: a payload that is a list of
 objects but not *this* list of objects is refused rather than quietly producing
 a set of empty names, which on screen looks exactly like a healthy one.
@@ -83,6 +83,19 @@ word the client has no shade for is drawn in magenta rather than as an unlit dot
 so a new ink shows up as something to fix rather than as a hole in the icon. The
 bitmaps are parsed as strictly as the sets: ragged rows, or a lit dot whose colour
 nobody named, refuse the whole answer.
+
+**An icon can be previewed and inserted in a tint.** With the bitmaps loaded, an
+icon list has a colour list beside its filter, filled from the Icon tints set and
+disabled until that set is loaded. Choosing a colour redraws every icon that takes
+a tint in it and rewrites its name to the tag that draws it so, `<icon:check:red>`
+for the check, which is exactly what Insert puts in the message. An icon drawn in
+its own colours keeps them and keeps its bare tag, because the service refuses a
+tint on one, and a line under the list says so while a colour is chosen.
+
+Two pieces of shape are taken from the service's description rather than from an
+answer, and both are written there: an icon whose inks name `#` is one that takes
+a tint, and the tint goes inside the tag's closing bracket. Which colours a tint
+may be is loaded like everything else.
 
 **The key boxes offer what is registered, and say when what you typed is not.**
 Any form taking a slot key or a variable name has a **Load keys** button beside the
@@ -209,7 +222,7 @@ reason.
 | `request.py` | no | inputs to a request, and the curl equivalent |
 | `format.py` | no | responses to readable blocks, and those to HTML |
 | `enums.py` | no | the loaded sets, normalised from either shape |
-| `bitmaps.py` | no | the icons' dots, and the shade each colour word is painted in |
+| `bitmaps.py` | no | the icons' dots, the shade each colour word is painted in, and tinting them |
 | `history.py` | no | the run's calls, with the key already gone |
 | `names.py` | no | the three names this tool answers to, and the QSettings location they build |
 | `net.py` | yes | `QNetworkAccessManager`, one call in flight at a time |

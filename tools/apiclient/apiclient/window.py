@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty-four
+Everything the tool does is on it: the connection, the enumerations, all twenty-five
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -275,6 +275,7 @@ class EnumerationPanel(QGroupBox):
             loaded.entries,
             parent=self._window,
             bitmaps=self._window.bitmaps_for(set_key),
+            tints=self._window.tints_for(set_key),
         )
         picker.exec()
         # Parented to the window, so nothing else will ever drop it. One per
@@ -526,6 +527,7 @@ class OperationForm(QWidget):
             parent=self._window,
             insert=True,
             bitmaps=self._window.bitmaps_for(tokens),
+            tints=self._window.tints_for(tokens),
         )
         chosen = picker.selected if picker.exec() else None
         # Read first, dropped second. The read is why this one cannot carry
@@ -744,7 +746,7 @@ class MainWindow(QMainWindow):
         # keystroke would not come back at all.
         self._verdicts: dict[str, tuple[str, str, str]] = {}
         # What Load all has left to send. One call is in flight at a time, so
-        # loading every set is a chain rather than six requests: each is sent
+        # loading every set is a chain rather than seven requests: each is sent
         # from the completion of the one before it.
         self._queued: list[Operation] = []
         self._pending_keys: tuple[OperationForm, str] | None = None
@@ -1057,8 +1059,8 @@ class MainWindow(QMainWindow):
     def load_every_set(self) -> None:
         """Load every enumeration the catalogue knows, then the icons' bitmaps, one by one.
 
-        Not six sends. The caller holds one call in flight and refuses the
-        rest, so five of six would be turned away on the spot. The first goes
+        Not seven sends. The caller holds one call in flight and refuses the
+        rest, so six of seven would be turned away on the spot. The first goes
         now and the others wait in ``_queued``, where ``_completed`` picks up
         the next one.
         """
@@ -1322,6 +1324,15 @@ class MainWindow(QMainWindow):
         """Return the pictures loaded for a set's entries, or None if there are none."""
         drawn = self.store.bitmaps(set_key)
         return drawn.by_name if drawn is not None else None
+
+    def tints_for(self, set_key: str) -> tuple[str, ...] | None:
+        """Return the tints for a set's entries.
+
+        None when nothing tints the set, and empty when its tints have not been
+        loaded, which the picker shows as a disabled list rather than no list.
+        """
+        tinting = catalogue.TINTED_BY.get(set_key)
+        return self.store.names(tinting) if tinting is not None else None
 
     def _check_surface(self, address: str) -> None:
         """Ask an address to describe itself, the first time it answers anything."""

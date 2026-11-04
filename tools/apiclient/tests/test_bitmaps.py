@@ -12,6 +12,7 @@ from apiclient.bitmaps import (
     MalformedBitmap,
     colour_for,
     parse,
+    tinted_tag,
 )
 from apiclient.enums import EnumStore
 
@@ -99,3 +100,52 @@ def test_the_store_keeps_bitmaps_apart_from_the_set_they_draw():
 
 def test_nothing_is_drawn_until_the_bitmaps_are_loaded():
     assert EnumStore().bitmaps(catalogue.ICONS) is None
+
+
+# ===========================================================================
+# Tints
+# ===========================================================================
+
+SUN = {"name": "<icon:sun>", "rows": ["o.y"], "inks": {"o": "orange", "y": "yellow"}}
+
+
+def test_an_icon_with_a_tint_ink_takes_a_tint_and_one_without_does_not():
+    drawn = parse([CHECK, SUN])
+    assert drawn["<icon:check>"].takes_tint
+    assert not drawn["<icon:sun>"].takes_tint
+
+
+def test_a_tint_repaints_the_tint_ink_and_nothing_else():
+    check = parse([CHECK])["<icon:check>"].tinted("red")
+    assert check.colour_at(2, 1) == COLOURS["red"]
+    assert check.colour_at(0, 0) == UNLIT_COLOUR
+
+
+def test_a_tint_leaves_an_icon_in_fixed_colours_as_it_is():
+    # The service refuses a tint on one, so showing it tinted would be showing
+    # something no message can draw.
+    sun = parse([SUN])["<icon:sun>"]
+    assert sun.tinted("red") is sun
+
+
+def test_no_tint_is_the_icon_as_listed():
+    check = parse([CHECK])["<icon:check>"]
+    assert check.tinted(None) is check
+
+
+def test_tinting_does_not_change_the_bitmap_it_was_made_from():
+    check = parse([CHECK])["<icon:check>"]
+    check.tinted("red")
+    assert check.inks == {"#": "green"}
+
+
+def test_the_tinted_tag_puts_the_colour_inside_the_bracket():
+    assert tinted_tag("<icon:check>", "red") == "<icon:check:red>"
+
+
+def test_no_tint_leaves_the_tag_alone():
+    assert tinted_tag("<icon:check>", None) == "<icon:check>"
+
+
+def test_a_name_that_is_not_a_tag_is_left_alone_rather_than_mangled():
+    assert tinted_tag("check", "red") == "check"

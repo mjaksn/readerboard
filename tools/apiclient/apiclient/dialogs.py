@@ -15,6 +15,7 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from apiclient import catalogue
 from apiclient import format as fmt
-from apiclient.bitmaps import GROUND, Bitmap
+from apiclient.bitmaps import GROUND, Bitmap, tinted_tag
 from apiclient.enums import Entry
 from apiclient.history import History, Record
 from apiclient.request import API_KEY_VARIABLE
@@ -87,6 +88,14 @@ class EntryPicker(QDialog):
     before the name. An entry with none gets an empty cell, which is what a
     service older than the bitmaps endpoint looks like, so the list still works
     with nothing to draw.
+
+    Given tints as well, it offers them in a list beside the filter. Choosing
+    one redraws every icon that takes a tint in that colour and rewrites its
+    name to the tag that draws it so, which is the tag Insert hands back. An
+    icon drawn in its own colours is left as it is in both, because the service
+    refuses a tint on one. ``tints`` is None for a set nothing tints, and empty
+    for one whose tints have not been loaded, which shows the list disabled and
+    says where to load them.
     """
 
     def __init__(
@@ -97,6 +106,7 @@ class EntryPicker(QDialog):
         parent: QWidget | None = None,
         insert: bool = False,
         bitmaps: dict[str, Bitmap] | None = None,
+        tints: tuple[str, ...] | None = None,
     ) -> None:
         """Build the dialog for a set of entries."""
         super().__init__(parent)
@@ -104,12 +114,13 @@ class EntryPicker(QDialog):
         self.resize(620, 520)
         self.selected: str | None = None
         self._entries = entries
-        # Painted once here rather than on every keystroke in the filter, which
-        # rebuilds the rows each time.
-        ratio = self.devicePixelRatioF()
-        self._pixmaps = {
-            name: bitmap_pixmap(bitmap, ratio=ratio) for name, bitmap in (bitmaps or {}).items()
-        }
+        self._bitmaps = bitmaps or {}
+        self._insert = insert
+        self._tint: str | None = None
+        self._pixmaps: dict[str, QPixmap] = {}
+        # Painted here and again when the tint changes, rather than on every
+        # keystroke in the filter, which rebuilds the rows each time.
+        self._paint()
         self._name_column = 1 if self._pixmaps else 0
 
         layout = QVBoxLayout(self)
@@ -118,7 +129,28 @@ class EntryPicker(QDialog):
         self._filter.setPlaceholderText("filter by name or description")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
-        layout.addWidget(self._filter)
+
+        self._tints: QComboBox | None = None
+        if self._bitmaps and tints is not None:
+            self._tints = QComboBox()
+            self._tints.addItem("own colours", None)
+            for word in tints:
+                self._tints.addItem(word, word)
+            if tints:
+                self._tints.setToolTip(
+                    "Draw the icons that take a tint in another colour"
+                    + (", and insert them so" if insert else "")
+                )
+            else:
+                self._tints.setEnabled(False)
+                self._tints.setToolTip("Load the icon tints on the left first")
+            self._tints.currentIndexChanged.connect(lambda _index: self._retint())
+            top = QHBoxLayout()
+            top.addWidget(self._filter, 1)
+            top.addWidget(self._tints)
+            layout.addLayout(top)
+        else:
+            layout.addWidget(self._filter)
 
         labels = ["name", "description"]
         if self._pixmaps:
@@ -143,6 +175,13 @@ class EntryPicker(QDialog):
         self._table.itemDoubleClicked.connect(lambda _item: self._take())
         layout.addWidget(self._table, 1)
 
+        # Says what a chosen tint does not reach, so that an icon keeping its
+        # own colours reads as the rule rather than as a fault.
+        self._tint_note = QLabel("")
+        self._tint_note.setWordWrap(True)
+        self._tint_note.setVisible(False)
+        layout.addWidget(self._tint_note)
+
         buttons = QDialogButtonBox()
         if insert:
             self._insert_button = buttons.addButton(
@@ -154,6 +193,44 @@ class EntryPicker(QDialog):
         layout.addWidget(buttons)
 
         self._apply_filter("")
+
+    def _paint(self) -> None:
+        """Paint every thumbnail in the tint now chosen."""
+        ratio = self.devicePixelRatioF()
+        self._pixmaps = {
+            name: bitmap_pixmap(bitmap.tinted(self._tint), ratio=ratio)
+            for name, bitmap in self._bitmaps.items()
+        }
+
+    def _shown_name(self, entry: Entry) -> str:
+        """Return the name as this list shows it, which is the tag Insert hands back."""
+        bitmap = self._bitmaps.get(entry.name)
+        if self._tint and bitmap is not None and bitmap.takes_tint:
+            return tinted_tag(entry.name, self._tint)
+        return entry.name
+
+    def _retint(self) -> None:
+        """Redraw and rename for the tint just chosen, keeping the row that was highlighted."""
+        self._tint = self._tints.currentData() if self._tints is not None else None
+        self._paint()
+        row = self._table.currentRow()
+        self._apply_filter(self._filter.text())
+        if 0 <= row < self._table.rowCount():
+            self._table.selectRow(row)
+        if self._tint:
+            if self._insert:
+                note = (
+                    "Icons that take a tint are shown in %s and inserted so. The rest "
+                    "keep their own colours, which the service will not change, and "
+                    "go in as they are." % self._tint
+                )
+            else:
+                note = (
+                    "Icons that take a tint are shown in %s. The rest keep their own "
+                    "colours, which the service will not change." % self._tint
+                )
+            self._tint_note.setText(note)
+        self._tint_note.setVisible(bool(self._tint))
 
     def _apply_filter(self, text: str) -> None:
         """Show only the entries matching what has been typed."""
@@ -174,7 +251,7 @@ class EntryPicker(QDialog):
                 if pixmap is not None:
                     picture.setData(Qt.ItemDataRole.DecorationRole, pixmap)
                 self._table.setItem(row, 0, picture)
-            self._table.setItem(row, names, QTableWidgetItem(entry.name))
+            self._table.setItem(row, names, QTableWidgetItem(self._shown_name(entry)))
             self._table.setItem(row, names + 1, QTableWidgetItem(entry.description))
         for column in range(names + 1):
             self._table.resizeColumnToContents(column)

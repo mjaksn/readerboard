@@ -119,6 +119,15 @@ def test_only_the_icons_are_drawn_and_by_exactly_one_endpoint():
     assert drawn == {catalogue.ICONS: ["icon_bitmaps"]}
 
 
+def test_the_icons_are_tinted_by_a_set_something_can_load():
+    # The picker's colour list is filled from this set, so a mapping to a set
+    # nothing loads would be a list that can never be anything but disabled.
+    assert catalogue.TINTED_BY == {catalogue.ICONS: catalogue.ICON_TINTS}
+    for tinted, tinting in catalogue.TINTED_BY.items():
+        assert tinted in catalogue.SET_ORDER
+        assert len(catalogue.loaders_for(tinting)) == 1
+
+
 def test_no_operation_both_fills_a_set_and_draws_one():
     for operation in catalogue.OPERATIONS:
         assert not (operation.loads and operation.draws), operation.id
