@@ -11,6 +11,23 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Fixed
+
+- **A sign switched off behind an adapter that stays connected no longer stops
+  the refresh asking for good.** One unanswered read stopped the refresh asking
+  the sign whether it still holds its pictures until the link next dropped or
+  the service restarted, and every refresh until then rewrote every picture,
+  blanking the display once for each. A sign switched off for longer than
+  `refresh_interval_seconds` was the common way to get there, and a sign power
+  cycled while a refresh landed, or a short network outage, did the same. The
+  refresh now asks again fifteen minutes after a read went unanswered, as well
+  as when the link comes back. The sign simulator, which answers no read, costs
+  one three second stall every fifteen minutes in return, rather than once for
+  the life of the process; at the default refresh interval that is a stall on
+  every refresh.
+
 ## [0.8.1] - 2026-11-04
 
 **A fix for signs with icons reached through an Ethernet adapter.** One drop of

@@ -28,6 +28,7 @@ from readerboard.protocol import constants as c
 from readerboard.protocol import frames
 from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
 from readerboard.services.registry import (
+    ASK_AGAIN_AFTER,
     IconsDisabled,
     PicturePoolFull,
     SlotRegistry,
@@ -1379,7 +1380,7 @@ class TestAskingBeforeRePushing:
         # The sign simulator decodes reads and answers none of them, so without
         # this every refresh against it would wait out the read's three second
         # deadline with the sign's lock held and then do what it would have done
-        # anyway. One unanswered read is enough to stop asking.
+        # anyway. One unanswered read is enough to stop asking, for a while.
         await add(registry, "door", "<icon:lock> LOCKED")
         transport.clear()
 
@@ -1390,6 +1391,48 @@ class TestAskingBeforeRePushing:
         await registry.refresh()
         assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
         # And it still re-pushes, which is the whole point of giving up safely.
+        assert picture_writes(transport)
+
+    async def test_a_sign_that_was_only_switched_off_is_asked_again_in_time(
+        self, registry, transport, clock
+    ):
+        # A sign switched off behind an adapter that stays connected misses a
+        # read with no link drop to follow, so nothing but time can tell it
+        # apart from the simulator. Once ASK_AGAIN_AFTER has passed it is asked
+        # again, and a sign that answers with its picture blanks no more.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await registry.refresh()
+
+        clock.advance(ASK_AGAIN_AFTER.total_seconds() - 1)
+        transport.clear()
+        await registry.refresh()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+
+        clock.advance(1)
+        rows = icons.resolve("lock", None)
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        transport.clear()
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
+        assert picture_writes(transport) == []
+
+    async def test_a_sign_still_not_answering_is_left_alone_for_another_period(
+        self, registry, transport, clock
+    ):
+        # The simulator never answers, so the re-ask goes unanswered too, and
+        # the wait starts again from it rather than asking every refresh after.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await registry.refresh()
+
+        clock.advance(ASK_AGAIN_AFTER.total_seconds())
+        transport.clear()
+        await registry.refresh()
+        assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
+
+        clock.advance(ASK_AGAIN_AFTER.total_seconds() - 1)
+        transport.clear()
+        await registry.refresh()
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
         assert picture_writes(transport)
 
     async def test_a_link_that_comes_back_lets_the_sign_be_asked_again(
@@ -1442,7 +1485,7 @@ class TestAskingBeforeRePushing:
         async with registry._lock:
             reconnect = asyncio.create_task(_after_reconnect(registry, alerts))
             await asyncio.sleep(0)
-            registry._sign_answers_a_read = False
+            registry._ask_again_at = registry._now() + ASK_AGAIN_AFTER
         await reconnect
 
         rows = icons.resolve("lock", None)
