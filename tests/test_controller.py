@@ -407,7 +407,7 @@ class TestNothingElseWritesWhileTheSignIsResetting:
         default, into a sign that was not listening. Nothing failed: the
         transport accepted it, the suppression cache recorded the file as
         holding those bytes, and the message stayed missing until the next
-        periodic re-push.
+        refresh pushed everything again.
         """
         sleep, entered, release = self.held_at(SOUND_SETTLE_SECONDS)
         transport = FakeTransport()

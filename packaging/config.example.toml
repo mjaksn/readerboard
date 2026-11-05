@@ -111,8 +111,8 @@ registry_sweep_seconds = 1.0
 # How often to check that the sign still holds what it was given, and push
 # everything again if it does not. This is what repairs a sign that was power
 # cycled while the Ethernet adapter stayed connected, which nothing else can
-# detect. With icons on, the check is one read of a picture file, and only a
-# sign that has lost it, or does not answer, gets everything again. With none,
+# detect. With an icon in use, the check is one read of a picture file, and only
+# a sign that has lost it, or does not answer, gets everything again. With none,
 # or for fifteen minutes after a read goes unanswered, every refresh pushes
 # everything, which restarts every message.
 refresh_interval_seconds = 900.0

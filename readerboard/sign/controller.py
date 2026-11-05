@@ -399,7 +399,7 @@ class SignController:
         The one read the service makes on its own timer rather than for a
         request, and :meth:`SlotRegistry.refresh` has why: an answer that
         carries rows says the sign still holds what it was given, which is the
-        question the periodic re-push exists to guess at.
+        question the refresh exists to answer.
 
         Goes through :meth:`read_special` because collecting a reply is the same
         work whatever was asked. The name is about the four special functions

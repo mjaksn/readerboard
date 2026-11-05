@@ -1123,16 +1123,17 @@ has settled" has the five rounds that separated those out. `F"` was not one of t
 measured: it is the same kind of command as the four special functions that were, and
 nothing suggests it differs, but nothing has shown it either.
 
-The frame builders exist, and the adapter is two-way: this sign answered all four of these
-reads through it on 2026-09-09, and answered them again during the soft reset check above,
-which read two text files back with `B` as well, and answered all four again on 2026-09-12
-with a TEXT file and a STRING file read back beside them. Three things in the service now
-depend on that. `GET /sign/information` sends `F"` and answers 503 when nothing comes
-back. The pool check before every reallocation, at startup and on `POST /sign/reboot`,
-sends `F"` as well and falls back to 5482 bytes when nothing comes. And the refresh above
-reads a picture with `J`, depending on it just as softly: one read that does not come and
-it stops asking and re-pushes as it always did, until the link has been down and come back
-or fifteen minutes have passed. The other reads are still available and still unused.
+The frame builders exist, and the adapter is two-way: this sign answered all four of
+these reads through it on 2026-09-09, and answered them again during the soft reset check
+above, which read two text files back with `B` as well, and answered all four again on
+2026-09-12 with a TEXT file and a STRING file read back beside them. Three things in the
+service now depend on that. `GET /sign/information` sends `F"` and answers 503 when
+nothing comes back. The pool check before every reallocation, at startup and on
+`POST /sign/reboot`, sends `F"` as well and falls back to 5482 bytes when nothing usable
+comes. And the refresh above reads a picture with `J`, depending on it just as softly: one
+read that does not come and it stops asking and re-pushes as it always did, until the
+link has been down and come back or fifteen minutes have passed. The other reads are
+still available and still unused.
 
 The trap when reading is pyserial's, not the sign's. Over `socket://`, which is how this
 sign has always been reached, `in_waiting` is not a byte count: it is 1 while anything is

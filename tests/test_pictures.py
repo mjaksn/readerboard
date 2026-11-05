@@ -1183,7 +1183,7 @@ def picture_reply(label: bytes, rows: list[str] | None) -> bytes:
 
 
 class TestAskingBeforeRePushing:
-    """The periodic re-push asks the sign first, because it is expensive to be wrong.
+    """The periodic refresh asks the sign first, because it is expensive to be wrong.
 
     Every picture write blanks the whole display, so a sign showing five icons
     blanks five times an interval for a repair that is almost never needed. What
