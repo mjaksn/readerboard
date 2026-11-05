@@ -171,7 +171,8 @@ class VariableRequest(BaseModel):
         description=(
             "the value, with the same markup a message takes except <week_day> and "
             "<var:name>, which the sign draws as a literal character from inside a "
-            "variable. Formatting set here carries on into the message after the call: "
+            "variable, and <icon:name>, which a value cannot draw. Formatting set here "
+            "carries on into the message after the call: "
             "a value of <red>DOWN turns the rest of the message red too. May be empty, "
             "which shows nothing where the variable is called"
         ),
@@ -381,7 +382,13 @@ class LinkHealth(BaseModel):
 class HealthResponse(BaseModel):
     """What the service knows about itself. Requires no API key."""
 
-    status: str = Field(description="'ok' when the sign is reachable, otherwise 'degraded'")
+    status: str = Field(
+        description=(
+            "'ok' when the link to the sign is open, otherwise 'degraded'. Through an "
+            "Ethernet adapter that is the adapter's connection, which stays open with "
+            "the sign switched off behind it"
+        )
+    )
     version: str
     link: LinkHealth
     slots_used: int
@@ -398,9 +405,9 @@ class HealthResponse(BaseModel):
     pictures_total: int = Field(description="0 when icons are switched off")
     sign_in_sync: bool = Field(
         description=(
-            "false when the sign is behind the service's record, which is a removal or "
-            "an expiry that could not reach the sign yet; a message write that cannot "
-            "reach the sign is refused with a 503 rather than held"
+            "false when the sign may not match the service's record: a removal, a hide "
+            "or an expiry that could not reach the sign yet, or a refused write that "
+            "may have partly landed before it failed. The next refresh repairs it"
         )
     )
     alert_active: bool
@@ -445,9 +452,9 @@ class IconBitmap(BaseModel):
 
     The rows are the library's own, so a dot reads the same here as it does in
     ``readerboard/icons.py``. Every character in them other than the unlit
-    ``.`` is named in ``inks`` rather than left for the caller to know. The ink a tint replaces is given as
-    the colour the icon takes when no tint is asked for, which is what a message
-    calling it bare would draw.
+    ``.`` is named in ``inks`` rather than left for the caller to know. The ink a
+    tint replaces is given as the colour the icon takes when no tint is asked
+    for, which is what a message calling it bare would draw.
     """
 
     name: str = Field(

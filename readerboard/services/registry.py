@@ -367,7 +367,7 @@ class SlotRegistry:
 
         Reconfiguring memory is avoided unless the pool itself changed, because
         it erases the sign. On the ordinary restart, where nothing changed, this
-        rewrites the files and the run sequence and the sign never blinks.
+        rewrites the files and the run sequence and nothing is erased.
         """
         async with self._lock:
             if self._layout.needs_reconfiguration(self._state.layout):
@@ -670,26 +670,27 @@ class SlotRegistry:
         fires, the cache stays warm, and suppression then skips exactly the
         writes that would repair a sign which is now blank.
 
-        Refreshing drops what the controller believes about the sign's contents
-        and writes it all again. It runs on a timer, and on every reconnect.
-        Rewriting a TEXT file restarts the message in it, so every message
-        restarts once a refresh; variables spare the display a blank on every
-        change of value, not on this.
+        A re-push drops what the controller believes about the sign's contents
+        and writes it all again. The refresh runs on a timer, and on every
+        reconnect. Rewriting a TEXT file restarts the message in it, so every
+        message restarts once a re-push; variables spare the display a blank on
+        every change of value, not on this.
 
         So it asks first, which is what :meth:`_sign_still_holds_its_pictures`
         is for, and re-pushes only when the answer is no or there is no answer.
         The re-push is expensive in the one currency that matters here: writing
-        a picture blanks the whole display, so a sign with five icons on it blank
-        five times an interval, for a repair that is almost never needed. Asking
-        costs a message held still nothing at all and a scrolling one about half
-        a second of stall, measured on 2026-09-12.
+        a picture blanks the whole display, so a sign with five icons on it would
+        blank five times an interval, for a repair that is almost never needed.
+        Asking costs a message held still nothing at all and a scrolling one
+        about half a second of stall, measured on 2026-09-12.
 
         Returns whether an alert was put back on the sign as part of it, which
         the caller needs so that it does not write the alert a second time. See
         :meth:`_rewrite_all`. Nothing is put back when nothing was re-pushed, so
         the caller re-asserts the alert on that path exactly as it would have
-        before: what the sign holds in its priority file is a separate question
-        from what it holds in a picture file, and this does not ask it.
+        before, which restarts an alert the sign most likely still holds: what
+        the sign holds in its priority file is a separate question from what it
+        holds in a picture file, and this does not ask it.
         """
         async with self._lock:
             if await self._sign_still_holds_its_pictures():
@@ -783,7 +784,7 @@ class SlotRegistry:
             # which is what brings back a sign that was only switched off.
             self._ask_again_at = self._now() + ASK_AGAIN_AFTER
             logger.info(
-                "the sign did not answer a read (%s), so the periodic re-push will "
+                "the sign did not answer a read (%s), so the periodic refresh will "
                 "stop asking and go back to pushing everything every time. It asks "
                 "again in %d minutes, or sooner if the link drops and comes back.",
                 err,

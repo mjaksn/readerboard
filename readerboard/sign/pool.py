@@ -150,15 +150,16 @@ def check_fits(layout: Layout, pool: int) -> None:
         return
 
     raise PoolTooLarge(
-        "slot_count %d at slot_capacity %d and variable_count %d at variable_capacity "
-        "%d need %d bytes of the sign's memory pool, and the sign has %d. Lower one of "
-        "them and restart the service. Nothing has been written, so the sign still "
-        "holds whatever it held."
+        "slot_count %d at slot_capacity %d, variable_count %d at variable_capacity %d "
+        "and picture_count %d need %d bytes of the sign's memory pool, and the sign "
+        "has %d. Lower one of them and restart the service. Nothing has been written, "
+        "so the sign still holds whatever it held."
         % (
             layout.slot_count,
             layout.slot_capacity,
             layout.variable_count,
             layout.variable_capacity,
+            layout.picture_count,
             claimed,
             pool,
         )

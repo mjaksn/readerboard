@@ -1442,8 +1442,8 @@ class TestAskingBeforeRePushing:
         # read, exactly like the simulator: the write lands in the local socket
         # buffer and nothing comes back. What differs is that its link then goes
         # down and comes back. Without asking again after that, one adapter drop
-        # left a sign with icons re-pushing every picture, and blanking once for
-        # each, on every refresh until a restart.
+        # would leave a sign with icons re-pushing every picture, and blanking
+        # once for each, on every refresh until ASK_AGAIN_AFTER ran out.
         registry, alerts = wired
         await add(registry, "door", "<icon:lock> LOCKED")
         await registry.refresh()
