@@ -973,6 +973,24 @@ class TestWritingPicturesUnderAnAlert:
 
         assert alerts.may_be_off_the_sign
 
+    async def test_the_same_alert_raised_again_is_written_while_it_may_be_off(
+        self, wired, transport
+    ):
+        # A release cancelled partway can reach the sign and still leave the
+        # old alert's bytes in the controller's cache, since the cache is only
+        # updated once a send returns. Raising the same alert again would then
+        # be suppressed, and clear the flag with the sign still missing it.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        alerts._may_be_off_the_sign = True
+        transport.clear()
+
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+        assert not alerts.may_be_off_the_sign
+
     async def test_a_put_back_that_lands_leaves_nothing_to_remember(
         self, wired, transport
     ):

@@ -680,10 +680,17 @@ class AlertService:
 
     async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> bool:
         """Put an alert on the priority file. Returns False if the write was suppressed."""
+        # Forced while an alert may be off the sign. The controller records what
+        # a file holds only once a send has returned, so a release cancelled
+        # partway can reach the sign and leave the old alert's bytes in the
+        # cache, and the same alert raised again would then be suppressed and
+        # clear the flag below with the sign still missing it.
         written = await self._controller.write_priority(
-            body, mode=MODE_BY_NAME[alert.mode].value, force=force
+            body,
+            mode=MODE_BY_NAME[alert.mode].value,
+            force=force or self._may_be_off_the_sign,
         )
-        # Suppressed or not, the controller now believes the sign holds this,
-        # which is as much as any write here can say.
+        # Only once the write has returned, so the controller believes the sign
+        # holds this, which is as much as any write here can say.
         self._may_be_off_the_sign = False
         return written
