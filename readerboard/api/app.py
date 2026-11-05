@@ -134,10 +134,12 @@ async def _after_reconnect(registry: SlotRegistry, alerts: AlertService) -> None
 
 
 async def _refresh_loop(app: FastAPI, interval: float) -> None:
-    """Push everything to the sign again, periodically.
+    """Check periodically that the sign still holds what it was given.
 
-    See ``SlotRegistry.refresh`` for why blind re-pushing is the only thing
-    that repairs a sign power cycled behind a still-connected adapter.
+    This is the only thing that repairs a sign power cycled behind a
+    still-connected adapter, and it pushes everything again when the sign has
+    lost it. See ``SlotRegistry.refresh`` for why it asks the sign first rather
+    than pushing everything every time.
     """
     registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
