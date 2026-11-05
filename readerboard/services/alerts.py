@@ -185,28 +185,27 @@ class AlertService:
         self._now = now
         self._rendering = rendering
         self._lock = asyncio.Lock()
-        # Set the moment an alert is lifted off the sign for a picture write, and
-        # cleared only by a write that lands on the priority file. So any way of
-        # not putting it back leaves it set: a failure, a failure swallowed on a
-        # rollback, or a cancellation. The refresh leaves the alert alone when
-        # the sign answers that it kept its memory, so without this nothing would
-        # put back an alert the sign never got back: see
-        # :attr:`may_be_off_the_sign`.
-        self._may_be_off_the_sign = False
+        # Set before anything that changes the priority file, and cleared only
+        # once the sign and the record agree again. So any way of stopping short
+        # leaves it set: a failure, a failure swallowed on a rollback, or a
+        # cancellation. See :attr:`sign_may_not_match`.
+        self._sign_may_not_match = False
 
     @property
-    def may_be_off_the_sign(self) -> bool:
-        """Whether the alert may have been lifted off the sign and not put back.
+    def sign_may_not_match(self) -> bool:
+        """Whether the sign's priority file may not match the recorded alert.
 
         The refresh asks the sign whether it still holds a picture, and leaves
         the alert alone when it does, because the priority file goes with the
-        rest of the sign's memory. That says nothing about an alert this
-        service took off the sign itself for a picture and did not put back,
-        whether the put-back failed, was swallowed by :meth:`_put_back_quietly`,
-        or was cancelled. So the refresh's caller re-asserts when this is set,
-        whatever the sign answered.
+        rest of the sign's memory. That says nothing about a change this
+        service made to the priority file itself and did not finish: an alert
+        lifted for a picture and not put back, whether the put-back failed, was
+        swallowed by :meth:`_put_back_quietly` or was cancelled, or a write or
+        release cancelled after it reached the sign and before the record caught
+        up. So the refresh's caller re-asserts when this is set, whatever the
+        sign answered, and the re-assert makes the sign match the record.
         """
-        return self._may_be_off_the_sign
+        return self._sign_may_not_match
 
     def set_rendering(self, rendering: Rendering) -> None:
         """Render alerts through the registry, so that they can call variables."""
@@ -300,8 +299,8 @@ class AlertService:
         the alert can be left alone, which it can when the refresh put it back
         or the sign answered that it kept its memory, and
         :meth:`SlotRegistry.reboot` whether it put the alert back; this is for
-        the case where neither holds, or :attr:`may_be_off_the_sign` says an
-        alert lifted for a picture never went back. Calling it anyway is not
+        the case where neither holds, or :attr:`sign_may_not_match` says a
+        change to the priority file was not finished. Calling it anyway is not
         harmless: the write is forced, so it would restart an alert the sign
         already holds, once per refresh interval for as long as the alert is up.
 
@@ -310,8 +309,12 @@ class AlertService:
         async with self._rendering(None) as render_message, self._lock:
             alert = self._state.alert
             if alert is None:
-                # Released since, so there is nothing left to be off the sign.
-                self._may_be_off_the_sign = False
+                if self._sign_may_not_match:
+                    # Nothing is recorded, and something may be on the file: a
+                    # write or a release stopped short. Forced, because the
+                    # controller's record of the file is in doubt too.
+                    await self._controller.clear_priority(force=True)
+                    self._sign_may_not_match = False
                 return False
             if not alert.message:
                 # The same rule :meth:`restore` applies, and here because an
@@ -397,9 +400,9 @@ class AlertService:
             # cancellation while the release is under way can still let it reach
             # the sign, since the write runs in a worker thread, and must not
             # leave the alert off with nothing to say so. See
-            # :attr:`may_be_off_the_sign`.
+            # :attr:`sign_may_not_match`.
             if self._state.alert is not None:
-                self._may_be_off_the_sign = True
+                self._sign_may_not_match = True
 
             # Unconditional, and unforced. See the docstring: what is recorded
             # here is not what the sign is holding, and the release costs one
@@ -430,7 +433,7 @@ class AlertService:
         here would arrive in place of the failure that brought us to it, and a
         caller told the sign is unreachable when its pool was actually full has
         been told the wrong thing about its own request. A failure here leaves
-        :attr:`may_be_off_the_sign` set, and the next refresh re-asserts the
+        :attr:`sign_may_not_match` set, and the next refresh re-asserts the
         alert because of it, so the sign is repaired either way.
 
         The caller reverts the pool before calling this, so the alert is
@@ -599,7 +602,7 @@ class AlertService:
                 # under :meth:`lifted`. Set before the release for the same
                 # reason, and cleared only by that write.
                 if replaced is not None:
-                    self._may_be_off_the_sign = True
+                    self._sign_may_not_match = True
                 await self._controller.clear_priority()
 
             try:
@@ -666,9 +669,15 @@ class AlertService:
         reentrant and waiting on it there would wait forever.
         """
         was_active = self._state.alert is not None
-        await self._controller.clear_priority()
+        # In doubt from before the release until the record says it happened.
+        # Forced while already in doubt, because the controller's record of the
+        # file may then be wrong and would suppress the release.
+        force = self._sign_may_not_match
+        self._sign_may_not_match = True
+        await self._controller.clear_priority(force=force)
         self._state.alert = None
         self._store.save(self._state)
+        self._sign_may_not_match = False
         return was_active
 
     async def sweep(self) -> bool:
@@ -687,17 +696,18 @@ class AlertService:
 
     async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> bool:
         """Put an alert on the priority file. Returns False if the write was suppressed."""
-        # Forced while an alert may be off the sign. The controller records what
-        # a file holds only once a send has returned, so a release cancelled
+        # Forced while the sign may not match. The controller records what a
+        # file holds only once a send has returned, so a release cancelled
         # partway can reach the sign and leave the old alert's bytes in the
         # cache, and the same alert raised again would then be suppressed and
         # clear the flag below with the sign still missing it.
+        force = force or self._sign_may_not_match
+        # And in doubt while this write is out. Every caller records the alert
+        # with no await between this returning and the record changing, so a
+        # cancellation can only land while the flag is set.
+        self._sign_may_not_match = True
         written = await self._controller.write_priority(
-            body,
-            mode=MODE_BY_NAME[alert.mode].value,
-            force=force or self._may_be_off_the_sign,
+            body, mode=MODE_BY_NAME[alert.mode].value, force=force
         )
-        # Only once the write has returned, so the controller believes the sign
-        # holds this, which is as much as any write here can say.
-        self._may_be_off_the_sign = False
+        self._sign_may_not_match = False
         return written

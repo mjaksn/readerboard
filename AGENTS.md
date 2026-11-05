@@ -349,14 +349,16 @@ declines to write them again.
   minute mid-alert on 2026-11-05, it came back showing the alert. The case that
   still needs the re-assert is a service with no icons, which never hands the
   sign back and never asks it anything; without it a sign power cycled
-  mid-alert would stay blank. So does an alert the service lifted for a picture
-  and did not put back, which no answer from the sign can speak for:
-  `AlertService.may_be_off_the_sign` is set by the lift and cleared only by a
-  priority write that lands, so a failure or a cancellation leaves it set. What
-  this gives up is an alert raised while the sign is switched off and back on
-  within a refresh interval: the write is lost, the read then finds the sign
-  intact, and nothing writes it again. A message written in that window has
-  always had the same gap.
+  mid-alert would stay blank. So does a change the service made to the
+  priority file and did not finish, such as an alert lifted for a picture and
+  not put back, which no answer from the sign can speak for:
+  `AlertService.sign_may_not_match` is set before every priority write, release
+  and lift, and cleared only once the sign and the record agree, so a failure
+  or a cancellation leaves it set and the next refresh puts the record back on
+  the sign. What this gives up is an alert raised while the sign is switched
+  off and back on within a refresh interval: the write is lost, the read then
+  finds the sign intact, and nothing writes it again. A message written in that
+  window has always had the same gap.
 - **The paths carry no version prefix.** They read `/v2` until the second,
   older surface beside them was removed. With one surface left, a prefix that
   distinguishes it from nothing is a word every caller writes and no reader

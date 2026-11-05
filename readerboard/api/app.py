@@ -121,10 +121,11 @@ async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) ->
     The re-assert runs in the remaining case, a re-push that never went near the
     priority file, which is a service with no icons; there it is the only thing
     that would put the alert on a sign that came back blank. It also runs when
-    the alert service says an alert it lifted for a picture write never went
-    back, which no answer from the sign can speak for.
+    the alert service says a change it made to the priority file did not
+    finish, such as an alert lifted for a picture write and never put back,
+    which no answer from the sign can speak for.
     """
-    if not await registry.refresh() or alerts.may_be_off_the_sign:
+    if not await registry.refresh() or alerts.sign_may_not_match:
         await alerts.reassert()
 
 

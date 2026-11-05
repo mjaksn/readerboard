@@ -931,7 +931,7 @@ class TestWritingPicturesUnderAnAlert:
 
         # Reported, and remembered too, so the next refresh puts it back even
         # when the sign answers that it kept its memory.
-        assert alerts.may_be_off_the_sign
+        assert alerts.sign_may_not_match
 
     async def test_a_put_back_that_is_cancelled_is_remembered(
         self, wired, transport, monkeypatch
@@ -951,7 +951,7 @@ class TestWritingPicturesUnderAnAlert:
         with pytest.raises(asyncio.CancelledError):
             await add(registry, "door", "<icon:lock> LOCKED")
 
-        assert alerts.may_be_off_the_sign
+        assert alerts.sign_may_not_match
 
     async def test_a_release_that_is_cancelled_is_remembered(
         self, wired, transport, monkeypatch
@@ -971,7 +971,7 @@ class TestWritingPicturesUnderAnAlert:
         with pytest.raises(asyncio.CancelledError):
             await add(registry, "door", "<icon:lock> LOCKED")
 
-        assert alerts.may_be_off_the_sign
+        assert alerts.sign_may_not_match
 
     async def test_an_alert_replaced_and_never_put_back_is_remembered(
         self, wired, monkeypatch
@@ -992,7 +992,7 @@ class TestWritingPicturesUnderAnAlert:
             await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
 
         assert alerts.active is not None and alerts.active.message == "FIRE"
-        assert alerts.may_be_off_the_sign
+        assert alerts.sign_may_not_match
 
     async def test_an_alert_replaced_by_one_with_a_picture_leaves_nothing_to_remember(
         self, wired
@@ -1003,7 +1003,69 @@ class TestWritingPicturesUnderAnAlert:
         await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
 
         assert alerts.active is not None and alerts.active.message == "<icon:moon> RAIN"
-        assert not alerts.may_be_off_the_sign
+        assert not alerts.sign_may_not_match
+
+    async def test_a_cancelled_release_is_put_right_by_the_next_refresh(
+        self, wired, transport, monkeypatch
+    ):
+        # The release can reach the sign and be cancelled before the record
+        # says so, leaving the rotation showing under an alert still recorded.
+        # A sign that answers with its picture is no help there, so the next
+        # refresh puts the record back on the sign whatever it answered.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        with monkeypatch.context() as patched:
+            patched.setattr(alerts._controller, "clear_priority", cancelled)
+            with pytest.raises(asyncio.CancelledError):
+                await alerts.release()
+
+        assert alerts.active is not None
+        assert alerts.sign_may_not_match
+
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport) == []
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+        assert not alerts.sign_may_not_match
+
+    async def test_a_cancelled_first_alert_is_taken_off_by_the_next_refresh(
+        self, wired, transport, monkeypatch
+    ):
+        # The write can reach the sign and be cancelled before the alert is
+        # recorded, leaving an alert on the display that the service knows
+        # nothing about and nothing would ever release. The next refresh makes
+        # the sign match the record, which here means releasing it.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        with monkeypatch.context() as patched:
+            patched.setattr(alerts._controller, "write_priority", cancelled)
+            with pytest.raises(asyncio.CancelledError):
+                await alerts.raise_alert("FIRE", mode="HOLD")
+
+        assert alerts.active is None
+        assert alerts.sign_may_not_match
+
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        await _refresh_and_reassert(registry, alerts)
+
+        writes = priority_writes(transport)
+        assert writes and all(is_release(write) for write in writes)
+        assert not alerts.sign_may_not_match
 
     async def test_the_same_alert_raised_again_is_written_while_it_may_be_off(
         self, wired, transport
@@ -1014,14 +1076,14 @@ class TestWritingPicturesUnderAnAlert:
         # be suppressed, and clear the flag with the sign still missing it.
         _, alerts = wired
         await alerts.raise_alert("FIRE", mode="HOLD")
-        alerts._may_be_off_the_sign = True
+        alerts._sign_may_not_match = True
         transport.clear()
 
         await alerts.raise_alert("FIRE", mode="HOLD")
 
         takeovers = [write for write in priority_writes(transport) if not is_release(write)]
         assert len(takeovers) == 1
-        assert not alerts.may_be_off_the_sign
+        assert not alerts.sign_may_not_match
 
     async def test_a_put_back_that_lands_leaves_nothing_to_remember(
         self, wired, transport
@@ -1033,7 +1095,7 @@ class TestWritingPicturesUnderAnAlert:
         await add(registry, "door", "<icon:lock> LOCKED")
 
         assert picture_writes(transport)
-        assert not alerts.may_be_off_the_sign
+        assert not alerts.sign_may_not_match
 
     async def test_a_put_back_that_fails_does_not_replace_the_real_failure(
         self, wired, transport, monkeypatch, caplog
@@ -1066,7 +1128,7 @@ class TestWritingPicturesUnderAnAlert:
         # And it is remembered, because the refresh leaves the alert alone on a
         # sign that answers it kept its memory, and that answer says nothing
         # about an alert this service took off it itself.
-        assert alerts.may_be_off_the_sign
+        assert alerts.sign_may_not_match
 
     async def test_an_alert_that_never_went_back_is_re_asserted_on_an_intact_sign(
         self, wired, transport
@@ -1074,7 +1136,7 @@ class TestWritingPicturesUnderAnAlert:
         registry, alerts = wired
         await add(registry, "door", "<icon:lock> LOCKED")
         await alerts.raise_alert("FIRE", mode="HOLD")
-        alerts._may_be_off_the_sign = True
+        alerts._sign_may_not_match = True
         rows = icons.resolve("lock", None)
         transport.clear()
         transport.replies.append(picture_reply(b"6", list(rows)))
@@ -1084,7 +1146,7 @@ class TestWritingPicturesUnderAnAlert:
         assert picture_writes(transport) == []
         takeovers = [write for write in priority_writes(transport) if not is_release(write)]
         assert len(takeovers) == 1
-        assert not alerts.may_be_off_the_sign
+        assert not alerts.sign_may_not_match
 
     async def test_an_alert_that_expired_while_lifted_is_not_put_back(
         self, wired, transport, clock
