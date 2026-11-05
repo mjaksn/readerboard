@@ -593,6 +593,13 @@ class AlertService:
                 # never wrote down, and the picture below would be lost under it
                 # exactly as it would under an alert it does know about.
                 # Unforced, so it is suppressed when the file is already free.
+                #
+                # An alert being replaced is off the sign from here until a
+                # write lands, this one's or the old one's put back, exactly as
+                # under :meth:`lifted`. Set before the release for the same
+                # reason, and cleared only by that write.
+                if replaced is not None:
+                    self._may_be_off_the_sign = True
                 await self._controller.clear_priority()
 
             try:

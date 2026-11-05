@@ -973,6 +973,38 @@ class TestWritingPicturesUnderAnAlert:
 
         assert alerts.may_be_off_the_sign
 
+    async def test_an_alert_replaced_and_never_put_back_is_remembered(
+        self, wired, monkeypatch
+    ):
+        # Replacing an alert with one that brings a picture hands the sign back
+        # first, and the alert service does that release itself rather than
+        # through lifted(). When neither the new alert nor the old one's put-back
+        # lands, the old one is still recorded and is off the sign.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(alerts._controller, "write_priority", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+
+        assert alerts.active is not None and alerts.active.message == "FIRE"
+        assert alerts.may_be_off_the_sign
+
+    async def test_an_alert_replaced_by_one_with_a_picture_leaves_nothing_to_remember(
+        self, wired
+    ):
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+
+        assert alerts.active is not None and alerts.active.message == "<icon:moon> RAIN"
+        assert not alerts.may_be_off_the_sign
+
     async def test_the_same_alert_raised_again_is_written_while_it_may_be_off(
         self, wired, transport
     ):
