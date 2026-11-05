@@ -104,6 +104,7 @@ jobs:
       # is the only thing that runs the repaint and the renaming behind it. And
       # the response panel is asked for a picture, which is the one place the
       # panel answers a source of its own rather than leaving it to Qt.
+      #
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on

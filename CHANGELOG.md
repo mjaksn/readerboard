@@ -204,8 +204,8 @@ take under half of it. **Read the Changed section before upgrading.**
   next start, like any other change to the file pool.
 
   A picture file takes 69 bytes of the sign's memory pool, measured on a BetaBrite
-  Classic whose whole pool is 5482, so 16 is comfortable alongside the default
-  slots and variables and 32 is about the ceiling.
+  Classic whose whole pool is 5482. 32 is the most there are picture files for,
+  and even that fits alongside the default slots and variables.
 
 ### Changed
 
