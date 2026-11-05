@@ -953,6 +953,26 @@ class TestWritingPicturesUnderAnAlert:
 
         assert alerts.may_be_off_the_sign
 
+    async def test_a_release_that_is_cancelled_is_remembered(
+        self, wired, transport, monkeypatch
+    ):
+        # The release runs in a worker thread, so cancelling the task awaiting
+        # it can still let it reach the sign. The alert may be off by then, and
+        # nothing after this point runs to say so.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(alerts._controller, "clear_priority", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert alerts.may_be_off_the_sign
+
     async def test_a_put_back_that_lands_leaves_nothing_to_remember(
         self, wired, transport
     ):

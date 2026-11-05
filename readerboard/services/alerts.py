@@ -392,6 +392,15 @@ class AlertService:
         """
         lift = _Lift()
         async with self._lock:
+            # Off the sign from the release on, until a put-back lands, which is
+            # what clears it. Set before the release rather than after it: a
+            # cancellation while the release is under way can still let it reach
+            # the sign, since the write runs in a worker thread, and must not
+            # leave the alert off with nothing to say so. See
+            # :attr:`may_be_off_the_sign`.
+            if self._state.alert is not None:
+                self._may_be_off_the_sign = True
+
             # Unconditional, and unforced. See the docstring: what is recorded
             # here is not what the sign is holding, and the release costs one
             # write per process because the controller remembers it.
@@ -404,9 +413,6 @@ class AlertService:
                 yield lift
                 return
 
-            # Off the sign from here until a put-back lands, which is what
-            # clears it. See :attr:`may_be_off_the_sign`.
-            self._may_be_off_the_sign = True
             try:
                 yield lift
             except BaseException:
