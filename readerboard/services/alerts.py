@@ -401,13 +401,21 @@ class AlertService:
             # the sign, since the write runs in a worker thread, and must not
             # leave the alert off with nothing to say so. See
             # :attr:`sign_may_not_match`.
+            #
+            # The release is forced if the flag was already set, because the
+            # controller's record of the file may then be wrong: an earlier
+            # write that reached the sign without being recorded would leave it
+            # believing the file is free, and suppress the release the picture
+            # below depends on.
+            force = self._sign_may_not_match
             if self._state.alert is not None:
                 self._sign_may_not_match = True
 
-            # Unconditional, and unforced. See the docstring: what is recorded
-            # here is not what the sign is holding, and the release costs one
-            # write per process because the controller remembers it.
-            await self._controller.clear_priority()
+            # Unconditional, and unforced unless in doubt. See the docstring:
+            # what is recorded here is not what the sign is holding, and the
+            # release costs one write per process because the controller
+            # remembers it.
+            await self._controller.clear_priority(force=force)
 
             # Read under the lock, after the release. Nothing can have taken the
             # sign over in between, so an alert found here is one to put back.
@@ -600,10 +608,12 @@ class AlertService:
                 # An alert being replaced is off the sign from here until a
                 # write lands, this one's or the old one's put back, exactly as
                 # under :meth:`lifted`. Set before the release for the same
-                # reason, and cleared only by that write.
+                # reason, and cleared only by that write. Forced if it was
+                # already set, for the reason given in :meth:`lifted`.
+                force = self._sign_may_not_match
                 if replaced is not None:
                     self._sign_may_not_match = True
-                await self._controller.clear_priority()
+                await self._controller.clear_priority(force=force)
 
             try:
                 await render_message.draw_icons()

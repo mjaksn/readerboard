@@ -1067,6 +1067,25 @@ class TestWritingPicturesUnderAnAlert:
         assert writes and all(is_release(write) for write in writes)
         assert not alerts.sign_may_not_match
 
+    async def test_a_picture_in_doubt_is_written_after_a_release_that_is_sent(
+        self, wired, transport
+    ):
+        # A write that reached the sign without being recorded leaves the
+        # controller believing the priority file is free when the sign may be
+        # holding an alert. The release a picture write depends on must then go
+        # out rather than be suppressed, or the picture lands under the alert
+        # and the sign drops it.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        await alerts.release()
+        alerts._sign_may_not_match = True
+        transport.clear()
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert [is_release(write) for write in priority_writes(transport)][:1] == [True]
+        assert picture_writes(transport)
+
     async def test_the_same_alert_raised_again_is_written_while_it_may_be_off(
         self, wired, transport
     ):
