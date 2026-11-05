@@ -97,13 +97,13 @@ top. Picture files are listed there too, and those are drawn rather than
 written out: a row of `0313130` says nothing a person can check, and the same
 seven rows as dots are either an arrow or they are not. A message calling a
 picture reads as its size, since a bitmap has no reading in a line of text. The
-four are sections rather than tabs on purpose. A write that
-changes something nobody has open changes nothing a person can see, which is the
-opposite of what this tool is for, so all four are on one scrolling column and a
-write to any of them is visible where it lands. Each header carries its own row
-count, so a section shut to make room still says that it gained a row, and the
-three that are empty until a command arrives start shut and open themselves the
-first time they hold something.
+four are sections rather than tabs on purpose. A write that changes something
+nobody has open changes nothing a person can see, which is the opposite of what
+this tool is for, so all four are on one scrolling column and a write to any of
+them is visible where it lands. Each header carries its own row count, so a
+section shut to make room still says that it gained a row, and the three that
+are empty until a command arrives start shut and open themselves the first time
+they hold something.
 
 The notes are the part worth having. A real sign accepts a write to an
 unconfigured file, or a message longer than the file it goes in, and shows you
