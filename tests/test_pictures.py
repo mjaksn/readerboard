@@ -1656,7 +1656,13 @@ class TestAcrossARestart:
         registry = SlotRegistry(controller, layout, store, state, now=clock)
         await registry.restore()
         await add(registry, "a", "<icon:sun>")
-        monkeypatch.delitem(icons.ICONS, "sun")
+        # A copy without it, rather than deleting it from the real table: undoing
+        # a delitem puts the key back at the end of the dict, which moved a
+        # weather icon behind every other group and failed the listing order
+        # test in tests/test_api.py whenever this ran first.
+        monkeypatch.setattr(
+            icons, "ICONS", {name: icon for name, icon in icons.ICONS.items() if name != "sun"}
+        )
 
         with caplog.at_level(logging.WARNING):
             again = SlotRegistry(controller, layout, store, state, now=clock)
