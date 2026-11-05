@@ -111,18 +111,20 @@ async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) ->
     believes about it holds.
 
     The refresh puts the slots back, and it puts the alert back too when it had
-    to hand the sign over to write a picture. It says which, and that is why
-    this asks rather than always re-asserting: re-asserting an alert that is
-    already back on the priority file restarts it on the display for nothing,
-    which is a visible flicker every refresh interval for as long as the alert
-    is up. In the cases where the refresh did not touch the priority file, which
-    are a service with no icons and a refresh whose picture read found the sign
-    still holding what it was given, the re-assert runs. In the first it is the
-    only thing that would put the alert on a sign that came back blank. In the
-    second it restarts an alert the sign most likely still holds, because the
-    read asks about a picture file and not about the priority file.
+    to hand the sign over to write a picture. It says whether the alert can be
+    left alone, and that is why this asks rather than always re-asserting:
+    re-asserting an alert the sign already holds restarts it on the display for
+    nothing, which is a visible flicker every refresh interval for as long as
+    the alert is up. It can be left alone after that hand-back, and after a
+    picture read that found the sign still holding what it was given, since the
+    sign keeps its priority file exactly as long as it keeps everything else.
+    The re-assert runs in the remaining case, a re-push that never went near the
+    priority file, which is a service with no icons; there it is the only thing
+    that would put the alert on a sign that came back blank. It also runs when
+    the alert service says an alert it lifted for a picture write never went
+    back, which no answer from the sign can speak for.
     """
-    if not await registry.refresh():
+    if not await registry.refresh() or alerts.may_be_off_the_sign:
         await alerts.reassert()
 
 

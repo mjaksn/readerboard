@@ -341,15 +341,20 @@ declines to write them again.
   it is the opposite. A refresh that hands the sign back to write a picture ends
   by writing the alert on again, and the sign restarts an alert when it takes
   one, so re-asserting it straight after restarts it a second time for nothing.
-  `SlotRegistry.refresh` and `SlotRegistry.reboot` each report whether they put
-  it back, and `_refresh_and_reassert` in `app.py` asks before it acts. The
-  re-assert still runs whenever the refresh did not touch the priority file, and
-  there are two such cases. One is a service with no icons, which never hands
-  the sign back and so never goes near the priority file; without the re-assert
-  a sign power cycled mid-alert would stay blank. The other is a refresh whose
-  picture read found the sign still holding what it was given, where the
-  re-assert restarts an alert the sign most likely still holds, because the read
-  asks about a picture file and not about the priority file.
+  `SlotRegistry.refresh` reports whether the alert can be left alone, and
+  `SlotRegistry.reboot` whether it put the alert back, and the callers in
+  `app.py` and `routes.py` ask before they act. A refresh whose picture read
+  found the sign intact reports it can be left alone too, because the sign keeps
+  its priority file exactly as long as its other files: unplugged for half a
+  minute mid-alert on 2026-11-05, it came back showing the alert. The case that
+  still needs the re-assert is a service with no icons, which never hands the
+  sign back and never asks it anything; without it a sign power cycled
+  mid-alert would stay blank. So does an alert the service lifted for a picture
+  and failed to put back, which no answer from the sign can speak for:
+  `AlertService.may_be_off_the_sign` records it. What this gives up is an alert
+  raised while the sign is switched off and back on within a refresh interval:
+  the write is lost, the read then finds the sign intact, and nothing writes it
+  again. A message written in that window has always had the same gap.
 - **The paths carry no version prefix.** They read `/v2` until the second,
   older surface beside them was removed. With one surface left, a prefix that
   distinguishes it from nothing is a word every caller writes and no reader

@@ -1110,6 +1110,13 @@ first, and re-pushes only when the answer says the file is empty, does not parse
 not come. A power cycle takes the sign's memory or leaves it alone, so one file answers for
 the whole sign.
 
+**The priority file is part of that, measured on 2026-11-05.** With a message calling an
+icon in the rotation and an alert up, the service was stopped so that nothing could write
+to the sign, and the sign was unplugged for about thirty seconds with the adapter left
+powered. It came back showing the alert. So a picture that answers says the alert is still
+there too, and the refresh leaves it alone; writing it again, which it did until then,
+restarted the alert on the display once a refresh interval for as long as it was up.
+
 It is `J` rather than one of the five above because of what the reply shape gives for
 nothing: an unwritten picture answers with no rows at all, so written or not needs no
 comparison against what the service believes is there. Whether the sign stores a bitmap

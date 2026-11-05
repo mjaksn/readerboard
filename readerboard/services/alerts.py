@@ -185,6 +185,25 @@ class AlertService:
         self._now = now
         self._rendering = rendering
         self._lock = asyncio.Lock()
+        # Set when an alert lifted for a picture write could not be put back,
+        # and cleared by the next write that lands on the priority file. The
+        # refresh leaves the alert alone when the sign answers that it kept its
+        # memory, so without this nothing would put back an alert the sign never
+        # got back: see :attr:`may_be_off_the_sign`.
+        self._may_be_off_the_sign = False
+
+    @property
+    def may_be_off_the_sign(self) -> bool:
+        """Whether the alert may have been lifted off the sign and not put back.
+
+        The refresh asks the sign whether it still holds a picture, and leaves
+        the alert alone when it does, because the priority file goes with the
+        rest of the sign's memory. That says nothing about an alert this
+        service took off the sign itself and then failed to put back, which
+        :meth:`_put_back_quietly` swallows. So the refresh's caller re-asserts
+        when this is set, whatever the sign answered.
+        """
+        return self._may_be_off_the_sign
 
     def set_rendering(self, rendering: Rendering) -> None:
         """Render alerts through the registry, so that they can call variables."""
@@ -274,17 +293,22 @@ class AlertService:
         picture to write would sit blank until the alert's deadline passed, and
         an alert with no deadline would sit blank indefinitely.
 
-        So the caller asks first. :meth:`SlotRegistry.refresh` and
-        :meth:`SlotRegistry.reboot` each report whether they put the alert back,
-        and this is for the case where they did not. Calling it anyway is not
-        harmless: the write is forced, so it would restart an alert already back
-        on the display, once per refresh interval for as long as the alert is up.
+        So the caller asks first. :meth:`SlotRegistry.refresh` reports whether
+        the alert can be left alone, which it can when the refresh put it back
+        or the sign answered that it kept its memory, and
+        :meth:`SlotRegistry.reboot` whether it put the alert back; this is for
+        the case where neither holds, or :attr:`may_be_off_the_sign` says an
+        alert lifted for a picture never went back. Calling it anyway is not
+        harmless: the write is forced, so it would restart an alert the sign
+        already holds, once per refresh interval for as long as the alert is up.
 
         Returns whether there was an alert to re-assert.
         """
         async with self._rendering(None) as render_message, self._lock:
             alert = self._state.alert
             if alert is None:
+                # Released since, so there is nothing left to be off the sign.
+                self._may_be_off_the_sign = False
                 return False
             if not alert.message:
                 # The same rule :meth:`restore` applies, and here because an
@@ -393,8 +417,9 @@ class AlertService:
         Never raises. Every caller is on a rollback path, so anything raised
         here would arrive in place of the failure that brought us to it, and a
         caller told the sign is unreachable when its pool was actually full has
-        been told the wrong thing about its own request. :meth:`reassert` puts
-        the alert back on its own timer, so the sign is repaired either way.
+        been told the wrong thing about its own request. A failure here sets
+        :attr:`may_be_off_the_sign`, and the next refresh re-asserts the alert
+        because of it, so the sign is repaired either way.
 
         The caller reverts the pool before calling this, so the alert is
         rendered against the files it had when it was up rather than against the
@@ -410,6 +435,7 @@ class AlertService:
             # Anything at all, for the reason above. Not BaseException: a
             # cancellation is the caller going away and has to keep travelling.
             logger.exception("could not put the lifted alert back on the sign")
+            self._may_be_off_the_sign = True
             return False
 
     async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> bool:
@@ -424,8 +450,9 @@ class AlertService:
         sign has been handed back, this is what puts it right, and a call that
         reported success over a failure here would leave the rotation showing
         with an alert still recorded as holding the display and nothing to say
-        so until the periodic re-assert. The rollback paths want the opposite
-        and go through :meth:`_put_back_quietly`.
+        so: the refresh leaves the alert alone on a sign that answers it kept
+        its memory. The rollback paths want the opposite and go through
+        :meth:`_put_back_quietly`, which records the failure instead.
 
         The four early returns are decisions rather than failures: the alert is
         not this one any more, it has expired, it has no message, or it no
@@ -642,6 +669,10 @@ class AlertService:
 
     async def _write(self, alert: AlertState, body: bytes, *, force: bool = False) -> bool:
         """Put an alert on the priority file. Returns False if the write was suppressed."""
-        return await self._controller.write_priority(
+        written = await self._controller.write_priority(
             body, mode=MODE_BY_NAME[alert.mode].value, force=force
         )
+        # Suppressed or not, the controller now believes the sign holds this,
+        # which is as much as any write here can say.
+        self._may_be_off_the_sign = False
+        return written

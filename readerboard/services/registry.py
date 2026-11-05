@@ -684,13 +684,16 @@ class SlotRegistry:
         Asking costs a message held still nothing at all and a scrolling one
         about half a second of stall, measured on 2026-09-12.
 
-        Returns whether an alert was put back on the sign as part of it, which
-        the caller needs so that it does not write the alert a second time. See
-        :meth:`_rewrite_all`. Nothing is put back when nothing was re-pushed, so
-        the caller re-asserts the alert on that path exactly as it would have
-        before, which restarts an alert the sign most likely still holds: what
-        the sign holds in its priority file is a separate question from what it
-        holds in a picture file, and this does not ask it.
+        Returns whether the caller can leave the alert alone, which it needs so
+        that it does not write the alert a second time: the sign restarts an
+        alert on the display whenever it takes one. That is so when an alert was
+        put back on the sign as part of the re-push, see :meth:`_rewrite_all`,
+        and when the sign answered that it still holds its picture. The second
+        rests on a measurement: a sign unplugged for half a minute in the middle
+        of an alert came back showing it, on 2026-11-05, so the priority file
+        goes with the rest of the sign's memory, and one answer stands in for it
+        as it does for every other file. Re-asserting there restarted the alert
+        once a refresh interval for as long as it was up.
         """
         async with self._lock:
             if await self._sign_still_holds_its_pictures():
@@ -698,7 +701,7 @@ class SlotRegistry:
                     "the sign still holds the picture it was given, so nothing was "
                     "re-pushed"
                 )
-                return False
+                return True
 
             self._controller.forget_sign_contents()
             put_the_alert_back = await self._rewrite_all()

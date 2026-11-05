@@ -957,6 +957,28 @@ class TestWritingPicturesUnderAnAlert:
             await add(registry, "door", "<icon:lock> LOCKED")
 
         assert "could not put the lifted alert back" in caplog.text
+        # And it is remembered, because the refresh leaves the alert alone on a
+        # sign that answers it kept its memory, and that answer says nothing
+        # about an alert this service took off it itself.
+        assert alerts.may_be_off_the_sign
+
+    async def test_an_alert_that_never_went_back_is_re_asserted_on_an_intact_sign(
+        self, wired, transport
+    ):
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        alerts._may_be_off_the_sign = True
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport) == []
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+        assert not alerts.may_be_off_the_sign
 
     async def test_an_alert_that_expired_while_lifted_is_not_put_back(
         self, wired, transport, clock
@@ -997,9 +1019,10 @@ class TestNotWritingTheAlertTwice:
     alert restarts it a second time for nothing, and because the refresh runs on
     a timer it is a flicker every interval for as long as the alert is up.
 
-    Hence the report. :meth:`SlotRegistry.refresh` and
-    :meth:`SlotRegistry.reboot` each answer whether they put the alert back, and
-    ``app.py`` and the reboot route re-assert only when they did not. The case
+    Hence the report. :meth:`SlotRegistry.refresh` answers whether the alert
+    can be left alone, which includes having put it back, and
+    :meth:`SlotRegistry.reboot` whether it put it back, and ``app.py`` and the
+    reboot route re-assert only when the answer is no. The case
     where they did not is real and is the one this must not break: a service
     with no icons never hands the sign back, so nothing else would put the alert
     on a sign that was power cycled mid-alert.
@@ -1494,13 +1517,14 @@ class TestAskingBeforeRePushing:
         await registry.refresh()
         assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
 
-    async def test_the_alert_is_still_re_asserted_when_nothing_was_re_pushed(
+    async def test_the_alert_is_left_alone_when_the_sign_kept_its_picture(
         self, wired, transport
     ):
-        # What the sign holds in its priority file is a separate question from
-        # what it holds in a picture file, and this does not ask it. So the skip
-        # leaves the alert to the caller exactly as a re-push without a
-        # hand-back would, and a sign that lost only its alert is still repaired.
+        # The sign keeps its priority file exactly as long as its other files,
+        # measured on 2026-11-05 by unplugging it mid-alert for half a minute.
+        # So a sign that answers with its picture still holds the alert, and
+        # writing it again would only restart it on the display, once a refresh
+        # interval for as long as it is up.
         registry, alerts = wired
         await add(registry, "door", "<icon:lock> LOCKED")
         await alerts.raise_alert("FIRE", mode="HOLD")
@@ -1511,6 +1535,22 @@ class TestAskingBeforeRePushing:
         await _refresh_and_reassert(registry, alerts)
 
         assert picture_writes(transport) == []
+        assert priority_writes(transport) == []
+
+    async def test_the_alert_is_put_back_when_the_sign_did_not_answer(
+        self, wired, transport
+    ):
+        # No answer is not an answer that the sign is intact, so the re-push
+        # runs, and it hands the sign back for the picture and puts the alert on
+        # again: once, and not a second time from the caller.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport)
         takeovers = [write for write in priority_writes(transport) if not is_release(write)]
         assert len(takeovers) == 1
 
