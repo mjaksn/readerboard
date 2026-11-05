@@ -185,11 +185,13 @@ class AlertService:
         self._now = now
         self._rendering = rendering
         self._lock = asyncio.Lock()
-        # Set when an alert lifted for a picture write could not be put back,
-        # and cleared by the next write that lands on the priority file. The
-        # refresh leaves the alert alone when the sign answers that it kept its
-        # memory, so without this nothing would put back an alert the sign never
-        # got back: see :attr:`may_be_off_the_sign`.
+        # Set the moment an alert is lifted off the sign for a picture write, and
+        # cleared only by a write that lands on the priority file. So any way of
+        # not putting it back leaves it set: a failure, a failure swallowed on a
+        # rollback, or a cancellation. The refresh leaves the alert alone when
+        # the sign answers that it kept its memory, so without this nothing would
+        # put back an alert the sign never got back: see
+        # :attr:`may_be_off_the_sign`.
         self._may_be_off_the_sign = False
 
     @property
@@ -199,9 +201,10 @@ class AlertService:
         The refresh asks the sign whether it still holds a picture, and leaves
         the alert alone when it does, because the priority file goes with the
         rest of the sign's memory. That says nothing about an alert this
-        service took off the sign itself and then failed to put back, which
-        :meth:`_put_back_quietly` swallows. So the refresh's caller re-asserts
-        when this is set, whatever the sign answered.
+        service took off the sign itself for a picture and did not put back,
+        whether the put-back failed, was swallowed by :meth:`_put_back_quietly`,
+        or was cancelled. So the refresh's caller re-asserts when this is set,
+        whatever the sign answered.
         """
         return self._may_be_off_the_sign
 
@@ -401,6 +404,9 @@ class AlertService:
                 yield lift
                 return
 
+            # Off the sign from here until a put-back lands, which is what
+            # clears it. See :attr:`may_be_off_the_sign`.
+            self._may_be_off_the_sign = True
             try:
                 yield lift
             except BaseException:
@@ -417,9 +423,9 @@ class AlertService:
         Never raises. Every caller is on a rollback path, so anything raised
         here would arrive in place of the failure that brought us to it, and a
         caller told the sign is unreachable when its pool was actually full has
-        been told the wrong thing about its own request. A failure here sets
-        :attr:`may_be_off_the_sign`, and the next refresh re-asserts the alert
-        because of it, so the sign is repaired either way.
+        been told the wrong thing about its own request. A failure here leaves
+        :attr:`may_be_off_the_sign` set, and the next refresh re-asserts the
+        alert because of it, so the sign is repaired either way.
 
         The caller reverts the pool before calling this, so the alert is
         rendered against the files it had when it was up rather than against the
@@ -435,7 +441,6 @@ class AlertService:
             # Anything at all, for the reason above. Not BaseException: a
             # cancellation is the caller going away and has to keep travelling.
             logger.exception("could not put the lifted alert back on the sign")
-            self._may_be_off_the_sign = True
             return False
 
     async def _put_back(self, alert: AlertState, render: Callable[..., bytes]) -> bool:

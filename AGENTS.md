@@ -350,11 +350,13 @@ declines to write them again.
   still needs the re-assert is a service with no icons, which never hands the
   sign back and never asks it anything; without it a sign power cycled
   mid-alert would stay blank. So does an alert the service lifted for a picture
-  and failed to put back, which no answer from the sign can speak for:
-  `AlertService.may_be_off_the_sign` records it. What this gives up is an alert
-  raised while the sign is switched off and back on within a refresh interval:
-  the write is lost, the read then finds the sign intact, and nothing writes it
-  again. A message written in that window has always had the same gap.
+  and did not put back, which no answer from the sign can speak for:
+  `AlertService.may_be_off_the_sign` is set by the lift and cleared only by a
+  priority write that lands, so a failure or a cancellation leaves it set. What
+  this gives up is an alert raised while the sign is switched off and back on
+  within a refresh interval: the write is lost, the read then finds the sign
+  intact, and nothing writes it again. A message written in that window has
+  always had the same gap.
 - **The paths carry no version prefix.** They read `/v2` until the second,
   older surface beside them was removed. With one surface left, a prefix that
   distinguishes it from nothing is a word every caller writes and no reader

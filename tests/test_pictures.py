@@ -929,6 +929,42 @@ class TestWritingPicturesUnderAnAlert:
         with pytest.raises(TransportError, match="after the picture"):
             await add(registry, "door", "<icon:lock> LOCKED")
 
+        # Reported, and remembered too, so the next refresh puts it back even
+        # when the sign answers that it kept its memory.
+        assert alerts.may_be_off_the_sign
+
+    async def test_a_put_back_that_is_cancelled_is_remembered(
+        self, wired, transport, monkeypatch
+    ):
+        # A cancellation is no Exception, so nothing swallows it or logs it on
+        # the way out. The alert is off the sign all the same, and an intact
+        # sign would otherwise never be asked to take it back.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(alerts._controller, "write_priority", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert alerts.may_be_off_the_sign
+
+    async def test_a_put_back_that_lands_leaves_nothing_to_remember(
+        self, wired, transport
+    ):
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert picture_writes(transport)
+        assert not alerts.may_be_off_the_sign
+
     async def test_a_put_back_that_fails_does_not_replace_the_real_failure(
         self, wired, transport, monkeypatch, caplog
     ):
