@@ -856,7 +856,7 @@ class MainWindow(QMainWindow):
         self.api_key.setToolTip(explanation)
 
         health = QPushButton("Health")
-        health.setToolTip("GET /health, which like every read needs no key")
+        health.setToolTip("GET /health, which needs no key")
         health.clicked.connect(lambda: self.run(catalogue.BY_ID["health"]))
 
         history = QPushButton("History")

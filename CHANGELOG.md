@@ -27,6 +27,19 @@ library, and the names inside it may move without that being a breaking change.
   one three second stall every fifteen minutes in return, rather than once for
   the life of the process; at the default refresh interval that is a stall on
   every refresh.
+- **An alert no longer restarts on the display at every refresh while a
+  message calls an icon.** When the refresh's picture read found the sign
+  intact, nothing was pushed, and the alert was then written again anyway,
+  which the sign takes as a cue to start it over. A sign unplugged for half a
+  minute mid-alert came back showing it, so the priority file goes with the rest
+  of the sign's memory and the read answers for it too; the alert is now left
+  alone. A service with no icons re-asserts the alert every refresh as before.
+  What this gives up is an alert raised while the sign is switched off and back
+  on within one refresh interval: the write is lost, the read then finds the
+  sign intact, and nothing writes the alert again until it is raised again. A
+  message written in that window has always had the same gap.
+- **`scripts/dump_openapi.py --help` prints its usage.** It took any argument
+  as the file to write, so it wrote the description to a file called `--help`.
 
 ## [0.8.1] - 2026-11-04
 

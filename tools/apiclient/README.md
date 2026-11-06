@@ -40,12 +40,12 @@ the things that would need a quarter of the window to show properly, a set of
 markup tokens or a call's full detail, open as dialogs instead.
 
 **Nothing is hardcoded.** The markup tokens, value tokens, display modes, control
-commands, icons and icon tints all start empty. Press the button beside a set and the client
-calls the endpoint for it; the row then says how many arrived, from which
-endpoint and when, and a View button opens the list. Only then do the fields that
-use that set offer it: before that they are free text, and the button that
-inserts a markup token into a message is disabled and says which button to press
-first.
+commands, icons and icon tints all start empty. Press the button beside a set and
+the client calls the endpoint for it; the row then says how many arrived, from
+which endpoint and when, and a View button opens the list. Only then do the
+fields that use that set offer it: before that they are free text, and the button
+that inserts a markup token into a message is disabled and says which button to
+press first.
 
 Load all does the lot from one press. It is a chain rather than a handful of
 requests, because the client keeps one call in flight and would turn the rest
@@ -106,12 +106,12 @@ a tint, and the tint goes inside the tag's closing bracket. Which colours a tint
 may be is loaded like everything else.
 
 **The key boxes offer what is registered, and say when what you typed is not.**
-Any form taking a slot key or a variable name has a **Load keys** button beside the
-box, which calls `GET /slots` or `GET /variables` and offers what came back. What you had already typed is
-kept if it is among them and cleared if it is not, because the list is the answer
-to what exists: a key missing from it is one the read would 404 on and the delete
-too. Nothing is selected for you either way, so Load followed by Send cannot act
-on a slot you never named.
+Any form taking a slot key or a variable name has a **Load keys** button beside
+the box, which calls `GET /slots` or `GET /variables` and offers what came back.
+What you had already typed is kept if it is among them and cleared if it is not,
+because the list is the answer to what exists: a key missing from it is one the
+read would 404 on and the delete too. Nothing is selected for you either way, so
+Load followed by Send cannot act on a slot you never named.
 
 The whitespace around a key is trimmed, both when it is compared with that list
 and when Send is pressed, and the box is rewritten to the trimmed key in both

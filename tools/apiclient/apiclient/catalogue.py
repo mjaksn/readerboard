@@ -545,7 +545,11 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/health",
         summary="Is the service talking to the sign",
         formatter="health",
-        note="Needs no API key. Neither does any read; only the writes carry one.",
+        note=(
+            "Needs no API key, and nor does any read of the service's own record. "
+            "GET /sign/information is the exception: it puts a question to the sign, "
+            "and carries the key like a write."
+        ),
     ),
 )
 

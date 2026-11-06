@@ -12,19 +12,21 @@ settled three of the four behavioural questions that were open then. A second se
 the one measurement still outstanding, which a later run then put in doubt. A third, on
 2026-09-12, took two questions that came out of the fifth and then three more, and
 corrected one of its own answers on a second run that day as well as one given on
-2026-09-09. All eleven are listed at the end, with what each turned out to be.
+2026-09-09. All eleven are listed under "What the spike has settled", with what each
+turned out to be.
 
 One measurement here came from no session at all. On 2026-09-13, running the service
 against the sign showed that a picture written while an alert is up is not taken, which
 nobody had thought to ask; it is recorded with the other picture findings rather than in
 that list, because it was found by being bitten by it rather than by asking.
 
-That session also answered several things nobody had thought to doubt, each recorded below
-beside the measurement: a memory configuration does not display unless a bare `E$` clear
-precedes it, releasing the priority file needs a bare write rather than an empty one, `E,`
-restarts the sign without erasing it, the sign's date carries no century, its speaker is a
-fixed-pitch buzzer, and twenty of the protocol's ways to draw text collapse into five on a
-display seven pixels high.
+The first session, on 2026-09-09, also answered several things nobody had thought to
+doubt, each recorded below beside the measurement: a memory configuration does not display
+unless a bare `E$` clear precedes it, releasing the priority file needs a bare write rather
+than an empty one, `E,` restarts the sign without erasing it, its speaker is a fixed-pitch
+buzzer, and twenty of the protocol's ways to draw text collapse into five on a display
+seven pixels high. That the sign's date carries no century was read from the document
+rather than measured, and is recorded below as well.
 
 `scripts/protocol_spike.py` re-proves the wire formats end to end. It is destructive, and
 it refuses to run without `--confirm-erase`. `scripts/string_file_spike.py` does the same
@@ -75,7 +77,7 @@ The format is `FTPSIZEQQQQ`, eleven characters per file:
 
 | Field | Width | Meaning |
 | --- | --- | --- |
-| `F` | 1 | File label. Any character 0x20 to 0x7E, though this service uses `A` to `Z`. |
+| `F` | 1 | File label. Any character 0x20 to 0x7E. This service uses `A` to `Z` for TEXT files, `a` to `z` for STRING files, and `6` to `9` and punctuation for picture files. |
 | `T` | 1 | File type: `A` TEXT, `B` STRING, `D` DOTS picture. |
 | `P` | 1 | `U` unlocked, `L` locked, meaning whether an infrared keyboard may edit it. |
 | `SIZE` | 4 | File size in bytes, as uppercase hex. |
@@ -401,10 +403,10 @@ Each was then drawn on the sign beside the character it is mapped from before th
 was written, because a mapping asserts an identity and a scan read wrongly would put a
 silently different glyph on the display.
 
-The remaining fourteen stay out on purpose. Codes B0H to B9H look like a Croatian or
-Serbian set, and the diacritics at BBH to BDH cannot be told apart at five dots by seven.
-Guessing one would be worse than leaving it out: an unmapped character is refused with a
-message saying so, while a wrongly mapped one is accepted and drawn.
+The remaining fourteen stay out on purpose. Codes AEH to B6H, B8H and B9H look like a
+Croatian or Serbian set, and the diacritics at BBH to BDH cannot be told apart at five dots
+by seven. Guessing one would be worse than leaving it out: an unmapped character is refused
+with a message saying so, while a wrongly mapped one is accepted and drawn.
 
 ### The twenty-four pictographs the document promises and the sign does not have
 
@@ -626,6 +628,38 @@ dim red, dim green, brown, orange and yellow.
   a scrolling one about half a second. So the stray dots belong to a picture read, and the
   blank may belong to the motion rather than to the read.
 
+Three questions were left open after the 2026-09-11 session, and one of them is now
+settled below. The session's memory configuration read and picture read were both cut
+short by the reader, which took one byte a poll over `socket://` until that was fixed, so
+how the memory configuration lists a picture and what the rest of a read reply holds were
+left unmeasured. And a picture between two runs of text too long for the display flashed
+on and off in HOLD while the text shifted; most likely HOLD showing the line in parts,
+which a rerun with a shorter line would confirm.
+
+**How the memory configuration lists a picture, measured 2026-09-12.** With the reader
+fixed, two configurations were read back after allocating picture files: both divided evenly
+into ordinary eleven-character entries, every allocated label appeared at an entry's first
+character, and every one of those entries carried `D` as its second, exactly like a TEXT or
+STRING file's entry. The size and colour-status fields were not checked against what was
+sent, so that half of the entry is still worth a look.
+
+What this settled for the service, and what it does now that it sends pictures:
+
+- **Allocate them as 8-colour.** Nothing else draws Table 22's full palette, and a
+  3-colour picture silently maps half the codes onto the other half.
+- **A picture is at most seven rows and, to stay still in HOLD, at most 80 columns.** A
+  taller one loses its lower rows without a word.
+- **A write must fit its allocation.** An overrun is not refused and not clipped; it draws
+  wrong.
+- **A picture can go in one transmission.** The pause Table 22 asks for is not needed, so
+  the controller's ordinary write path serves.
+- **A picture is not a live value.** Rewriting one blanks the display and restarts a
+  scroll, like rewriting a TEXT file and unlike a STRING. A picture that changes often
+  would flicker.
+- **A dangling call draws nothing**, as it does for a STRING, except as the first thing in
+  the message, where it draws its own label as a character; see "What an empty picture
+  call draws". Alerts can carry a picture.
+
 Three icons from a draft icon set were tried on 2026-09-12 and each drew as what it is,
 alone and beside the word it labels. That draft is not in this tree; the observation is
 recorded here so the session is not lost.
@@ -739,46 +773,16 @@ with the alert keeping the sign throughout, and the TEXT write in the run that p
 this finding landed too, since the message came back with its text intact and only its
 icons missing.
 
-Three questions were left open after that session, and one of them is now settled below.
-The session's memory configuration read and picture read were both cut short by the reader,
-which took one byte a poll over `socket://` until that was fixed, so how the memory
-configuration lists a picture and what the rest of a read reply holds were left unmeasured.
-And a picture between two runs of text too long for the display flashed on and off in HOLD
-while the text shifted; most likely HOLD showing the line in parts, which a rerun with a
-shorter line would confirm.
-
-**How the memory configuration lists a picture, measured 2026-09-12.** With the reader
-fixed, two configurations were read back after allocating picture files: both divided evenly
-into ordinary eleven-character entries, every allocated label appeared at an entry's first
-character, and every one of those entries carried `D` as its second, exactly like a TEXT or
-STRING file's entry. The size and colour-status fields were not checked against what was
-sent, so that half of the entry is still worth a look.
-
-What this settles for the service, if it ever sends pictures:
-
-- **Allocate them as 8-colour.** Nothing else draws Table 22's full palette, and a
-  3-colour picture silently maps half the codes onto the other half.
-- **A picture is at most seven rows and, to stay still in HOLD, at most 80 columns.** A
-  taller one loses its lower rows without a word.
-- **A write must fit its allocation.** An overrun is not refused and not clipped; it draws
-  wrong.
-- **A picture can go in one transmission.** The pause Table 22 asks for is not needed, so
-  the controller's ordinary write path would serve.
-- **A picture is not a live value.** Rewriting one blanks the display and restarts a
-  scroll, like rewriting a TEXT file and unlike a STRING. A picture that changes often
-  would flicker.
-- **A dangling call is invisible**, as it is for a STRING, and alerts can carry a picture.
-
 ## What the spike has settled
 
 The wire format questions are closed. Eleven behavioural ones have been opened and all
 eleven are settled. A session on 2026-09-09 answered three of the four open then; a second
 on 2026-09-11 answered the fourth along with a fifth added in between; and 2026-09-12 took
 two that came out of the fifth, then three more, corrected one of its own answers on a
-second run that day, and opened an eleventh and answered it. What each turned out to be is recorded here rather than deleted,
-because the next person will want to know it was answered on hardware and not merely
-assumed, and because two of these answers were wrong the first time and the record of how
-is worth more than the answer alone.
+second run that day, and opened an eleventh and answered it. What each turned out to be is
+recorded here rather than deleted, because the next person will want to know it was
+answered on hardware and not merely assumed, and because two of these answers were wrong
+the first time and the record of how is worth more than the answer alone.
 
 The eleventh was opened and answered on 2026-09-12. It asks what a read costs the display,
 which two earlier runs had exercised without ever looking, and its answer decides whether
@@ -1106,6 +1110,13 @@ first, and re-pushes only when the answer says the file is empty, does not parse
 not come. A power cycle takes the sign's memory or leaves it alone, so one file answers for
 the whole sign.
 
+**The priority file is part of that, measured on 2026-11-05.** With a message calling an
+icon in the rotation and an alert up, the service was stopped so that nothing could write
+to the sign, and the sign was unplugged for about thirty seconds with the adapter left
+powered. It came back showing the alert. So a picture that answers says the alert is still
+there too, and the refresh leaves it alone; writing it again, which it did until then,
+restarted the alert on the display once a refresh interval for as long as it was up.
+
 It is `J` rather than one of the five above because of what the reply shape gives for
 nothing: an unwritten picture answers with no rows at all, so written or not needs no
 comparison against what the service believes is there. Whether the sign stores a bitmap
@@ -1119,14 +1130,17 @@ has settled" has the five rounds that separated those out. `F"` was not one of t
 measured: it is the same kind of command as the four special functions that were, and
 nothing suggests it differs, but nothing has shown it either.
 
-The frame builders exist, and the adapter is two-way: this sign answered all four of these
-reads through it on 2026-09-09, and answered them again during the soft reset check above,
-which read two text files back with `B` as well, and answered all four again on 2026-09-12
-with a TEXT file and a STRING file read back beside them. The refresh above is the first
-thing in the service to depend on that, and it depends on it softly: one read that does not
-come and it stops asking and re-pushes as it always did, until the link has been down and
-come back or fifteen minutes have passed. The rest of the reads are still available and
-still unused.
+The frame builders exist, and the adapter is two-way: this sign answered all four of
+these reads through it on 2026-09-09, and answered them again during the soft reset check
+above, which read two text files back with `B` as well, and answered all four again on
+2026-09-12 with a TEXT file and a STRING file read back beside them. Three things in the
+service now depend on that. `GET /sign/information` sends `F"` and answers 503 when
+nothing comes back. The pool check before every reallocation, at startup and on
+`POST /sign/reboot`, sends `F"` as well and falls back to 5482 bytes when nothing usable
+comes. And the refresh above reads a picture with `J`, depending on it just as softly: one
+read that does not come and it stops asking and re-pushes as it always did, until the
+link has been down and come back or fifteen minutes have passed. The other reads are
+still available and still unused.
 
 The trap when reading is pyserial's, not the sign's. Over `socket://`, which is how this
 sign has always been reached, `in_waiting` is not a byte count: it is 1 while anything is
@@ -1291,9 +1305,10 @@ Betabrite 1036 draws and this sign renders as question marks, and the Shadow att
 signs only" and which drew as ordinary text in the font parade.
 
 The absence of ACK/NAK is worth one extra line, because it explains a design decision
-elsewhere. This sign cannot acknowledge a write. That is why the service re-pushes
-everything on a timer rather than trusting that a write landed, and why the read commands
-above are the only way to ask.
+elsewhere. This sign cannot acknowledge a write. That is why the service checks the sign
+on a timer rather than trusting that a write landed, and pushes everything again whenever
+it cannot tell that the sign kept it, and why the read commands above are the only way to
+ask.
 
 ### Capabilities that do apply and are not used
 
@@ -1310,7 +1325,8 @@ on the sign". One part of the capability is still unused and stays here: **the A
 insert** (1FH), which calls a picture by name rather than by label and belongs to hardware
 this sign is not.
 
-**Read General Information** (`F"`). See "Reading state back" above.
+**Read General Information** (`F"`) was on this list until `GET /sign/information` and the
+pool check before a reallocation began sending it. See "Reading state back" above.
 
 **Run Time Table** (29H) and **Run Day Table** (32H). Per-file start and stop times, and
 per-file start and stop days including `0` Daily and `8` Monday-Friday. The service writes
@@ -1331,7 +1347,7 @@ The tone command carries two footnotes that the implementation does not honour.
 a tone the next write went out once `inter_packet_delay` had passed, which defaulted to
 half a second at the time and is 0.25s now. A write inside that window reached a sign whose
 serial port was off and was lost, and the controller's suppression cache then believed it
-had succeeded, so nothing retried it until the next periodic re-push.
+had succeeded, so nothing retried it until a refresh next pushed everything again.
 
 This is fixed. `SOUND` now asks for `SOUND_SETTLE_SECONDS`, three, and the controller holds
 the sign's lock across the send and the wait, so another writer queues rather than writing
@@ -1356,11 +1372,13 @@ feature. `constants.PROTOCOL_GENERATION` records this.
 sequence holds up to 128 of them, so the real ceiling on how many messages can share the
 sign is the memory pool in bytes rather than a count of files. This service allocates `A`
 through `Z` for TEXT files and `a` through `z` for STRING files anyway, because a label a
-person can read in a log line is worth more than the extra capacity. That the two cases
-are different files was measured, not read; see "STRING files, measured on the sign".
-Two ranges are avoided outright: `0`, which is the priority file, and `1` through `5`,
-which become reserved target files if the sign's counter feature is ever switched on.
-Appendix A rules `?` out for a STRING file as well.
+person can read in a log line is worth more than the extra capacity, and picture files
+take a third range, `6` through `9` and twenty-eight punctuation characters, thirty-two
+labels in all, which is what caps `picture_count`. That the two cases are different files
+was measured, not read; see "STRING files, measured on the sign". Two ranges are avoided
+outright: `0`, which is the priority file, and `1` through `5`, which become reserved
+target files if the sign's counter feature is ever switched on. Appendix A rules `?` out
+for a STRING file as well.
 
 **Timing.** The inter-byte timeout for a standard packet is one second, and a nested
 packet needs at least 100 ms after its `STX`. This service sends no nested packets. The

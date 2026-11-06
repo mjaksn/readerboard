@@ -108,8 +108,9 @@ python scripts/run_against_a_sign.py --serial-url socket://192.168.2.51:4001
 That starts the service and the client together, with no simulator. The service
 comes up on <http://127.0.0.1:5001> with `/docs` beside it, the client comes up
 pointed at that address with the API key already in its box, and the key is
-printed in the same window for anything else that needs it. `--no-client` leaves the client out. Ctrl+C stops everything,
-and closing the client leaves the service running.
+printed in the same window for anything else that needs it. `--no-client` leaves
+the client out. Ctrl+C stops everything, and closing the client leaves the
+service running.
 
 Both editors carry it as a launch configuration named "readerboard against the
 real sign and the client". **The sign's address is an argument in those, not a
@@ -224,7 +225,10 @@ docker run -d --name readerboard --restart unless-stopped -p 5001:5001 \
 ```
 
 `packaging/docker-compose.yml` is the same thing as a Compose file, with the settings
-worth knowing about written out beside it.
+worth knowing about written out beside it, and one difference: it sets
+`READERBOARD_PICTURE_COUNT` to 16, so icons are on where the command above leaves them
+off. Moving a deployment from one to the other reallocates the sign on its first start,
+which erases every message on it.
 
 The volume is what matters here. The registered messages are persisted to
 `/var/lib/readerboard`, and without it the sign comes back empty after a restart rather
@@ -545,8 +549,8 @@ could write to them.
 
 The key is declared to the API description as a security scheme, so the Swagger UI at
 `/docs` has an **Authorize** button: enter the key once and everything on the page that
-needs it carries it. It is the same `X-API-Key` header a client sends, so nothing about a script
-or a Home Assistant `rest_command` changes.
+needs it carries it. It is the same `X-API-Key` header a client sends, so nothing about a
+script or a Home Assistant `rest_command` changes.
 
 That page is configured to remember the key, so it survives a reload or a browser
 restart rather than needing to be pasted in again. Convenient on your own machine, and

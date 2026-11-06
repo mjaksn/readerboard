@@ -929,6 +929,193 @@ class TestWritingPicturesUnderAnAlert:
         with pytest.raises(TransportError, match="after the picture"):
             await add(registry, "door", "<icon:lock> LOCKED")
 
+        # Reported, and remembered too, so the next refresh puts it back even
+        # when the sign answers that it kept its memory.
+        assert alerts.sign_may_not_match
+
+    async def test_a_put_back_that_is_cancelled_is_remembered(
+        self, wired, transport, monkeypatch
+    ):
+        # A cancellation is no Exception, so nothing swallows it or logs it on
+        # the way out. The alert is off the sign all the same, and an intact
+        # sign would otherwise never be asked to take it back.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(alerts._controller, "write_priority", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert alerts.sign_may_not_match
+
+    async def test_a_release_that_is_cancelled_is_remembered(
+        self, wired, transport, monkeypatch
+    ):
+        # The release runs in a worker thread, so cancelling the task awaiting
+        # it can still let it reach the sign. The alert may be off by then, and
+        # nothing after this point runs to say so.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(alerts._controller, "clear_priority", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert alerts.sign_may_not_match
+
+    async def test_an_alert_replaced_and_never_put_back_is_remembered(
+        self, wired, monkeypatch
+    ):
+        # Replacing an alert with one that brings a picture hands the sign back
+        # first, and the alert service does that release itself rather than
+        # through lifted(). When neither the new alert nor the old one's put-back
+        # lands, the old one is still recorded and is off the sign.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(alerts._controller, "write_priority", cancelled)
+
+        with pytest.raises(asyncio.CancelledError):
+            await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+
+        assert alerts.active is not None and alerts.active.message == "FIRE"
+        assert alerts.sign_may_not_match
+
+    async def test_an_alert_replaced_by_one_with_a_picture_leaves_nothing_to_remember(
+        self, wired
+    ):
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        await alerts.raise_alert("<icon:moon> RAIN", mode="HOLD")
+
+        assert alerts.active is not None and alerts.active.message == "<icon:moon> RAIN"
+        assert not alerts.sign_may_not_match
+
+    async def test_a_cancelled_release_is_put_right_by_the_next_refresh(
+        self, wired, transport, monkeypatch
+    ):
+        # The release can reach the sign and be cancelled before the record
+        # says so, leaving the rotation showing under an alert still recorded.
+        # A sign that answers with its picture is no help there, so the next
+        # refresh puts the record back on the sign whatever it answered.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        with monkeypatch.context() as patched:
+            patched.setattr(alerts._controller, "clear_priority", cancelled)
+            with pytest.raises(asyncio.CancelledError):
+                await alerts.release()
+
+        assert alerts.active is not None
+        assert alerts.sign_may_not_match
+
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport) == []
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+        assert not alerts.sign_may_not_match
+
+    async def test_a_cancelled_first_alert_is_taken_off_by_the_next_refresh(
+        self, wired, transport, monkeypatch
+    ):
+        # The write can reach the sign and be cancelled before the alert is
+        # recorded, leaving an alert on the display that the service knows
+        # nothing about and nothing would ever release. The next refresh makes
+        # the sign match the record, which here means releasing it.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        with monkeypatch.context() as patched:
+            patched.setattr(alerts._controller, "write_priority", cancelled)
+            with pytest.raises(asyncio.CancelledError):
+                await alerts.raise_alert("FIRE", mode="HOLD")
+
+        assert alerts.active is None
+        assert alerts.sign_may_not_match
+
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+        await _refresh_and_reassert(registry, alerts)
+
+        writes = priority_writes(transport)
+        assert writes and all(is_release(write) for write in writes)
+        assert not alerts.sign_may_not_match
+
+    async def test_a_picture_in_doubt_is_written_after_a_release_that_is_sent(
+        self, wired, transport
+    ):
+        # A write that reached the sign without being recorded leaves the
+        # controller believing the priority file is free when the sign may be
+        # holding an alert. The release a picture write depends on must then go
+        # out rather than be suppressed, or the picture lands under the alert
+        # and the sign drops it.
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        await alerts.release()
+        alerts._sign_may_not_match = True
+        transport.clear()
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert [is_release(write) for write in priority_writes(transport)][:1] == [True]
+        assert picture_writes(transport)
+
+    async def test_the_same_alert_raised_again_is_written_while_it_may_be_off(
+        self, wired, transport
+    ):
+        # A release cancelled partway can reach the sign and still leave the
+        # old alert's bytes in the controller's cache, since the cache is only
+        # updated once a send returns. Raising the same alert again would then
+        # be suppressed, and clear the flag with the sign still missing it.
+        _, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        alerts._sign_may_not_match = True
+        transport.clear()
+
+        await alerts.raise_alert("FIRE", mode="HOLD")
+
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+        assert not alerts.sign_may_not_match
+
+    async def test_a_put_back_that_lands_leaves_nothing_to_remember(
+        self, wired, transport
+    ):
+        registry, alerts = wired
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await add(registry, "door", "<icon:lock> LOCKED")
+
+        assert picture_writes(transport)
+        assert not alerts.sign_may_not_match
+
     async def test_a_put_back_that_fails_does_not_replace_the_real_failure(
         self, wired, transport, monkeypatch, caplog
     ):
@@ -957,6 +1144,28 @@ class TestWritingPicturesUnderAnAlert:
             await add(registry, "door", "<icon:lock> LOCKED")
 
         assert "could not put the lifted alert back" in caplog.text
+        # And it is remembered, because the refresh leaves the alert alone on a
+        # sign that answers it kept its memory, and that answer says nothing
+        # about an alert this service took off it itself.
+        assert alerts.sign_may_not_match
+
+    async def test_an_alert_that_never_went_back_is_re_asserted_on_an_intact_sign(
+        self, wired, transport
+    ):
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        alerts._sign_may_not_match = True
+        rows = icons.resolve("lock", None)
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(rows)))
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport) == []
+        takeovers = [write for write in priority_writes(transport) if not is_release(write)]
+        assert len(takeovers) == 1
+        assert not alerts.sign_may_not_match
 
     async def test_an_alert_that_expired_while_lifted_is_not_put_back(
         self, wired, transport, clock
@@ -997,9 +1206,10 @@ class TestNotWritingTheAlertTwice:
     alert restarts it a second time for nothing, and because the refresh runs on
     a timer it is a flicker every interval for as long as the alert is up.
 
-    Hence the report. :meth:`SlotRegistry.refresh` and
-    :meth:`SlotRegistry.reboot` each answer whether they put the alert back, and
-    ``app.py`` and the reboot route re-assert only when they did not. The case
+    Hence the report. :meth:`SlotRegistry.refresh` answers whether the alert
+    can be left alone, which includes having put it back, and
+    :meth:`SlotRegistry.reboot` whether it put it back, and ``app.py`` and the
+    reboot route re-assert only when the answer is no. The case
     where they did not is real and is the one this must not break: a service
     with no icons never hands the sign back, so nothing else would put the alert
     on a sign that was power cycled mid-alert.
@@ -1183,7 +1393,7 @@ def picture_reply(label: bytes, rows: list[str] | None) -> bytes:
 
 
 class TestAskingBeforeRePushing:
-    """The periodic re-push asks the sign first, because it is expensive to be wrong.
+    """The periodic refresh asks the sign first, because it is expensive to be wrong.
 
     Every picture write blanks the whole display, so a sign showing five icons
     blanks five times an interval for a repair that is almost never needed. What
@@ -1442,8 +1652,8 @@ class TestAskingBeforeRePushing:
         # read, exactly like the simulator: the write lands in the local socket
         # buffer and nothing comes back. What differs is that its link then goes
         # down and comes back. Without asking again after that, one adapter drop
-        # left a sign with icons re-pushing every picture, and blanking once for
-        # each, on every refresh until a restart.
+        # would leave a sign with icons re-pushing every picture, and blanking
+        # once for each, on every refresh until ASK_AGAIN_AFTER ran out.
         registry, alerts = wired
         await add(registry, "door", "<icon:lock> LOCKED")
         await registry.refresh()
@@ -1494,13 +1704,14 @@ class TestAskingBeforeRePushing:
         await registry.refresh()
         assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
 
-    async def test_the_alert_is_still_re_asserted_when_nothing_was_re_pushed(
+    async def test_the_alert_is_left_alone_when_the_sign_kept_its_picture(
         self, wired, transport
     ):
-        # What the sign holds in its priority file is a separate question from
-        # what it holds in a picture file, and this does not ask it. So the skip
-        # leaves the alert to the caller exactly as a re-push without a
-        # hand-back would, and a sign that lost only its alert is still repaired.
+        # The sign keeps its priority file exactly as long as its other files,
+        # measured on 2026-11-05 by unplugging it mid-alert for half a minute.
+        # So a sign that answers with its picture still holds the alert, and
+        # writing it again would only restart it on the display, once a refresh
+        # interval for as long as it is up.
         registry, alerts = wired
         await add(registry, "door", "<icon:lock> LOCKED")
         await alerts.raise_alert("FIRE", mode="HOLD")
@@ -1511,6 +1722,22 @@ class TestAskingBeforeRePushing:
         await _refresh_and_reassert(registry, alerts)
 
         assert picture_writes(transport) == []
+        assert priority_writes(transport) == []
+
+    async def test_the_alert_is_put_back_when_the_sign_did_not_answer(
+        self, wired, transport
+    ):
+        # No answer is not an answer that the sign is intact, so the re-push
+        # runs, and it hands the sign back for the picture and puts the alert on
+        # again: once, and not a second time from the caller.
+        registry, alerts = wired
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        transport.clear()
+
+        await _refresh_and_reassert(registry, alerts)
+
+        assert picture_writes(transport)
         takeovers = [write for write in priority_writes(transport) if not is_release(write)]
         assert len(takeovers) == 1
 
@@ -1616,7 +1843,13 @@ class TestAcrossARestart:
         registry = SlotRegistry(controller, layout, store, state, now=clock)
         await registry.restore()
         await add(registry, "a", "<icon:sun>")
-        monkeypatch.delitem(icons.ICONS, "sun")
+        # A copy without it, rather than deleting it from the real table: undoing
+        # a delitem puts the key back at the end of the dict, which moved a
+        # weather icon behind every other group and failed the listing order
+        # test in tests/test_api.py whenever this ran first.
+        monkeypatch.setattr(
+            icons, "ICONS", {name: icon for name, icon in icons.ICONS.items() if name != "sun"}
+        )
 
         with caplog.at_level(logging.WARNING):
             again = SlotRegistry(controller, layout, store, state, now=clock)
