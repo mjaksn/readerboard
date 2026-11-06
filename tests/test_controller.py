@@ -1,6 +1,7 @@
 """Tests for the single writer: ordering, suppression, and failure handling."""
 
 import asyncio
+import threading
 
 import pytest
 
@@ -659,6 +660,49 @@ class TestFailures:
 
         assert controller.cached_labels() == ["B"]
         assert await controller.write_text_file(b"A", b"HI") is True
+
+    async def test_a_cancelled_write_forgets_and_its_reopen_is_still_caught(self):
+        # Cancelling the task does not stop the worker thread, which may still
+        # change the file on the sign and open the link again under it. The old
+        # contents must not suppress a write, and the reopen must reach the
+        # repair even though the write that saw it was abandoned.
+        class Slow(FakeTransport):
+            reopens = 0
+
+            def __init__(self) -> None:
+                super().__init__()
+                self.block = False
+                self.release = threading.Event()
+
+            def write(self, data: bytes) -> None:
+                if self.block:
+                    self.release.wait(5)
+                super().write(data)
+                if self.block:
+                    self.reopens += 1
+
+        transport = Slow()
+        controller = SignController(transport, inter_packet_delay=0)
+        await controller.write_text_file(b"A", b"HI")
+
+        transport.block = True
+        write = asyncio.create_task(controller.write_text_file(b"B", b"THERE"))
+        await asyncio.sleep(0.05)
+        write.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await write
+        assert controller.cached_labels() == []
+
+        transport.release.set()
+        for _ in range(100):
+            if transport.reopens:
+                break
+            await asyncio.sleep(0.01)
+        transport.block = False
+
+        assert await controller.write_text_file(b"A", b"HI") is True
+        assert controller._repair_task is not None
+        await controller._repair_task
 
     async def test_startup_survives_a_sign_that_is_not_there(self, caplog):
         transport = FakeTransport(open_fails_with="no route to host")

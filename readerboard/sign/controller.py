@@ -500,6 +500,15 @@ class SignController:
             # survived a failed write, so stop believing it.
             self.forget_sign_contents()
             raise
+        except asyncio.CancelledError:
+            # Nor a cancelled one. The worker thread carries on with the write
+            # whatever happens here, so the file may yet change on the sign, and
+            # the link may yet be opened again under it, with nobody left to
+            # look. Forgetting stops an identical write being skipped on the
+            # strength of the old contents; the reopen, if there is one, is
+            # caught by the next write, see _notice_a_reopen.
+            self.forget_sign_contents()
+            raise
 
         self._notice_a_reopen()
 
