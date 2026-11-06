@@ -636,6 +636,30 @@ class TestFailures:
         transport.fail_with = None
         assert await controller.write_text_file(b"A", b"HI") is True
 
+    async def test_a_write_the_link_reopened_for_forgets_what_the_sign_held(self):
+        # A connection replaced under a write is one whatever went down the old
+        # one may not have survived, so nothing about it suppresses a write.
+        class Reopening(FakeTransport):
+            reopens = 0
+            reopen_next = False
+
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                if self.reopen_next:
+                    self.reopens += 1
+                    self.reopen_next = False
+
+        transport = Reopening()
+        controller = SignController(transport, inter_packet_delay=0)
+        await controller.write_text_file(b"A", b"HI")
+        await controller.write_string_file(b"a", b"1")
+
+        transport.reopen_next = True
+        await controller.write_text_file(b"B", b"THERE")
+
+        assert controller.cached_labels() == ["B"]
+        assert await controller.write_text_file(b"A", b"HI") is True
+
     async def test_startup_survives_a_sign_that_is_not_there(self, caplog):
         transport = FakeTransport(open_fails_with="no route to host")
         controller = SignController(transport, inter_packet_delay=0)

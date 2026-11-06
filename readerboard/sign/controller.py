@@ -487,6 +487,7 @@ class SignController:
         :meth:`_send` again.
         """
         packet = frames.packet(payload)
+        reopens = self._reopens()
         try:
             await asyncio.to_thread(self._transport.write, packet)
         except TransportError as err:
@@ -495,6 +496,18 @@ class SignController:
             # survived a failed write, so stop believing it.
             self.forget_sign_contents()
             raise
+
+        if self._reopens() != reopens:
+            # The write went out, but on a connection the transport had to
+            # open again under it. Whatever went down the old one since it
+            # last carried anything may not have arrived, so nothing believed
+            # about the sign is a reason to skip a write any more. The caller
+            # records this one afterwards, which is right: it went down the
+            # new connection. The reconnect hooks are not run, because they
+            # take this lock and the registry's, which the caller may hold.
+            # The sign is separately powered and has nothing to recover from a
+            # dropped connection, and the next refresh asks it anyway.
+            self.forget_sign_contents()
 
         self.writes += 1
         self.last_write_at = self._now()
@@ -518,9 +531,11 @@ class SignController:
     async def _reconnect_loop(self) -> None:
         """Keep trying to bring the link back while the service is running.
 
-        This is the only thing that opens the link. A write used to open one
-        lazily and no longer does, so if this task ever dies the service is
-        down until it is restarted, however healthy the sign becomes. It
+        This is the only thing that opens a link that is down. A write used to
+        open one lazily and no longer does; the one thing a write opens is a
+        link that failed under it, once, which needs no backoff and leaves this
+        loop nothing to do. So if this task ever dies the service is down until
+        it is restarted, however healthy the sign becomes. It
         therefore survives anything a single attempt can raise, not merely the
         failure the transport is expected to report. It died once on an
         arithmetic error from its own backoff.
@@ -541,6 +556,11 @@ class SignController:
                 await asyncio.wait_for(self._stopping.wait(), timeout=delay)
             except TimeoutError:
                 continue
+
+    def _reopens(self) -> int:
+        # Looked up rather than required, as seconds_until_retry is: only the
+        # real link reopens itself, and a fake has nothing to count.
+        return int(getattr(self._transport, "reopens", 0))
 
     def _seconds_until_retry(self) -> float:
         seconds_until_retry = getattr(self._transport, "seconds_until_retry", None)

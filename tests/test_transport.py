@@ -7,6 +7,7 @@ implementation of the same guesswork.
 """
 
 import socket
+import struct
 import threading
 import time
 
@@ -17,9 +18,6 @@ from serial.rfc2217 import PortManager
 from readerboard.transport.base import Transport, TransportError
 from readerboard.transport.fake import FakeTransport
 from readerboard.transport.serial_link import (
-    KEEPALIVE_IDLE_SECONDS,
-    KEEPALIVE_INTERVAL_SECONDS,
-    KEEPALIVE_PROBES,
     READ_LIMIT_BYTES,
     UNACKNOWLEDGED_TIMEOUT_SECONDS,
     SerialTransport,
@@ -27,31 +25,48 @@ from readerboard.transport.serial_link import (
 
 
 def assert_told_to_notice_a_dead_peer(transport: SerialTransport) -> None:
-    """Check that an open network link's socket has every option it was given.
+    """Check that an open network link's socket is set up the way it should be.
 
     The socket is a private attribute of pyserial's. The first assertion is the
     one that fails if an upgrade renames it, rather than the link quietly opening
-    without any of what follows. An option this platform does not define is not
-    set, so it is not checked either.
+    without any of what follows. ``TCP_USER_TIMEOUT`` is not defined everywhere,
+    and where it is not it is not set, so it is not checked either.
+
+    Keepalive being off is checked rather than assumed. It was on from 0.7.1,
+    and an adapter that answers no probe then lost a healthy connection after
+    every minute of quiet.
     """
     sock = transport._port._socket
     assert isinstance(sock, socket.socket)
 
-    assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) != 0
-    # The same choice of name the code makes: macOS calls the idle time
-    # TCP_KEEPALIVE, and checking only TCP_KEEPIDLE would check nothing there.
-    idle_option = "TCP_KEEPIDLE" if hasattr(socket, "TCP_KEEPIDLE") else "TCP_KEEPALIVE"
-    expected = {
-        idle_option: KEEPALIVE_IDLE_SECONDS,
-        "TCP_KEEPINTVL": KEEPALIVE_INTERVAL_SECONDS,
-        "TCP_KEEPCNT": KEEPALIVE_PROBES,
-        "TCP_USER_TIMEOUT": UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000,
-    }
-    for name, value in expected.items():
-        option = getattr(socket, name, None)
-        if option is None:
-            continue
-        assert sock.getsockopt(socket.IPPROTO_TCP, option) == value, name
+    assert sock.getsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE) == 0
+    option = getattr(socket, "TCP_USER_TIMEOUT", None)
+    if option is not None:
+        expected = UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000
+        assert sock.getsockopt(socket.IPPROTO_TCP, option) == expected
+
+
+def reset(conn: socket.socket) -> None:
+    """Close a connection with a reset, and give the reset time to arrive.
+
+    A plain close sends a FIN, and the first write after a FIN still succeeds
+    locally; only the one after it fails. A reset makes the very next write
+    fail, which is what a connection the kernel has already given up on does.
+    """
+    conn.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+    conn.close()
+    time.sleep(0.2)
+
+
+def receive(conn: socket.socket, size: int) -> bytes:
+    """Read exactly ``size`` bytes, however the network splits them."""
+    received = b""
+    while len(received) < size:
+        chunk = conn.recv(size - len(received))
+        if not chunk:
+            break
+        received += chunk
+    return received
 
 
 class Clock:
@@ -188,9 +203,9 @@ class TestSerialTransportOverASocket:
             server.join(5)
 
     def test_the_link_is_told_to_notice_an_adapter_that_has_gone(self):
-        # An adapter that drops off the network says nothing as it goes. These
-        # options are what make the operating system find out, and the link
-        # stays reported as up until it does.
+        # An adapter that drops off the network says nothing as it goes. The
+        # user timeout is what makes the operating system find out, and the
+        # link stays reported as up until it does. An idle link is not probed.
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
         listener.listen(1)
@@ -198,6 +213,58 @@ class TestSerialTransportOverASocket:
         try:
             transport.ensure_open()
             assert_told_to_notice_a_dead_peer(transport)
+        finally:
+            transport.close()
+            listener.close()
+
+    def test_a_write_on_a_connection_that_died_reopens_it_and_sends(self):
+        # The case that mattered: a connection that died while nothing was
+        # being sent, to an adapter that is still there. The other end resets
+        # the first connection and keeps listening, so the write has to fail on
+        # the old one and land on a new one, with no 503 and no backoff.
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(2)
+        transport = SerialTransport("socket://127.0.0.1:%d" % listener.getsockname()[1])
+        try:
+            transport.ensure_open()
+            first, _ = listener.accept()
+            reset(first)
+
+            transport.write(b"after the drop")
+
+            second, _ = listener.accept()
+            with second:
+                second.settimeout(5)
+                assert receive(second, len(b"after the drop")) == b"after the drop"
+            assert transport.reopens == 1
+            assert transport.is_open
+            assert transport.last_error is None
+            assert transport.seconds_until_retry() == 0.0
+        finally:
+            transport.close()
+            listener.close()
+
+    def test_a_write_that_cannot_reopen_the_link_fails_and_backs_off(self):
+        # Nothing is listening any more, so the one reopen is refused. That is
+        # the failure reported, and the reconnect loop takes it from there.
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        transport = SerialTransport("socket://127.0.0.1:%d" % listener.getsockname()[1])
+        try:
+            transport.ensure_open()
+            first, _ = listener.accept()
+            listener.close()
+            reset(first)
+
+            with pytest.raises(TransportError):
+                transport.write(b"nobody there")
+
+            assert transport.reopens == 0
+            assert not transport.is_open
+            assert transport.last_error is not None
+            assert transport.seconds_until_retry() > 0
         finally:
             transport.close()
             listener.close()
