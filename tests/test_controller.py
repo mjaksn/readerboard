@@ -1,6 +1,7 @@
 """Tests for the single writer: ordering, suppression, and failure handling."""
 
 import asyncio
+import threading
 
 import pytest
 
@@ -148,6 +149,45 @@ class TestMemoryConfiguration:
         await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
 
         assert "clears every message" in caplog.text
+
+    async def test_a_link_reopened_under_it_sends_it_again_from_the_clear(self):
+        # The clear may have gone down the connection that had died, and a
+        # configuration the sign takes without a clear ahead of it leaves the
+        # sign blank. So the whole sequence goes again, clear first.
+        class ReopensUnderTheConfiguration(FakeTransport):
+            reopens = 0
+
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                configuration = frames.packet(frames.set_memory_config(allocations))
+                if data == configuration and not self.reopens:
+                    self.reopens += 1
+
+        allocations = [frames.FileAllocation(b"A", 256)]
+        transport = ReopensUnderTheConfiguration()
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+
+        await controller.apply_memory_config(allocations)
+
+        assert transport.packets == [
+            frames.packet(frames.clear_memory()),
+            frames.packet(frames.set_memory_config(allocations)),
+        ] * 2
+
+    async def test_a_link_that_keeps_reopening_under_it_is_a_failure(self):
+        class ReopensEveryTime(FakeTransport):
+            reopens = 0
+
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                self.reopens += 1
+
+        transport = ReopensEveryTime()
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+
+        with pytest.raises(TransportError, match="opened again twice"):
+            await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
+        assert len(transport.packets) == 4
 
 
 class TestConcurrency:
@@ -636,6 +676,107 @@ class TestFailures:
         transport.fail_with = None
         assert await controller.write_text_file(b"A", b"HI") is True
 
+    async def test_a_write_the_link_reopened_for_forgets_what_the_sign_held(self):
+        # A connection replaced under a write is one whatever went down the old
+        # one may not have survived, so nothing about it suppresses a write.
+        class Reopening(FakeTransport):
+            reopens = 0
+            reopen_next = False
+
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                if self.reopen_next:
+                    self.reopens += 1
+                    self.reopen_next = False
+
+        transport = Reopening()
+        controller = SignController(transport, inter_packet_delay=0)
+        await controller.write_text_file(b"A", b"HI")
+        await controller.write_string_file(b"a", b"1")
+
+        transport.reopen_next = True
+        await controller.write_text_file(b"B", b"THERE")
+
+        assert controller.cached_labels() == ["B"]
+        assert await controller.write_text_file(b"A", b"HI") is True
+
+    async def test_a_cancelled_write_forgets_and_its_reopen_is_still_caught(self):
+        # Cancelling the task does not stop the worker thread, which may still
+        # change the file on the sign and open the link again under it. The old
+        # contents must not suppress a write, and the reopen must reach the
+        # repair even though the write that saw it was abandoned.
+        class Slow(FakeTransport):
+            reopens = 0
+
+            def __init__(self) -> None:
+                super().__init__()
+                self.block = False
+                self.release = threading.Event()
+
+            def write(self, data: bytes) -> None:
+                if self.block:
+                    self.release.wait(5)
+                super().write(data)
+                if self.block:
+                    self.reopens += 1
+
+        transport = Slow()
+        controller = SignController(transport, inter_packet_delay=0)
+        await controller.write_text_file(b"A", b"HI")
+
+        transport.block = True
+        write = asyncio.create_task(controller.write_text_file(b"B", b"THERE"))
+        await asyncio.sleep(0.05)
+        write.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await write
+        assert controller.cached_labels() == []
+
+        transport.release.set()
+        for _ in range(100):
+            if transport.reopens:
+                break
+            await asyncio.sleep(0.01)
+        transport.block = False
+
+        assert await controller.write_text_file(b"A", b"HI") is True
+        assert controller._repair_task is not None
+        await controller._repair_task
+
+    async def test_a_write_cancelled_in_the_pause_after_it_does_not_keep_old_contents(self):
+        # The packet has gone and the sign has the new file, but the request
+        # was cancelled during the pause between packets, before the new
+        # contents were recorded. The old ones must not be left behind to skip
+        # a later write of exactly those bytes. The run sequence the same.
+        pausing = asyncio.Event()
+        hold = False
+
+        async def sleep(_seconds: float) -> None:
+            if hold:
+                pausing.set()
+                await asyncio.Event().wait()
+
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.1, sleep=sleep)
+        await controller.write_text_file(b"A", b"HI")
+        await controller.set_run_sequence([b"A"])
+
+        for start in (
+            lambda: controller.write_text_file(b"A", b"NEW"),
+            lambda: controller.set_run_sequence([b"B"]),
+        ):
+            hold = True
+            pausing.clear()
+            write = asyncio.create_task(start())
+            await pausing.wait()
+            write.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await write
+            hold = False
+
+        assert await controller.write_text_file(b"A", b"HI") is True
+        assert await controller.set_run_sequence([b"A"]) is True
+
     async def test_startup_survives_a_sign_that_is_not_there(self, caplog):
         transport = FakeTransport(open_fails_with="no route to host")
         controller = SignController(transport, inter_packet_delay=0)
@@ -676,6 +817,176 @@ class TestReconnectHooks:
             assert "reconnect hook failed" in caplog.text
         finally:
             await controller.stop()
+
+    async def test_a_link_a_write_reopened_runs_the_hooks_once_its_caller_lets_go(self):
+        # The hooks take locks a caller of the write may be holding, the
+        # registry's among them, so they cannot run inside the write. They run
+        # once the caller lets go, exactly once.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        held_by_the_caller = asyncio.Lock()
+        calls: list[int] = []
+
+        async def needs_the_callers_lock() -> None:
+            async with held_by_the_caller:
+                calls.append(1)
+
+        controller.on_reconnect(needs_the_callers_lock)
+
+        async with held_by_the_caller:
+            transport.reopens = 1  # type: ignore[attr-defined]
+            await controller.write_text_file(b"A", b"HI")
+            await controller.write_text_file(b"B", b"THERE")
+            await asyncio.sleep(0)
+            assert calls == []
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert calls == [1]
+
+    async def test_a_reopen_that_then_failed_is_repaired_once(self):
+        # The write reopened the link and the resend failed anyway, so the link
+        # is down and the reconnect repairs the sign. The count that reopen left
+        # behind must not look new to the hooks' own writes and start a second
+        # repair straight after the first.
+        class ReopensThenFails(FakeTransport):
+            reopens = 0
+            fail_once = False
+
+            def write(self, data: bytes) -> None:
+                if self.fail_once:
+                    self.fail_once = False
+                    self.reopens += 1
+                    self._is_open = False
+                    raise TransportError("write failed after reopening")
+                super().write(data)
+
+        transport = ReopensThenFails()
+        controller = SignController(transport, inter_packet_delay=0)
+        calls: list[int] = []
+
+        async def writes_something() -> None:
+            calls.append(1)
+            await controller.write_text_file(b"A", b"REPAIRED")
+
+        await controller.write_text_file(b"A", b"HI")
+        transport.fail_once = True
+        with pytest.raises(TransportError):
+            await controller.write_text_file(b"B", b"THERE")
+        controller.on_reconnect(writes_something)
+
+        await controller._connect()
+
+        assert calls == [1]
+        assert controller._repair_task is None
+
+    async def test_a_repair_asked_for_before_any_hook_runs_once_one_is_registered(self):
+        # The service registers its hooks after the startup push. A write in
+        # that push which had to open the link again asks for a repair with
+        # nothing yet to run it, and the repair must still happen.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        transport.reopens = 1  # type: ignore[attr-defined]
+        await controller.write_text_file(b"A", b"HI")
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        calls: list[int] = []
+        controller.on_reconnect(lambda: _record(calls))
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert calls == [1]
+
+    async def test_a_reconnect_leaves_a_pending_repair_to_do_the_work(self):
+        # A repair a reopen asked for is waiting on a lock when the link goes
+        # down and comes back. It pushes down the new connection once it gets
+        # there, so the reconnect must not push everything a second time.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        registry_lock = asyncio.Event()
+        calls: list[int] = []
+
+        async def waits_for_the_registry() -> None:
+            await registry_lock.wait()
+            calls.append(1)
+
+        controller.on_reconnect(waits_for_the_registry)
+        transport.reopens = 1  # type: ignore[attr-defined]
+        await controller.write_text_file(b"A", b"HI")
+        await asyncio.sleep(0)
+
+        transport._is_open = False
+        # Bounded, because a reconnect that ran the hooks itself would wait on
+        # the lock the pending repair is waiting on, and hang the suite rather
+        # than fail it.
+        await asyncio.wait_for(controller._connect(), timeout=2)
+        registry_lock.set()
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert calls == [1]
+
+    async def test_a_hook_the_pending_repair_finished_runs_again_after_a_reconnect(self):
+        # The repair's clock sync ran, and failed, on the connection that then
+        # went; the registry's refresh is still waiting for its lock. After the
+        # reconnect the clock sync must run again on the new connection, and
+        # the refresh, which pushes down the new one anyway, must run once.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        registry_lock = asyncio.Event()
+        clock_syncs: list[int] = []
+        refreshes: list[int] = []
+
+        async def clock_sync() -> None:
+            clock_syncs.append(1)
+
+        async def refresh() -> None:
+            await registry_lock.wait()
+            refreshes.append(1)
+
+        controller.on_reconnect(clock_sync)
+        controller.on_reconnect(refresh)
+        transport.reopens = 1  # type: ignore[attr-defined]
+        await controller.write_text_file(b"A", b"HI")
+        await asyncio.sleep(0)
+        assert clock_syncs == [1]
+
+        transport._is_open = False
+        await asyncio.wait_for(controller._connect(), timeout=2)
+        registry_lock.set()
+        task = controller._repair_task
+        assert task is not None
+        await asyncio.wait_for(task, timeout=2)
+
+        assert clock_syncs == [1, 1]
+        assert refreshes == [1]
+
+    async def test_no_hook_runs_when_something_else_opened_the_link(self):
+        # A write reopening the link holds the transport's lock with the link
+        # reading as down. A reconnect attempt that saw it down and then waited
+        # on that lock finds it open, and has nothing to do: the write's reopen
+        # is dealt with where it happened.
+        class OpenedMeanwhile(FakeTransport):
+            def ensure_open(self) -> bool:
+                self._is_open = True
+                return False
+
+        transport = OpenedMeanwhile()
+        controller = SignController(transport, inter_packet_delay=0)
+        await controller.write_text_file(b"A", b"HI")
+        transport._is_open = False
+        calls: list[int] = []
+        controller.on_reconnect(lambda: _record(calls))
+
+        await controller._connect()
+
+        assert calls == []
+        assert controller.cached_labels() == ["A"]
 
 
 async def _record(calls: list[int]) -> None:

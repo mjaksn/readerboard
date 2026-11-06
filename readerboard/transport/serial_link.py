@@ -14,14 +14,17 @@ Reconnection is deliberately passive. When the link is down, ``ensure_open``
 refuses to try again until a backoff window has passed, and ``write`` fails
 immediately rather than blocking a request behind a device that is not there.
 Something has to drive the retries; that is the controller's reconnect loop.
+The one exception is a link that was up when a write started and failed under
+it: that write reopens it once and sends again, because the usual reason is a
+connection that died while it sat idle, and the adapter behind it is fine.
 
-A link over the network is also told to notice a peer that has gone. An adapter
-that drops off the network says nothing as it goes, and without being told
-otherwise the operating system keeps accepting writes to it: Linux retries an
-unacknowledged one for about a quarter of an hour before reporting anything, and
-an idle connection is never checked at all. Meanwhile ``GET /health`` says the
-link is up and the sign holds whatever it was last sent, which on a sign showing
-the time looks exactly like a working one. See :func:`_notice_a_dead_peer`.
+A link over the network is also told to give up on an adapter that stops
+acknowledging what it is sent. An adapter that drops off the network says
+nothing as it goes, and without being told otherwise Linux retries an
+unacknowledged write for about a quarter of an hour before reporting anything.
+Meanwhile ``GET /health`` says the link is up and the sign holds whatever it was
+last sent, which on a sign showing the time looks exactly like a working one.
+See :func:`_notice_a_dead_peer`, which also says why an idle link is not probed.
 """
 
 from __future__ import annotations
@@ -44,18 +47,11 @@ logger = logging.getLogger(__name__)
 # lock, and never let the controller reach its deadline.
 READ_LIMIT_BYTES = 4096
 
-# How a network link finds out that the adapter at the other end has gone. An
-# idle connection is probed after KEEPALIVE_IDLE_SECONDS of quiet, every
-# KEEPALIVE_INTERVAL_SECONDS after that, and given up after KEEPALIVE_PROBES
-# unanswered probes: about a minute. Probes are only sent while nothing is
-# waiting to be acknowledged, and a write that went out as the adapter vanished
-# is exactly that, so Linux is also told to give up on unacknowledged data after
-# UNACKNOWLEDGED_TIMEOUT_SECONDS rather than its own quarter of an hour. Windows
+# How a network link finds out that the adapter at the other end has gone:
+# Linux is told to give up on data the adapter has not acknowledged after
+# UNACKNOWLEDGED_TIMEOUT_SECONDS, rather than its own quarter of an hour. Windows
 # already gives up on a retransmission within a minute, and Python exposes no
 # equivalent of that option there.
-KEEPALIVE_IDLE_SECONDS = 30
-KEEPALIVE_INTERVAL_SECONDS = 10
-KEEPALIVE_PROBES = 3
 UNACKNOWLEDGED_TIMEOUT_SECONDS = 60
 
 
@@ -86,6 +82,7 @@ class SerialTransport:
         self._retry_after = 0.0
         self._retry_delay = backoff_initial
         self._last_error: str | None = None
+        self._reopens = 0
 
     @property
     def is_open(self) -> bool:
@@ -103,16 +100,33 @@ class SerialTransport:
         """Why the link last failed, or None if it has not failed since it opened."""
         return self._last_error
 
+    @property
+    def reopens(self) -> int:
+        """How many times a write has reopened a link that failed under it.
+
+        The controller compares this with the last count it saw after every
+        write. A connection replaced under a write means whatever went down the
+        old one before it may not have arrived, so the controller treats it as
+        the link coming back: it forgets what it believed the sign held and runs
+        the same repair a reconnect does.
+        """
+        return self._reopens
+
     def seconds_until_retry(self) -> float:
         """How long until :meth:`ensure_open` will try again. Zero means now."""
         if self.is_open:
             return 0.0
         return max(0.0, self._retry_after - self._monotonic())
 
-    def ensure_open(self) -> None:
-        """Open the link if it is down, honouring the backoff window."""
+    def ensure_open(self) -> bool:
+        """Open the link if it is down, honouring the backoff window.
+
+        Returns whether this call opened it. That is not the same as whether it
+        was down when the caller looked: a write reopening the link holds the
+        lock this waits on, and finds it open afterwards.
+        """
         with self._lock:
-            self._ensure_open_locked()
+            return self._ensure_open_locked()
 
     def write(self, data: bytes) -> None:
         """Send one complete transmission over a link that is already open.
@@ -128,6 +142,20 @@ class SerialTransport:
         the lock would wait out exactly the block this exists to avoid. Reading
         ``is_open`` outside the lock is safe: if the link drops between the check
         and the write, the write fails and is reported like any other failure.
+
+        A write that fails on a link that was up is different, and gets one
+        more go. The link is closed, opened again at once without waiting out a
+        backoff, since nothing has yet failed to open, and the transmission is
+        sent down the new connection. The common reason for that failure is a
+        connection that died while nothing was being sent, with the adapter
+        behind it perfectly well, and a request should not be refused for it.
+        If the reopen fails, that is the failure recorded and reported, after a
+        wait as long as the connect timeout, five seconds for a network link.
+        That is the one place a write waits on a connect, and it waits only
+        once. Sending again is safe because every transmission replaces a whole
+        file. What the sign makes of a packet the old connection cut off partway
+        has not been measured, but a connection that had already died fails
+        before any of it goes, and that is the case this is for.
         """
         if not self.is_open:
             raise self._down_error()
@@ -139,6 +167,23 @@ class SerialTransport:
                 # the body of a 503, where "is down" on its own says neither why
                 # nor for how long.
                 raise self._down_error()
+            try:
+                port.write(data)
+                port.flush()
+                return
+            except (serial.SerialException, OSError) as err:
+                logger.info(
+                    "write to %s failed on an open link (%s); reopening it and sending again",
+                    self._url,
+                    err,
+                )
+                self._close_locked()
+
+            self._open_locked()
+            self._reopens += 1
+
+            port = self._port
+            assert port is not None
             try:
                 port.write(data)
                 port.flush()
@@ -193,13 +238,18 @@ class SerialTransport:
 
     # == internals ==========================================================
 
-    def _ensure_open_locked(self) -> None:
+    def _ensure_open_locked(self) -> bool:
         if self.is_open:
-            return
+            return False
 
         if self._retry_after > self._monotonic():
             raise self._down_error()
 
+        self._open_locked()
+        return True
+
+    def _open_locked(self) -> None:
+        """Open the link now, whatever the backoff window says."""
         try:
             self._port = serial.serial_for_url(
                 self._url, baudrate=self._baud_rate, timeout=self._timeout
@@ -264,16 +314,24 @@ class SerialTransport:
         self._port = None
         if port is None:
             return
+        # Held on to before pyserial closes the port, because pyserial does not
+        # always close it. Its socket handler shuts the socket down and then
+        # closes it inside one bare except, and on Linux the shutdown raises
+        # for a connection the other end has reset, so the close is skipped and
+        # the socket is left for the garbage collector, with a ResourceWarning.
+        sock = getattr(port, "_socket", None)
         try:
             port.close()
         except Exception:
             # A port that will not close cleanly is still a port we are done
             # with, and there is nothing useful for a caller to do about it.
             logger.debug("ignoring error while closing %s", self._url, exc_info=True)
+        if isinstance(sock, socket.socket) and sock.fileno() != -1:
+            sock.close()
 
 
 def _notice_a_dead_peer(port: object, url: str) -> None:
-    """Tell a network link's socket to find out when the other end has gone.
+    """Tell a network link's socket to give up on an adapter that has gone.
 
     Only ``socket://`` and ``rfc2217://`` links have a socket, and pyserial
     keeps it on a private attribute, so it is looked for rather than assumed: a
@@ -281,30 +339,28 @@ def _notice_a_dead_peer(port: object, url: str) -> None:
     attribute against the pyserial this is installed with, so that an upgrade
     renaming it fails the suite rather than quietly losing this.
 
-    Each option is set on its own and a refusal is logged and passed over, so
-    that a platform without one of them still opens the link with the rest. An
-    option this platform does not define at all is skipped in the same way.
+    The one option set is ``TCP_USER_TIMEOUT``, which drops the connection once
+    data has gone unacknowledged for :data:`UNACKNOWLEDGED_TIMEOUT_SECONDS`. A
+    platform that does not define it, or refuses it, keeps its own default and
+    the link opens anyway.
+
+    An idle link is deliberately not probed. TCP keepalive did that from 0.7.1,
+    and the adapter this runs against acknowledges every byte of data and no
+    probe, measured on 2026-11-06: three probes went unanswered and the
+    kernel dropped a healthy connection after every minute of quiet, so the
+    next request failed while the link was reopened. Without probes an adapter
+    that has gone is found at the next write or refresh, a minute after it, and
+    a ping of the adapter is the better alarm for one that goes while the sign
+    is quiet.
     """
     sock = getattr(port, "_socket", None)
     if not isinstance(sock, socket.socket):
         return
 
-    # macOS spells the idle time TCP_KEEPALIVE; everywhere else it is
-    # TCP_KEEPIDLE. Each is looked up by name because not every platform
-    # defines every one of them.
-    idle_option = "TCP_KEEPIDLE" if hasattr(socket, "TCP_KEEPIDLE") else "TCP_KEEPALIVE"
-    options = [
-        (socket.SOL_SOCKET, "SO_KEEPALIVE", 1),
-        (socket.IPPROTO_TCP, idle_option, KEEPALIVE_IDLE_SECONDS),
-        (socket.IPPROTO_TCP, "TCP_KEEPINTVL", KEEPALIVE_INTERVAL_SECONDS),
-        (socket.IPPROTO_TCP, "TCP_KEEPCNT", KEEPALIVE_PROBES),
-        (socket.IPPROTO_TCP, "TCP_USER_TIMEOUT", UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000),
-    ]
-    for level, name, value in options:
-        option = getattr(socket, name, None)
-        if option is None:
-            continue
-        try:
-            sock.setsockopt(level, option, value)
-        except OSError as err:
-            logger.debug("could not set %s on the link to %s: %s", name, url, err)
+    option = getattr(socket, "TCP_USER_TIMEOUT", None)
+    if option is None:
+        return
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, option, UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000)
+    except OSError as err:
+        logger.debug("could not set TCP_USER_TIMEOUT on the link to %s: %s", url, err)

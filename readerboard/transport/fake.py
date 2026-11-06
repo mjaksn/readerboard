@@ -48,14 +48,15 @@ class FakeTransport:
         """How long until a reconnect would be attempted. The fake never waits."""
         return 0.0
 
-    def ensure_open(self) -> None:
-        """Open the link if it is down."""
+    def ensure_open(self) -> bool:
+        """Open the link if it is down, and return whether this call opened it."""
         if self._is_open:
-            return
+            return False
         if self.open_fails_with is not None:
             raise TransportError(self.open_fails_with)
         self._is_open = True
         self.open_count += 1
+        return True
 
     def write(self, data: bytes) -> None:
         """Record one transmission, or fail if the fake was told to.

@@ -359,6 +359,24 @@ declines to write them again.
   off and back on within a refresh interval: the write is lost, the read then
   finds the sign intact, and nothing writes it again. A message written in that
   window has always had the same gap.
+- **An idle link to the sign is not probed.** TCP keepalive would notice an
+  adapter that went off the network while nothing was being sent, and 0.7.1
+  turned it on. The adapter it runs against acknowledges every byte of data and
+  answers no probe at all, measured on 2026-11-06 by watching the probe count in
+  `/proc/net/tcp` climb to three, so the kernel dropped a healthy connection
+  after every minute of quiet and the next request failed while the link was
+  reopened. Only `TCP_USER_TIMEOUT` is set now, which gives up on data left
+  unacknowledged and so needs something to have been sent.
+  `SerialTransport.write` reopens a link that failed under it once and sends
+  again, which is what keeps a dropped connection from becoming a 503. That
+  reopen is a reconnect in every other respect: a write to a connection that had
+  already died went no further than the local buffer, so the controller forgets
+  what it believed the sign held and runs the reconnect hooks in a task of its
+  own once the caller's locks are free, and the registry's hook marks the record
+  as not on the sign so that the refresh pushes everything rather than asking
+  about one picture the caller may have written again in the meantime. Turning
+  keepalive back on would want an adapter that answers it, and a check that this
+  one does.
 - **The paths carry no version prefix.** They read `/v2` until the second,
   older surface beside them was removed. With one surface left, a prefix that
   distinguishes it from nothing is a word every caller writes and no reader

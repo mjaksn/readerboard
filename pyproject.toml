@@ -69,7 +69,10 @@ dev = [
     # runs at all. anyio 4.16 copes with the rename, so this ceiling comes off
     # when the anyio one does.
     "pytest>=9.1.1,<9.2",
-    "pytest-asyncio>=1.4.0,<2",
+    # Pinned exactly rather than given a range, because the range let pip take
+    # 1.4.1.post1 within a week of its release. Move it by hand once a newer
+    # version has been out for seven days.
+    "pytest-asyncio==1.4.1",
     # starlette's TestClient moved to httpx2; plain httpx now raises a
     # deprecation warning, which this suite is configured to treat as an error.
     "httpx2>=2.10.0,<3",

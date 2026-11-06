@@ -1,5 +1,6 @@
 """Tests for the clock sync."""
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -229,9 +230,16 @@ async def test_it_syncs_when_the_link_comes_back():
     try:
         assert clock.last_sync_at is None
 
-        # The adapter comes back.
+        # The adapter comes back. The reconnect loop started above is trying
+        # too, and only the attempt that actually opens the link runs the
+        # hooks, so the sync can land in the loop's task rather than this one.
+        # Wait for it whichever way it comes.
         transport.open_fails_with = None
         await controller._connect()
+        for _ in range(200):
+            if clock.last_sync_at is not None:
+                break
+            await asyncio.sleep(0.01)
 
         assert clock.last_sync_at == moment
     finally:

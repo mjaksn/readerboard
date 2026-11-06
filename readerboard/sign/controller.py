@@ -154,6 +154,13 @@ class SignController:
         self._reconnect_hooks: list[ReconnectHook] = []
         self._reconnect_task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
+        self._seen_reopens = self._reopens()
+        self._repair_wanted = False
+        self._repair_task: asyncio.Task[None] | None = None
+        # Which hooks the repair has finished, and which to run again because
+        # the link came back after they finished. See _repair_after_reopen.
+        self._repair_finished: list[ReconnectHook] = []
+        self._repair_repeat: list[ReconnectHook] = []
 
         self.writes = 0
         self.suppressed = 0
@@ -167,9 +174,18 @@ class SignController:
 
         The clock sync uses this, and so does the registry's refresh. A sign
         that lost power has a wrong clock, and the link coming back is the
-        closest signal the service gets to that having happened.
+        closest signal the service gets to that having happened. A link a write
+        had to open again counts too, see :meth:`_notice_a_reopen`.
+
+        A repair asked for before any hook was registered is still owed, and
+        starts here. The service registers its hooks only after the startup
+        push, so that opening the link does not repeat that push, and a write in
+        the push that had to open the link again would otherwise ask for a
+        repair with nothing to run it.
         """
         self._reconnect_hooks.append(hook)
+        if self._repair_wanted:
+            self._start_the_repair()
 
     async def start(self) -> None:
         """Open the link if it will open, and begin watching it."""
@@ -189,12 +205,13 @@ class SignController:
     async def stop(self) -> None:
         """Stop watching the link and close it."""
         self._stopping.set()
-        task = self._reconnect_task
+        for task in (self._reconnect_task, self._repair_task):
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         self._reconnect_task = None
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        self._repair_task = None
         await asyncio.to_thread(self._transport.close)
 
     # == health =============================================================
@@ -319,6 +336,9 @@ class SignController:
             logger.debug("run sequence unchanged, not writing it again")
             return False
         payload = frames.set_run_sequence(labels)
+        # Unknown until the send has finished, for the reason _send_if_changed
+        # gives.
+        self._run_sequence = None
         await self._send(payload)
         self._run_sequence = list(labels)
         return True
@@ -351,21 +371,44 @@ class SignController:
         # it as delivered, and the caller is told 200. Holding the lock makes
         # every other writer queue behind the reset instead. That is why the
         # sends below are ``_send_locked``; ``asyncio.Lock`` is not reentrant.
+        #
+        # A link opened again under any write of the sequence sends it all
+        # again from the clear, once. The clear before it may have gone down
+        # the connection that had died, and a configuration the sign takes
+        # without a clear ahead of it is the blank sign described above. A
+        # second reopen is reported as a failure rather than chased.
         async with self._lock:
-            await self._send_locked(frames.clear_memory())
-            # Let the reset the clear triggers finish before the configuration
-            # lands, or the configuration arrives while the sign is deaf and is
-            # lost.
-            if self._settle:
-                await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
-            await self._send_locked(frames.set_memory_config(allocations))
-            # The configuration buffers through the reset, but message content
-            # needs the sign actually back and listening rather than merely able
-            # to hold one buffered write. Whoever rebuilds the display next is
-            # holding this lock's queue, so waiting here is what stops their
-            # writes landing on a sign that cannot say it missed them.
-            if self._settle:
-                await self._sleep(RESET_SETTLE_SECONDS)
+            for attempt in range(2):
+                reopens = self._reopens()
+                await self._send_locked(frames.clear_memory())
+                # Let the reset the clear triggers finish before the
+                # configuration lands, or the configuration arrives while the
+                # sign is deaf and is lost.
+                if self._settle:
+                    await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
+                await self._send_locked(frames.set_memory_config(allocations))
+                # The configuration buffers through the reset, but message
+                # content needs the sign actually back and listening rather than
+                # merely able to hold one buffered write. Whoever rebuilds the
+                # display next is holding this lock's queue, so waiting here is
+                # what stops their writes landing on a sign that cannot say it
+                # missed them.
+                if self._settle:
+                    await self._sleep(RESET_SETTLE_SECONDS)
+                if self._reopens() == reopens:
+                    break
+                if attempt == 0:
+                    logger.warning(
+                        "the link to %s was opened again during the reallocation, "
+                        "so it is being sent again from the clear",
+                        self._transport.description,
+                    )
+            else:
+                self.forget_sign_contents()
+                raise TransportError(
+                    "the link to %s was opened again twice during the reallocation, "
+                    "so the sign may not have taken it" % self._transport.description
+                )
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
 
@@ -469,6 +512,11 @@ class SignController:
             )
             return False
 
+        # Unknown until the send has finished. A send cancelled at any point,
+        # the pause after the packet included, may already have changed the
+        # file on the sign, and keeping the old contents would let a later
+        # write of exactly those bytes be skipped.
+        self._file_contents.pop(label, None)
         await self._send(payload)
         self._file_contents[label] = payload
         return True
@@ -495,6 +543,17 @@ class SignController:
             # survived a failed write, so stop believing it.
             self.forget_sign_contents()
             raise
+        except asyncio.CancelledError:
+            # Nor a cancelled one. The worker thread carries on with the write
+            # whatever happens here, so the file may yet change on the sign, and
+            # the link may yet be opened again under it, with nobody left to
+            # look. Forgetting stops an identical write being skipped on the
+            # strength of the old contents; the reopen, if there is one, is
+            # caught by the next write, see _notice_a_reopen.
+            self.forget_sign_contents()
+            raise
+
+        self._notice_a_reopen()
 
         self.writes += 1
         self.last_write_at = self._now()
@@ -505,22 +564,123 @@ class SignController:
             await self._sleep(self._inter_packet_delay)
 
     async def _connect(self) -> None:
-        was_open = self._transport.is_open
-        await asyncio.to_thread(self._transport.ensure_open)
-        if not was_open:
+        # Whether this call opened the link, not whether it was down a moment
+        # ago. A write that reopens a link holds the transport's lock for the
+        # length of the connect, with the link reading as down, and a tick of
+        # the reconnect loop that lands then waits on that lock and finds the
+        # link open. Going by what it saw first would repeat the reconnect the
+        # write has already dealt with.
+        opened = await asyncio.to_thread(self._transport.ensure_open)
+        if opened:
             self.forget_sign_contents()
-            for hook in self._reconnect_hooks:
-                try:
-                    await hook()
-                except Exception:
-                    logger.exception("a reconnect hook failed")
+            # Any reopen counted before now is covered by this repair. One a
+            # write made before failing anyway, which is what took the link
+            # down, would otherwise look new to the first write the hooks make,
+            # and the repair would run a second time.
+            self._seen_reopens = self._reopens()
+            if self._repair_task is not None and not self._repair_task.done():
+                # A repair a reopen asked for is still to come or under way,
+                # usually waiting for the registry's lock, and it pushes down
+                # whatever connection is up when it gets there, which is this
+                # one. Running the hooks here as well would push everything
+                # twice, blanking each picture and restarting the alert twice.
+                # A push of its that this link going down cut short failed on
+                # a write, which leaves the registry out of sync, so the next
+                # refresh finishes it.
+                #
+                # The hooks it has already finished ran on the connection that
+                # just went, so those run again: a clock sync that failed with
+                # the link down, say, would otherwise wait for the next
+                # scheduled one. The hook it is in, and those after it, run on
+                # this connection anyway.
+                for hook in self._repair_finished:
+                    if hook not in self._repair_repeat:
+                        self._repair_repeat.append(hook)
+                self._repair_finished = []
+                return
+            await self._run_reconnect_hooks()
+
+    def _notice_a_reopen(self) -> None:
+        """Treat a link a write had to open again as a link that came back.
+
+        The write went out, but on a connection the transport opened under it,
+        and whatever went down the old one since it last carried anything may
+        not have arrived. A write to a connection that has died without anybody
+        knowing lands in the local send buffer and returns, so the one before
+        this may be lost however it looked. Before writes could reopen a link,
+        that was repaired by the reconnect: the link went down, the reconnect
+        loop brought it back, and the hooks pushed everything again. This puts
+        the same repair back.
+
+        What the controller believes the sign holds is forgotten at once, and
+        the caller records the write it just made afterwards, which is right:
+        that one went down the new connection. The hooks cannot run here,
+        because they take this lock and the registry's, which the caller may be
+        holding, so they run in a task of their own once those are free. An
+        empty cache cannot be what carries the repair to them, since the next
+        write fills it again: the registry's own hook is what makes the refresh
+        push everything rather than ask, see ``SlotRegistry.repush_at_next_refresh``.
+
+        The count is compared against the last one seen rather than against the
+        one before this write, so that a reopen under a write that was
+        cancelled is still caught by the next write.
+        """
+        reopens = self._reopens()
+        if reopens == self._seen_reopens:
+            return
+        self._seen_reopens = reopens
+        self.forget_sign_contents()
+        logger.info(
+            "the link to %s was opened again under a write; repairing the sign as "
+            "after any reconnect",
+            self._transport.description,
+        )
+        self._repair_wanted = True
+        self._start_the_repair()
+
+    def _start_the_repair(self) -> None:
+        if self._repair_task is None or self._repair_task.done():
+            self._repair_task = asyncio.create_task(self._repair_after_reopen())
+
+    async def _repair_after_reopen(self) -> None:
+        # Round again if a reopen happened while the hooks were running, since
+        # the writes before it in this round may not have arrived either. With
+        # no hooks yet, the repair stays owed, see on_reconnect.
+        #
+        # Each pass records the hooks it finishes, so that a reconnect partway
+        # through can ask for just those again, see _connect, and the next pass
+        # runs them.
+        while self._repair_wanted and self._reconnect_hooks:
+            self._repair_wanted = False
+            self._repair_finished = []
+            todo = list(self._reconnect_hooks)
+            while todo:
+                self._repair_repeat = []
+                for hook in todo:
+                    await self._run_hook(hook)
+                    self._repair_finished.append(hook)
+                todo = self._repair_repeat
+        self._repair_finished = []
+        self._repair_repeat = []
+
+    async def _run_reconnect_hooks(self) -> None:
+        for hook in self._reconnect_hooks:
+            await self._run_hook(hook)
+
+    async def _run_hook(self, hook: ReconnectHook) -> None:
+        try:
+            await hook()
+        except Exception:
+            logger.exception("a reconnect hook failed")
 
     async def _reconnect_loop(self) -> None:
         """Keep trying to bring the link back while the service is running.
 
-        This is the only thing that opens the link. A write used to open one
-        lazily and no longer does, so if this task ever dies the service is
-        down until it is restarted, however healthy the sign becomes. It
+        This is the only thing that opens a link that is down. A write used to
+        open one lazily and no longer does; the one thing a write opens is a
+        link that failed under it, once, which needs no backoff and leaves this
+        loop nothing to do. So if this task ever dies the service is down until
+        it is restarted, however healthy the sign becomes. It
         therefore survives anything a single attempt can raise, not merely the
         failure the transport is expected to report. It died once on an
         arithmetic error from its own backoff.
@@ -541,6 +701,11 @@ class SignController:
                 await asyncio.wait_for(self._stopping.wait(), timeout=delay)
             except TimeoutError:
                 continue
+
+    def _reopens(self) -> int:
+        # Looked up rather than required, as seconds_until_retry is: only the
+        # real link reopens itself, and a fake has nothing to count.
+        return int(getattr(self._transport, "reopens", 0))
 
     def _seconds_until_retry(self) -> float:
         seconds_until_retry = getattr(self._transport, "seconds_until_retry", None)

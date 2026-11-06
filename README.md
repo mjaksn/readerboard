@@ -142,11 +142,16 @@ probably negotiating telnet rather than passing bytes through, and `rfc2217://`
 is the form that speaks that.
 
 An adapter that drops off the network says nothing as it goes. The service asks
-the operating system to give a network link up about a minute after the adapter
-stops answering: on Linux, a minute after the first write it did not
-acknowledge, or, if nothing was written, about a minute after it last answered,
-found by keepalive probes. A platform that does not take one of these options
-keeps its own default for it, which can be much longer. The service itself only
+the operating system to give a network link up a minute after the adapter stops
+acknowledging what it is sent: on Linux, a minute after the first write it did
+not acknowledge. A platform that does not take that option keeps its own default
+for it, which can be much longer. An idle link is not probed, because some
+adapters answer no TCP keepalive probe, and probing one drops a healthy
+connection after every minute of quiet. A write that finds its connection gone
+opens a new one and is sent again, so a connection that dropped while the
+adapter stayed put costs that request a moment rather than an error, and
+everything is then pushed to the sign again, as after any reconnect, in case an
+earlier write went down the connection that had died. The service itself only
 finds out at its first read or write after the link has gone, and `GET /health`
 shows `"connected": false` from then on. A sign with a variable updated every
 minute is written to that often. One left alone is written to at the refresh,
