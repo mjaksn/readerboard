@@ -104,10 +104,11 @@ class SerialTransport:
     def reopens(self) -> int:
         """How many times a write has reopened a link that failed under it.
 
-        The controller compares this either side of a write. A connection that
-        was replaced partway through is a fresh one to an adapter that may have
-        restarted, so what the controller believes the sign holds is no longer
-        something to suppress a write on.
+        The controller compares this with the last count it saw after every
+        write. A connection replaced under a write means whatever went down the
+        old one before it may not have arrived, so the controller treats it as
+        the link coming back: it forgets what it believed the sign held and runs
+        the same repair a reconnect does.
         """
         return self._reopens
 

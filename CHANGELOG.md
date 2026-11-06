@@ -18,16 +18,18 @@ library, and the names inside it may move without that being a breaking change.
 - **A link through an Ethernet adapter no longer drops after every minute of
   quiet.** 0.7.1 turned on TCP keepalive, so that an adapter that went off the
   network would be noticed while nothing was being sent. An adapter that
-  acknowledges data and answers no keepalive probe then had a healthy
-  connection dropped by the operating system after every minute without
-  traffic, and the next request failed with a 503 and `Connection timed out`
-  while the link was reopened. The probes are gone. Giving up on data left
-  unacknowledged for a minute stays, so an adapter that has really gone is
-  still found at the next write or refresh, and a ping of the adapter remains
-  the alarm for one that goes while the sign is quiet. A write that fails on a
-  link that was up now opens it again and sends once more, so a connection that
-  dropped while idle costs that request a moment rather than an error; one that
-  cannot be reopened waits out the five second connect before its 503.
+  acknowledges data and answers no keepalive probe then had a healthy connection
+  dropped by the operating system after every minute without traffic, and the
+  next request failed with a 503 and `Connection timed out` while the link was
+  reopened. The probes are gone. Giving up on data left unacknowledged for a
+  minute stays, so an adapter that has really gone is still found at the next
+  write or refresh, and a ping of the adapter remains the alarm for one that
+  goes while the sign is quiet. A write that fails on a link that was up now
+  opens it again and sends once more, so a connection that dropped costs that
+  request a moment rather than an error; one that cannot be reopened waits out
+  the five second connect before its 503. Everything is then pushed to the sign
+  again, as after any reconnect, because a write that went down the connection
+  after it died may never have arrived.
 
 ## [0.8.2] - 2026-11-05
 

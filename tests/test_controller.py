@@ -701,6 +701,33 @@ class TestReconnectHooks:
         finally:
             await controller.stop()
 
+    async def test_a_link_a_write_reopened_runs_the_hooks_once_its_caller_lets_go(self):
+        # The hooks take locks a caller of the write may be holding, the
+        # registry's among them, so they cannot run inside the write. They run
+        # once the caller lets go, exactly once.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        held_by_the_caller = asyncio.Lock()
+        calls: list[int] = []
+
+        async def needs_the_callers_lock() -> None:
+            async with held_by_the_caller:
+                calls.append(1)
+
+        controller.on_reconnect(needs_the_callers_lock)
+
+        async with held_by_the_caller:
+            transport.reopens = 1  # type: ignore[attr-defined]
+            await controller.write_text_file(b"A", b"HI")
+            await controller.write_text_file(b"B", b"THERE")
+            await asyncio.sleep(0)
+            assert calls == []
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert calls == [1]
+
     async def test_no_hook_runs_when_something_else_opened_the_link(self):
         # A write reopening the link holds the transport's lock with the link
         # reading as down. A reconnect attempt that saw it down and then waited

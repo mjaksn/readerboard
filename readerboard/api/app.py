@@ -133,11 +133,16 @@ async def _after_reconnect(registry: SlotRegistry, alerts: AlertService) -> None
     """Refresh a sign whose link has just come back, and let it be asked again.
 
     The refresh on the reconnect itself re-pushes everything without asking,
-    because the controller forgets what the sign holds before this runs. It is
-    every refresh after it that this is for: they read a picture back again,
-    rather than re-pushing everything because a read went unanswered while the
-    link was on its way down. See ``SlotRegistry.ask_the_sign_again``.
+    because whatever went down the connection that died may not have arrived.
+    The controller forgets what the sign holds before this runs, but this does
+    not rely on that: when a write opened the link again under itself, other
+    writes can fill the cache before this gets the lock. See
+    ``SlotRegistry.repush_at_next_refresh``. It is every refresh after that one
+    the other half is for: they read a picture back again, rather than
+    re-pushing everything because a read went unanswered while the link was on
+    its way down. See ``SlotRegistry.ask_the_sign_again``.
     """
+    await registry.repush_at_next_refresh()
     await registry.ask_the_sign_again()
     await _refresh_and_reassert(registry, alerts)
 

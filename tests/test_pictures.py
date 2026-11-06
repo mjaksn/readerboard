@@ -1681,6 +1681,38 @@ class TestAskingBeforeRePushing:
         assert payloads(transport).count(c.COMMAND_READ_DOTS + b"6") == 1
         assert picture_writes(transport) == []
 
+    async def test_a_link_a_write_reopened_is_repaired_however_full_the_cache_is(
+        self, wired, controller, transport
+    ):
+        # A write that reopens the link under itself means the writes before it
+        # on the old connection may be lost, and the picture the refresh asks
+        # about says nothing about which. The controller forgets what the sign
+        # holds, but the caller's own writes fill the cache again before the
+        # repair gets the lock, a picture among them. The refresh in that
+        # repair would then ask about the picture, hear yes, and leave the lost
+        # write lost. It has to push everything instead.
+        registry, alerts = wired
+        controller.on_reconnect(functools.partial(_after_reconnect, registry, alerts))
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await registry.refresh()
+        rows = list(icons.resolve("lock", None))
+        # What the sign would say if it were asked.
+        transport.replies.append(picture_reply(b"6", rows))
+
+        async with registry._lock:
+            transport.reopens = 1  # the next write opens the link again
+            await controller.write_text_file(b"B", b"LOST BEFORE THIS")
+            await controller.write_dots_file(b"6", rows)
+            assert "6" in controller.cached_labels()
+            transport.clear()
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert c.COMMAND_READ_DOTS + b"6" not in payloads(transport)
+        assert picture_writes(transport)
+        assert registry.in_sync
+
     async def test_a_refresh_under_way_finishes_before_the_sign_is_asked_again(
         self, wired, controller, transport
     ):

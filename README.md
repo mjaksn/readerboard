@@ -149,16 +149,18 @@ for it, which can be much longer. An idle link is not probed, because some
 adapters answer no TCP keepalive probe, and probing one drops a healthy
 connection after every minute of quiet. A write that finds its connection gone
 opens a new one and is sent again, so a connection that dropped while the
-adapter stayed put costs that request a moment rather than an error. The service
-itself only finds out at its first read or write after the link has gone, and
-`GET /health` shows `"connected": false` from then on. A sign with a variable
-updated every minute is written to that often. One left alone is written to at
-the refresh, every `refresh_interval_seconds`, which is 15 minutes by default,
-and a refresh that lands before the link has gone is buffered like any other
-write, so on a quiet sign `link.connected` can stay true for a refresh interval
-and a minute after the adapter has gone. It is still worth a monitor watching,
-and needs no key, but a ping of the adapter answers within a minute however
-quiet the sign is, and is the better alarm.
+adapter stayed put costs that request a moment rather than an error, and
+everything is then pushed to the sign again, as after any reconnect, in case an
+earlier write went down the connection that had died. The service itself only
+finds out at its first read or write after the link has gone, and `GET /health`
+shows `"connected": false` from then on. A sign with a variable updated every
+minute is written to that often. One left alone is written to at the refresh,
+every `refresh_interval_seconds`, which is 15 minutes by default, and a refresh
+that lands before the link has gone is buffered like any other write, so on a
+quiet sign `link.connected` can stay true for a refresh interval and a minute
+after the adapter has gone. It is still worth a monitor watching, and needs no
+key, but a ping of the adapter answers within a minute however quiet the sign
+is, and is the better alarm.
 
 ### The API key, and config.local.toml
 

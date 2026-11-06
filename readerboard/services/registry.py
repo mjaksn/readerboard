@@ -661,6 +661,23 @@ class SlotRegistry:
         async with self._lock:
             self._ask_again_at = None
 
+    async def repush_at_next_refresh(self) -> None:
+        """Make the next refresh push everything again rather than ask first.
+
+        Called when the link comes back up, including when a write had to open
+        it again under itself. A write that went down the old connection after
+        it died landed in a local buffer and went no further, and the picture
+        the refresh would ask about says nothing about which file that was. The
+        controller forgets what it believed the sign held, but that alone does
+        not reach the refresh: a write between the reopen and the refresh fills
+        the cache again, a picture among them, and the refresh would then ask
+        about that picture, hear yes, and leave the lost write lost. Marking the
+        record as not on the sign is what carries the repair across that gap,
+        and only a completed re-push clears it.
+        """
+        async with self._lock:
+            self._dirty = True
+
     async def refresh(self) -> bool:
         """Check that the sign still holds what it was given, and push it all again if not.
 

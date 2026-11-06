@@ -368,8 +368,13 @@ declines to write them again.
   reopened. Only `TCP_USER_TIMEOUT` is set now, which gives up on data left
   unacknowledged and so needs something to have been sent.
   `SerialTransport.write` reopens a link that failed under it once and sends
-  again, which is what keeps a dropped connection from becoming a 503, and the
-  controller forgets what it believed the sign held when that happens. Turning
+  again, which is what keeps a dropped connection from becoming a 503. That
+  reopen is a reconnect in every other respect: a write to a connection that had
+  already died went no further than the local buffer, so the controller forgets
+  what it believed the sign held and runs the reconnect hooks in a task of its
+  own once the caller's locks are free, and the registry's hook marks the record
+  as not on the sign so that the refresh pushes everything rather than asking
+  about one picture the caller may have written again in the meantime. Turning
   keepalive back on would want an adapter that answers it, and a check that this
   one does.
 - **The paths carry no version prefix.** They read `/v2` until the second,
