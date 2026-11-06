@@ -68,14 +68,15 @@ And being told to, which needs no reason.
 `docs/protocol-notes.md` records what the Alpha Sign Communications Protocol
 actually says about the memory configuration, the run sequence and the priority
 file, with the quotation behind each claim. Read it before changing anything
-under `readerboard/protocol/`. It also lists the eleven questions the document
-cannot answer, all of which three sessions with the sign have now settled. The
-last of them, what a read costs the display, was answered on 2026-09-12: nothing
-while the sign holds a message still, about half a second of stall and blank
-while it scrolls one, whichever read goes out. Two of the settled answers were
-wrong the first time and were caught on a repeat run, and both were about
-something brief on the display; the record of how is kept beside each answer,
-because it is the part that generalises.
+under `readerboard/protocol/`. It also lists, under "What the spike has
+settled", the eleven questions the document cannot answer, all of which three
+sessions with the sign have now settled. The last of them, what a read costs the
+display, was answered on 2026-09-12: nothing while the sign holds a message
+still, about half a second of stall and blank while it scrolls one, whichever
+read goes out. Two of the settled answers were wrong the first time and were
+caught on a repeat run, and both were about something brief on the display; the
+record of how is kept beside each answer, because it is the part that
+generalises.
 
 ## The one dangerous operation
 
@@ -334,16 +335,30 @@ declines to write them again.
   power cycle takes the sign's memory or leaves it alone, there is no version of
   it that loses one file, so one answer stands in for the whole sign. Every
   answer it is not sure about, and every question it cannot ask, falls through
-  to the re-push that used to be unconditional.
+  to the re-push that used to be unconditional, and so does every refresh of a
+  service with no icons, which has no picture to ask about.
 - **The alert is not re-asserted after every refresh.** It looks like a gap and
   it is the opposite. A refresh that hands the sign back to write a picture ends
   by writing the alert on again, and the sign restarts an alert when it takes
   one, so re-asserting it straight after restarts it a second time for nothing.
-  `SlotRegistry.refresh` and `SlotRegistry.reboot` each report whether they put
-  it back, and `_refresh_and_reassert` in `app.py` asks before it acts. The case
-  that still needs the re-assert is a service with no icons, which never hands
-  the sign back and so never goes near the priority file; without it a sign
-  power cycled mid-alert would stay blank.
+  `SlotRegistry.refresh` reports whether the alert can be left alone, and
+  `SlotRegistry.reboot` whether it put the alert back, and the callers in
+  `app.py` and `routes.py` ask before they act. A refresh whose picture read
+  found the sign intact reports it can be left alone too, because the sign keeps
+  its priority file exactly as long as its other files: unplugged for half a
+  minute mid-alert on 2026-11-05, it came back showing the alert. The case that
+  still needs the re-assert is a service with no icons, which never hands the
+  sign back and never asks it anything; without it a sign power cycled
+  mid-alert would stay blank. So does a change the service made to the
+  priority file and did not finish, such as an alert lifted for a picture and
+  not put back, which no answer from the sign can speak for:
+  `AlertService.sign_may_not_match` is set before every priority write, release
+  and lift, and cleared only once the sign and the record agree, so a failure
+  or a cancellation leaves it set and the next refresh puts the record back on
+  the sign. What this gives up is an alert raised while the sign is switched
+  off and back on within a refresh interval: the write is lost, the read then
+  finds the sign intact, and nothing writes it again. A message written in that
+  window has always had the same gap.
 - **The paths carry no version prefix.** They read `/v2` until the second,
   older surface beside them was removed. With one surface left, a prefix that
   distinguishes it from nothing is a word every caller writes and no reader
@@ -398,20 +413,22 @@ handed a sign holding a picture and asked to redraw, which is the only place
 that code runs before somebody sends a picture to the simulator by hand. A panel
 that draws something no test can assert about wants one of these.
 
-The client is built twice for the same kind of reason. Its window keeps one form
-per operation for its whole life, so that switching operations loses nothing
-typed, and the second build types into one, selects another and comes back. It
-reads the form on screen rather than the one it typed into, because a form
-dropped with `deleteLater` outlives its replacement when no event loop runs, and
-the old one would still hold the text.
+The client is built three times for the same kind of reason. Its window keeps
+one form per operation for its whole life, so that switching operations loses
+nothing typed, and the second build types into one, selects another and comes
+back. It reads the form on screen rather than the one it typed into, because a
+form dropped with `deleteLater` outlives its replacement when no event loop
+runs, and the old one would still hold the text. The third opens an icon list
+holding a bitmap, chooses a tint in it and asks the response panel for a
+picture, which is the client's own QPainter path: the thumbnails beside each
+icon are painted there and nowhere else.
 
-The one worth knowing
-about in the simulator round trips the frame builders above through its
-decoder: whatever the service builds has to read back as the command that built
-it. The one worth knowing about in the client diffs its endpoint catalogue
-against `docs/openapi.json` in both directions, so a route added here fails
-that tool's tests in the same commit rather than leaving it quietly unable to
-call it.
+The test worth knowing about in the simulator's suite round trips the service's
+frame builders through the simulator's decoder: whatever the service builds has
+to read back as the command that built it. The one worth knowing about in the
+client's suite diffs its endpoint catalogue against `docs/openapi.json` in both
+directions, so a route added here fails that tool's tests in the same commit
+rather than leaving it quietly unable to call it.
 
 CI also builds the container image for amd64 and starts it against `loop://`,
 for the reason it diffs the checked-in OpenAPI description: a thing exercised
@@ -447,12 +464,23 @@ in either of them. `POST /sign/reboot` against the simulator costs the same
 three seconds, for the same reason.
 
 The periodic refresh now asks a question too, and would cost those three seconds
-every interval rather than once. It does not, and the rule is worth knowing
-because it is the one place the service changes its mind about the thing on the
-other end: one unanswered read and it stops asking for the life of the process
-and goes back to re-pushing everything. So the simulator sees the old behaviour
-after the first refresh, which is what makes it still a fair rehearsal of what a
-sign gets when a sign stops answering.
+every interval rather than once. It costs them at most once in fifteen minutes,
+and the rule is worth knowing because it is the one place the service changes
+its mind about the thing on the other end: one unanswered read and it stops
+asking and goes back to re-pushing everything, until the link has been down and
+come back or fifteen minutes have passed, whichever is first. The link condition
+is what tells a network adapter that dropped off apart from the simulator, since
+at the moment of the read the two look identical, and only the adapter's link
+then drops. Not every missed answer is followed by a drop, though. The common
+one that is not is a sign switched off behind a connected adapter for longer
+than a refresh interval; a sign power cycled while a refresh lands, or a network
+outage shorter than the time the connection takes to give up, does the same.
+Those are what the fifteen minutes are for, `ASK_AGAIN_AFTER` in
+`readerboard/services/registry.py`: every refresh until then rewrites every
+picture, and the first one after asks again. The same figure bounds the
+simulator's cost to one three second stall per fifteen minutes whatever the
+refresh interval, so between asks it sees the old behaviour, which is what makes
+it still a fair rehearsal of what a sign gets when a sign stops answering.
 
 Qt is not a dependency of the service and must not become one. It has its own
 `requirements.lock`, `tools/` is in `.dockerignore`, and nothing in
@@ -463,7 +491,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-three endpoints, formats
+it at a running service and it can call all twenty-five endpoints, formats
 every response as text rather than JSON, and knows no vocabulary it was not
 told.
 

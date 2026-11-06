@@ -32,8 +32,9 @@
 #
 # Check the age rather than assuming it, and do not lean on Dependabot's
 # cooldown for this: the cooldown reads the version, and a rebuilt digest is
-# the same version it was yesterday. This one was 23 days old when it was
-# pinned, and carries the same tzdata the note below relies on.
+# the same version it was yesterday. The digest below came from a Dependabot
+# bump to 3.14.7-slim, so its age was not checked when it landed; check it, and
+# the tzdata count below, before relying on either.
 FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -83,9 +84,11 @@ LABEL org.opencontainers.image.title="readerboard" \
 # leaving the next reader to wonder. pyproject.toml installs the tzdata wheel on
 # Windows only, on the reasoning that a Linux machine carries a system zone
 # database, and a slim image looked like the obvious exception to that. It is
-# not: this base image has the Debian tzdata package in it, 443 zone files, and
-# `timezone` validates against them. Checked rather than assumed, and the digest
-# pin above is what keeps it true from one build to the next.
+# not: the 3.14.6-slim image this was first pinned to has the Debian tzdata
+# package in it, 443 zone files, and `timezone` validates against them. That was
+# checked rather than assumed, and has not been checked again on the digest
+# above since Dependabot moved it; the pin is what keeps it true from one build
+# to the next once it has been.
 
 # A fixed UID and GID, not an arbitrary one, because the state directory is
 # normally a bind mount and its owner on the host has to match this. 10001 is
@@ -118,8 +121,9 @@ EXPOSE 5001
 # because the interpreter is already here and curl is not.
 #
 # Note what this does and does not prove. It says the service is up and
-# answering. It does not say the sign is reachable: the body reports that in
-# `status`, and against loop:// or a live adapter alike the link reads as open.
+# answering. It does not say the sign is reachable either: `status` reports
+# whether the link is open, and against loop:// or a live adapter alike the link
+# reads as open.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=4)"]
 

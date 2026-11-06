@@ -2,12 +2,12 @@
 
 Status codes mean what they say here: 400 for a message or value the sign cannot
 render, 401 for a missing key, 404 for a slot or variable that does not exist,
-409 when a pool is full, a variable still in use is deleted, or an alert is
-raised over one the caller asked not to replace, and 503 when the sign is
-unreachable. Which exception means which lives in
-``readerboard.api.errors``, and these routes read no part of that table
-themselves: they let the exception through and the handler registered from it
-turns the failure into a status code and a ``detail`` body.
+409 when a pool is full, a variable still in use is deleted, an alert is raised
+over one the caller asked not to replace, or a reboot finds the sign has less
+memory than the configuration needs, and 503 when the sign is unreachable. Which
+exception means which lives in ``readerboard.api.errors``, and these routes read
+no part of that table themselves: they let the exception through and the handler
+registered from it turns the failure into a status code and a ``detail`` body.
 
 The paths carry no version prefix. They carried ``/v2`` while a second, older
 surface stood beside them, and lost it when that surface was removed: a prefix
@@ -26,6 +26,7 @@ from readerboard.api.models import (
     AlertResponse,
     ClockResponse,
     ControlCommandRequest,
+    IconBitmap,
     IconInfo,
     SignInformationResponse,
     SlotActiveRequest,
@@ -338,18 +339,22 @@ async def sign_information(controller: ControllerDep) -> SignInformationResponse
     is free to call as often as you like on a sign whose slots all hold, and a
     brief interruption to whichever slot happens to be scrolling when it lands.
 
-    This is the only read in the service, so it is also the only place a silent
-    sign is distinguishable from an unplugged one. A sign that does not answer
-    within a few seconds is a 503, the same as a sign that cannot be written to,
-    and so is a sign that starts answering and does not finish, or answers with
-    something this cannot read: the reply is the whole of what the endpoint has,
-    so one that is cut short or will not parse leaves it with nothing to report.
+    This is the only endpoint that reports what the sign answers, so it is also
+    the only place a caller can tell a silent sign from an unplugged one. A sign
+    that does not answer within a few seconds is a 503, the same as a sign that
+    cannot be written to, and so is a sign that starts answering and does not
+    finish, or answers with something this cannot read: the reply is the whole
+    of what the endpoint has, so one that is cut short or will not parse leaves
+    it with nothing to report.
 
-    Two fields are worth reading carefully. `speaker_enabled` is why `SOUND` can
-    appear to do nothing: the protocol calls disabled the default, and a muted
-    sign beeps silently. And `memory_free` is the pool the memory configuration
-    draws on, so a slot capacity that will not fit shows up here before it shows
-    up as a failed reallocation.
+    Three fields are worth reading carefully. `speaker_enabled` is why `SOUND`
+    can appear to do nothing: the protocol calls disabled the default, and a
+    muted sign beeps silently. And `memory_total` is the pool every memory
+    configuration draws on, which is the figure the service checks a
+    reallocation against before it erases anything. `memory_free` is only what
+    the current configuration leaves over, and says nothing about what a new one
+    may claim, because a memory configuration hands the whole pool back before
+    it takes any of it.
     """
     reply = await controller.read_special(frames.read_general_information())
     return SignInformationResponse.of(parse_general_information(reply))
@@ -446,7 +451,7 @@ ICON_CALL = TokenInfo(
     description=(
         "Draw one of the built-in icons here, with name replaced by the icon's own. "
         "GET /enumerations/icons lists them. Add a colour to one that takes a tint, as "
-        "<icon:check:red>"
+        "<icon:check:red>, and GET /enumerations/icon-tints lists the colours"
     ),
 )
 
@@ -463,7 +468,7 @@ async def value_tokens() -> list[TokenInfo]:
 
     The message tokens, less `<week_day>`, which the sign draws as a literal
     character from inside a variable. A value cannot call another variable
-    either, for the same reason.
+    either, for the same reason, and cannot draw an icon.
     """
     return _as_info(VALUE_TOKENS)
 
@@ -504,6 +509,46 @@ async def icon_library() -> list[IconInfo]:
             group=icon.group,
             width=icon.width,
             tintable=icon.tintable,
+        )
+        for icon in icons.ICONS.values()
+    ]
+
+
+@enumerations.get("/icon-tints", summary="Colours an icon that takes a tint can be drawn in")
+async def icon_tints() -> list[TokenInfo]:
+    """List every colour word a tint may name, as in <icon:check:red>.
+
+    The words are the colour tokens' own, so a message that can say <red> needs
+    no second spelling to say <icon:check:red>. Only an icon listed as taking a
+    tint accepts one; asking an icon drawn in its own colours for one is a 400.
+    """
+    return [
+        TokenInfo(
+            name=word,
+            description="draws an icon that takes a tint in %s, as <icon:check:%s>"
+            % (word, word),
+        )
+        for word in icons.TINT_INKS
+    ]
+
+
+@enumerations.get("/icons/bitmaps", summary="The dots each icon is drawn with")
+async def icon_bitmaps() -> list[IconBitmap]:
+    """List every built-in icon's bitmap, in the same order as GET /enumerations/icons.
+
+    One call for the whole library rather than one per icon, so a caller
+    showing the icons beside their names can draw all of them from a single
+    answer. Each is named by the same tag the list gives, which is what the two
+    are joined on.
+
+    An icon that takes a tint is drawn here in its default colour, which is
+    what a message calling it with no colour gets.
+    """
+    return [
+        IconBitmap(
+            name="<icon:%s>" % icon.name,
+            rows=list(icon.rows),
+            inks=icon.inks(),
         )
         for icon in icons.ICONS.values()
     ]
