@@ -13,7 +13,272 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A sign switched off behind an adapter that stays connected no longer stops
+  the refresh asking for good.** One unanswered read stopped the refresh asking
+  the sign whether it still holds its pictures until the link next dropped or
+  the service restarted, and every refresh until then rewrote every picture,
+  blanking the display once for each. A sign switched off for longer than
+  `refresh_interval_seconds` was the common way to get there, and a sign power
+  cycled while a refresh landed, or a short network outage, did the same. The
+  refresh now asks again fifteen minutes after a read went unanswered, as well
+  as when the link comes back. The sign simulator, which answers no read, costs
+  one three second stall every fifteen minutes in return, rather than once for
+  the life of the process; at the default refresh interval that is a stall on
+  every refresh.
+- **An alert no longer restarts on the display at every refresh while a
+  message calls an icon.** When the refresh's picture read found the sign
+  intact, nothing was pushed, and the alert was then written again anyway,
+  which the sign takes as a cue to start it over. A sign unplugged for half a
+  minute mid-alert came back showing it, so the priority file goes with the rest
+  of the sign's memory and the read answers for it too; the alert is now left
+  alone. A service with no icons re-asserts the alert every refresh as before.
+  What this gives up is an alert raised while the sign is switched off and back
+  on within one refresh interval: the write is lost, the read then finds the
+  sign intact, and nothing writes the alert again until it is raised again. A
+  message written in that window has always had the same gap.
+- **`scripts/dump_openapi.py --help` prints its usage.** It took any argument
+  as the file to write, so it wrote the description to a file called `--help`.
+
+## [0.8.1] - 2026-11-04
+
+**A fix for signs with icons reached through an Ethernet adapter.** One drop of
+the adapter's link no longer leaves the sign blanking once for every picture on
+every refresh until the service is restarted. Upgrading erases nothing: no
+setting, state file or memory configuration changes.
+
+### Fixed
+
+- **A sign with icons no longer blanks every refresh after its adapter drops
+  off the network.** The refresh reads one picture back before deciding whether
+  to push everything again, and stops asking after one read that goes
+  unanswered, so that the sign simulator, which answers no reads, does not cost
+  three seconds every interval. An adapter that has just dropped off looks the
+  same at that moment, so one drop used to stop the asking until the service was
+  restarted, and every refresh after it rewrote every picture, blanking the
+  display once for each. The refresh now asks again once the link has gone down
+  and come back, which an adapter's does and the simulator's never does. **A
+  sign switched off behind an adapter that stays connected still stops the
+  asking**, as soon as one refresh lands while it is off, which is any time it is
+  off for longer than `refresh_interval_seconds`. From then on every refresh
+  rewrites every picture, blanking the display once for each, until the link
+  next drops or the service restarts. A refresh landing while a power cycled
+  sign starts up does the same, and so does a network outage that outlasts the
+  read's three seconds but is over before the connection gives up. No link
+  drops in any of these, so nothing asks again.
+
+## [0.8.0] - 2026-11-04
+
+**Icon thumbnails in the client.** Two new enumerations say what each icon
+looks like and which colours a tint may name, and the client draws every icon
+from them, in its own colours or in a tint chosen beside the list. Upgrading
+erases nothing: no setting, state file or memory configuration changes, and
+the client still works against an older service, without the pictures.
+
+### Added
+
+- **`GET /enumerations/icons/bitmaps` gives the dots each icon is drawn with.**
+  One call answers the whole library, in the same order as `GET
+  /enumerations/icons` and named by the same tags. Each icon comes with its
+  rows, one character a dot, and the colour word every lit character stands for,
+  so a caller can show an icon rather than only name it. A tintable icon is
+  given in the colour it takes when no tint is asked for. Like the list beside
+  it, it needs no API key.
+- **`GET /enumerations/icon-tints` lists the colours a tint may name.** They
+  are the colour tokens' own words, as in `<icon:check:red>`, in the same
+  `name` and `description` shape as the markup tokens.
+- **The client shows a thumbnail of each icon.** The Icons row has a **Load
+  bitmaps** button, and once it has been pressed every list of icons, whether
+  opened with View or with Insert icon, draws each one dot for dot in front of
+  its name, and so does the response panel for the icon list and the bitmaps.
+- **The client can preview and insert a tinted icon.** With the bitmaps and the
+  new Icon tints set loaded, an icon list offers a colour beside its filter.
+  Choosing one redraws the icons that take a tint in it, and Insert icon puts in
+  the tinted tag, `<icon:check:red>` for the check.
+- **Load all asks for the tints and then the bitmaps after every other set.**
+  A service older than both endpoints stops the chain at the tints, with one
+  dialog reporting the 404 and every set it does have already loaded; the
+  client then works as before, without thumbnails or tints.
+
+## [0.7.1] - 2026-11-03
+
+**A fix for signs reached through an Ethernet adapter.** The service now notices
+when the adapter drops off the network, and `GET /health` says so, where until
+now it went on reporting the link as up. Upgrading erases nothing, with one
+exception: **a Compose deployment with icons off that takes the new
+`packaging/docker-compose.yml` turns them on, and its first start erases every
+message on the sign** before the service puts them back. Read the Changed
+section before replacing a Compose file.
+
 ### Changed
+
+- **The client keeps each operation's form when another is selected.** Every
+  form used to be built afresh on selection, so a look at another operation
+  threw away whatever had been typed, the choices in its lists and any keys it
+  had loaded. Each operation now has one form for as long as the client is open,
+  and selecting it brings that form back as it was left. A set loaded on the
+  left reaches every form rather than only the one on screen, and a **Load
+  keys** or **Load From Sign** reply goes to the form that asked for it even
+  when another is showing by the time it arrives.
+- **`packaging/docker-compose.yml` turns icons on.** It sets
+  `READERBOARD_PICTURE_COUNT` to 16, so a deployment brought up from it can draw
+  icons without editing the file first. A deployment already running from an
+  earlier copy of it, and so with icons off, has its sign reallocated on the
+  first start with this one, which erases every message on the sign before the
+  service puts them back. Take the line out to keep icons off.
+
+### Fixed
+
+- **An Ethernet to RS-232 adapter that drops off the network is noticed.**
+  Nothing on the link was watching for it, so the operating system kept
+  accepting writes to an adapter that was not there, on Linux for about a
+  quarter of an hour, and `GET /health` said the link was up the whole time. A
+  `socket://` or `rfc2217://` link now turns on TCP keepalive, and on Linux
+  gives up on unacknowledged data after a minute, so the operating system drops
+  the link about a minute after the adapter stops answering. A platform that
+  does not take one of these options keeps its own default for it. The service
+  finds out at its first read or write after the link has gone, and from then
+  `/health` reports it and the reconnect loop takes over. On a sign left alone
+  that is a refresh, every `refresh_interval_seconds` and 15 minutes by
+  default, and a refresh that lands before the link has gone is buffered like
+  any other write, so it can be the one after. A ping of the adapter is still
+  the faster alarm. A serial cable is unaffected.
+
+## [0.7.0] - 2026-10-08
+
+**This is the release that adds icons.** A message can draw one of 148 built-in
+bitmaps with `<icon:name>`, each held in a picture file of its own on the sign.
+Icons stay off until `picture_count` is raised from its default of 0, so
+upgrading reallocates nobody's sign, and **raising it erases every message on the
+sign once**. It is also the release that found out how small the sign's memory
+pool is: 5482 bytes, not the 26000 it was budgeted against, so **a configuration
+no BetaBrite Classic could hold now stops the service starting**. The defaults
+take under half of it. **Read the Changed section before upgrading.**
+
+### Added
+
+- **`fail_if_active` on `POST /alerts`**, for a caller that must not overwrite
+  somebody else's alert. Raising an alert replaces whatever is on the priority
+  file, which is right when the new alert is the more important one and wrong
+  when two sources raise alerts independently and neither knows about the other.
+  Send it and an alert already holding the sign is a 409 rather than a
+  replacement. It defaults to false, so nothing that works today changes. An
+  alert past its deadline does not count as holding the sign: the sweep that
+  releases one runs on a timer, and refusing for something nobody wanted kept
+  would make the answer depend on where in the second the call arrived.
+
+- **A "readerboard client" launch configuration in both editors**, which starts
+  the client on its own for a service that is already running somewhere else.
+  Until now the client could be started from an editor only alongside a service
+  it had just started itself. VSCode also gains "readerboard sign simulator",
+  the simulator on its own, which PyCharm already had.
+
+- **Load all in the client**, which sends every enumeration read in turn from one
+  press. The client keeps one call in flight, so this is a chain rather than five
+  requests: each set's read goes out from the completion of the one before it,
+  and a failure stops it there rather than stacking a dialog for every set still
+  waiting.
+
+- **The client fills its API key box from `READERBOARD_API_KEY`.** The same
+  variable the service reads its own key from and the one the curl command it
+  copies already refers to, so a machine that exports a key once has the box
+  filled in for it. Both launch scripts now hand the client the key they gave the
+  service, through its environment rather than a command line, so starting the
+  client beside the service no longer means copying a key out of the log. The
+  client still has no option for one, still saves nothing, and an empty box is
+  still what a service with no key configured gets.
+
+- **A message can draw an icon.** `<icon:name>` puts one of 148 built-in bitmaps
+  where the tag sits, and `<icon:name:colour>` retints the ones drawn in a single
+  ink: `<icon:lock:red> DOOR LOCKED` costs the message two bytes. The colour words
+  are the colour tokens' own, down to `dimred` and `dimgreen`, so a message that
+  can say `<red>` needs no second spelling. `GET /enumerations/icons` lists every
+  one with its group, its width and whether it takes a tint, and each is answered
+  as the tag that draws it rather than a bare name.
+
+  Each icon lives in a SMALL DOTS PICTURE file on the sign, which is a third pool
+  beside the slots and the variables. Nobody creates an icon and no route deletes
+  one: a file is claimed by whichever icon a message calls, and kept until another
+  icon needs it. That keeping is deliberate rather than untidy. Every write to a
+  picture blanks the display and restarts a scrolling message, so a file held past
+  its last caller is what makes a source alternating between two icons cost
+  nothing. A pool where every file is holding an icon something still calls is a
+  409, and `GET /health` now reports pictures used against pictures total.
+
+  An icon is not a live value. A picture write costs a blank; a variable does not,
+  which is what `<var:name>` is for.
+
+- **`picture_count`**, how many icons can be on the sign at once. It defaults to
+  **0**, which switches icons off, and that default is what keeps this release from
+  reallocating anybody's sign: a state file written before this describes a
+  configuration with no pictures, which is exactly the configuration the default
+  asks for. **Raising it from 0 erases every message on the sign**, once, on the
+  next start, like any other change to the file pool.
+
+  A picture file takes 69 bytes of the sign's memory pool, measured on a BetaBrite
+  Classic whose whole pool is 5482, so 16 is comfortable alongside the default
+  slots and variables and 32 is about the ceiling.
+
+### Changed
+
+- **The size of the sign's memory pool is read from the sign rather than
+  assumed.** It was a constant, 26000 bytes, derived from a remembered claim that
+  a BetaBrite Classic holds around 30000 bytes all told. The sign was asked on
+  2026-09-12 and reported 5482, so the figure the configuration was checked
+  against was nearly five times the pool that exists, so a configuration with no
+  room to exist passed validation and reached the sign. What the sign does with
+  one has never been measured, and the protocol document does not say, which is
+  reason enough not to send one.
+
+  `slot_count`, `slot_capacity`, `variable_count`, `variable_capacity` and
+  `picture_count` are now checked twice. Once when the settings are read,
+  against the 5482 bytes a BetaBrite Classic has, because settings are validated
+  on machines with no sign attached. Once again before the sign is reallocated,
+  against the figure the sign itself reports.
+
+  **The first of those is a ceiling and the second can only lower it.** A sign
+  reporting less than 5482 is believed; a sign reporting more cannot be asked,
+  because a configuration over the ceiling is refused before any link is open.
+  Driving a sign with a bigger pool would mean raising
+  `ASSUMED_SIGN_MEMORY_POOL`, which is now in `readerboard/sign/pool.py` beside
+  the code that reads the sign.
+
+  **A pool that some sign held before may now be refused.** Eight messages of 256
+  bytes and eight variables of 32, the defaults, take under half the pool and are
+  unaffected. Twenty six variables of 125 bytes no longer fit beside eight
+  messages of 256, which they appeared to while the budget was a guess. The
+  refusal names what was configured, what it needs and what there is.
+
+  The startup check runs only on a start that is about to write a memory
+  configuration, which erases every message on the sign. An ordinary restart asks
+  the sign nothing and is unchanged. A sign that says nothing, says something
+  unreadable, or is a `loop://` URL with nothing behind it does not stop the
+  service starting: the 5482 stands in, at WARNING. That is also what the sign
+  simulator looks like, since it decodes reads and answers none, so a simulator
+  run now waits out the read's three second deadline once and logs that warning
+  before it allocates. A sign that answers clearly and does not have the room is
+  the one thing that does stop the service, because going ahead would erase every
+  message on it to write a pool that could never work.
+
+- **The systemd unit gives up after ten failed starts in five minutes.** It
+  restarted for ever before, which was right while every failure here was
+  transient. The check above adds one that is not: a pool too big for the sign
+  fails the same way every time, and each attempt puts a read on the wire that
+  stalls a scrolling message, so the loop is a sign that twitches every five
+  seconds until somebody logs in, which it needs either way. Getting it going
+  again once the configuration is fixed takes both `systemctl reset-failed
+  readerboard` and `systemctl start readerboard`: the first clears the counter
+  and leaves the unit stopped. Compose has no equivalent
+  and is unchanged; the comment beside `restart: unless-stopped` says so.
+
+- **A configured file is budgeted at the thirteen bytes of overhead the sign
+  charges, not the eleven the protocol document quotes.** Measured in the same
+  session. Two bytes a file was nothing against a pool of 26000 and is most of a
+  variable against one of 5482. The document's figure stays in the protocol layer
+  as the document's, pinned by `tests/test_constant_values.py`;
+  `docs/protocol-notes.md` records the readings, the two models that fit them
+  equally well, and the one measurement that would separate them.
 
 - **The periodic refresh asks the sign whether it needs to do anything.** It used
   to push every picture, variable, message and the run sequence again every
@@ -82,126 +347,6 @@ library, and the names inside it may move without that being a breaking change.
   else. Only the picture writes are wrapped: STRING, TEXT and run sequence writes
   are all measured landing under an alert, so a variable a live alert is showing
   still changes without the alert moving.
-
-### Added
-
-- **`fail_if_active` on `POST /alerts`**, for a caller that must not overwrite
-  somebody else's alert. Raising an alert replaces whatever is on the priority
-  file, which is right when the new alert is the more important one and wrong
-  when two sources raise alerts independently and neither knows about the other.
-  Send it and an alert already holding the sign is a 409 rather than a
-  replacement. It defaults to false, so nothing that works today changes. An
-  alert past its deadline does not count as holding the sign: the sweep that
-  releases one runs on a timer, and refusing for something nobody wanted kept
-  would make the answer depend on where in the second the call arrived.
-
-- **Load all in the client**, which sends every enumeration read in turn from one
-  press. The client keeps one call in flight, so this is a chain rather than five
-  requests: each set's read goes out from the completion of the one before it,
-  and a failure stops it there rather than stacking a dialog for every set still
-  waiting.
-
-- **The client fills its API key box from `READERBOARD_API_KEY`.** The same
-  variable the service reads its own key from and the one the curl command it
-  copies already refers to, so a machine that exports a key once has the box
-  filled in for it. Both launch scripts now hand the client the key they gave the
-  service, through its environment rather than a command line, so starting the
-  client beside the service no longer means copying a key out of the log. The
-  client still has no option for one, still saves nothing, and an empty box is
-  still what a service with no key configured gets.
-
-- **A message can draw an icon.** `<icon:name>` puts one of 148 built-in bitmaps
-  where the tag sits, and `<icon:name:colour>` retints the ones drawn in a single
-  ink: `<icon:lock:red> DOOR LOCKED` costs the message two bytes. The colour words
-  are the colour tokens' own, down to `dimred` and `dimgreen`, so a message that
-  can say `<red>` needs no second spelling. `GET /enumerations/icons` lists every
-  one with its group, its width and whether it takes a tint, and each is answered
-  as the tag that draws it rather than a bare name.
-
-  Each icon lives in a SMALL DOTS PICTURE file on the sign, which is a third pool
-  beside the slots and the variables. Nobody creates an icon and no route deletes
-  one: a file is claimed by whichever icon a message calls, and kept until another
-  icon needs it. That keeping is deliberate rather than untidy. Every write to a
-  picture blanks the display and restarts a scrolling message, so a file held past
-  its last caller is what makes a source alternating between two icons cost
-  nothing. A pool where every file is holding an icon something still calls is a
-  409, and `GET /health` now reports pictures used against pictures total.
-
-  An icon is not a live value. A picture write costs a blank; a variable does not,
-  which is what `<var:name>` is for.
-
-- **`picture_count`**, how many icons can be on the sign at once. It defaults to
-  **0**, which switches icons off, and that default is what keeps this release from
-  reallocating anybody's sign: a state file written before this describes a
-  configuration with no pictures, which is exactly the configuration the default
-  asks for. **Raising it from 0 erases every message on the sign**, once, on the
-  next start, like any other change to the file pool.
-
-  A picture file takes 69 bytes of the sign's memory pool, measured on a BetaBrite
-  Classic whose whole pool is 5482, so 16 is comfortable alongside the default
-  slots and variables and 32 is about the ceiling.
-
-### Changed
-
-- **The size of the sign's memory pool is read from the sign rather than
-  assumed.** It was a constant, 26000 bytes, derived from a remembered claim that
-  a BetaBrite Classic holds around 30000 bytes all told. The sign was asked on
-  2026-09-12 and reported 5482, so the figure the configuration was checked
-  against was nearly five times the pool that exists, so a configuration with no
-  room to exist passed validation and reached the sign. What the sign does with
-  one has never been measured, and the protocol document does not say, which is
-  reason enough not to send one.
-
-  `slot_count`, `slot_capacity`, `variable_count`, `variable_capacity` and
-  `picture_count` are now checked twice. Once when the settings are read, against the 5482 bytes a
-  BetaBrite Classic has, because settings are validated on machines with no sign
-  attached. Once again before the sign is reallocated, against the figure the
-  sign itself reports.
-
-  **The first of those is a ceiling and the second can only lower it.** A sign
-  reporting less than 5482 is believed; a sign reporting more cannot be asked,
-  because a configuration over the ceiling is refused before any link is open.
-  Driving a sign with a bigger pool would mean raising
-  `ASSUMED_SIGN_MEMORY_POOL`, which is now in `readerboard/sign/pool.py` beside
-  the code that reads the sign.
-
-  **A pool that some sign held before may now be refused.** Eight messages of 256
-  bytes and eight variables of 32, the defaults, take under half the pool and are
-  unaffected. Twenty six variables of 125 bytes no longer fit beside eight
-  messages of 256, which they appeared to while the budget was a guess. The
-  refusal names what was configured, what it needs and what there is.
-
-  The startup check runs only on a start that is about to write a memory
-  configuration, which erases every message on the sign. An ordinary restart asks
-  the sign nothing and is unchanged. A sign that says nothing, says something
-  unreadable, or is a `loop://` URL with nothing behind it does not stop the
-  service starting: the 5482 stands in, at WARNING. That is also what the sign
-  simulator looks like, since it decodes reads and answers none, so a simulator
-  run now waits out the read's three second deadline once and logs that warning
-  before it allocates. A sign that answers clearly and does not have the room is
-  the one thing that does stop the service, because going ahead would erase every
-  message on it to write a pool that could never work.
-
-- **The systemd unit gives up after ten failed starts in five minutes.** It
-  restarted for ever before, which was right while every failure here was
-  transient. The check above adds one that is not: a pool too big for the sign
-  fails the same way every time, and each attempt puts a read on the wire that
-  stalls a scrolling message, so the loop is a sign that twitches every five
-  seconds until somebody logs in, which it needs either way. Getting it going
-  again once the configuration is fixed takes both `systemctl reset-failed
-  readerboard` and `systemctl start readerboard`: the first clears the counter
-  and leaves the unit stopped. Compose has no equivalent
-  and is unchanged; the comment beside `restart: unless-stopped` says so.
-
-- **A configured file is budgeted at the thirteen bytes of overhead the sign
-  charges, not the eleven the protocol document quotes.** Measured in the same
-  session. Two bytes a file was nothing against a pool of 26000 and is most of a
-  variable against one of 5482. The document's figure stays in the protocol layer
-  as the document's, pinned by `tests/test_constant_values.py`;
-  `docs/protocol-notes.md` records the readings, the two models that fit them
-  equally well, and the one measurement that would separate them.
-
-### Fixed
 
 - **A picture file's size in the memory configuration was being charged as bytes.**
   A DOTS file's four hex digits are a geometry rather than a byte count, so a seven
@@ -1600,7 +1745,11 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.1
+[0.8.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.0
+[0.7.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.1
+[0.7.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.6.0
 [0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1
 [0.5.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.0

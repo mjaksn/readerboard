@@ -50,8 +50,8 @@ The state file, and the one dangerous operation
 Writing a memory configuration erases every message on the sign, so the service
 does it only when the pool described by ``slot_count``, ``slot_capacity``,
 ``variable_count``, ``variable_capacity`` and ``picture_count`` differs from the
-plan recorded in its state file. No state file means no record, which reads as a change, which
-erases the sign.
+plan recorded in its state file. No state file means no record, which reads as
+a change, which erases the sign.
 
 That is correct and expected on the first run against a sign this machine has
 never driven: the sign has to be allocated before anything can be written to it.
@@ -403,15 +403,16 @@ def _report_key(api_key: str, source: str) -> None:
         print(
             "[run] %s is set and empty, and the service reads it ahead of %s, so it "
             "starts with no key and answers 503 to every write. Unset the variable to "
-            "use the key in that file. Reads and /health still work"
+            "use the key in that file. Reads of the service's own record and /health "
+            "still work"
             % (source, CONFIG_FILE.name),
             file=sys.stderr,
         )
         return
 
     print(
-        "[run] no api_key is set in %s, so every write will answer 503. Reads and "
-        "/health still work" % CONFIG_FILE.name,
+        "[run] no api_key is set in %s, so every write will answer 503. Reads of the "
+        "service's own record and /health still work" % CONFIG_FILE.name,
         file=sys.stderr,
     )
 

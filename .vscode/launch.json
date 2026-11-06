@@ -1,5 +1,6 @@
 {
-    // Five ways to start the service from the editor, and the tests.
+    // Five ways to start the service from the editor, the sign simulator and
+    // the client each on its own, and the tests.
     //
     // "readerboard and the sign simulator" is the one to reach for. It runs
     // both, with the service already pointed at the simulator, so every
@@ -59,6 +60,20 @@
     // the port before starting anything and says so rather than letting the
     // service bind, fail and stop after the client has been pointed at
     // whatever else answered.
+    //
+    // "readerboard sign simulator" is the simulator on its own, listening on
+    // 127.0.0.1:4001, for when the service is already running elsewhere or
+    // something that is not this service is pointed at it. It needs PySide6,
+    // installed from tools/signsim/requirements.lock as tools/signsim/README.md
+    // describes.
+    //
+    // "readerboard client" is the client on its own, for a service already
+    // running somewhere else: a Pi, another checkout, or the loopback
+    // configuration started beside it. It starts no service and so opens no
+    // documentation. It opens on the base URL it remembered from its last run,
+    // and its API key box starts out holding READERBOARD_API_KEY when this
+    // machine sets one. It needs PySide6, installed from
+    // tools/apiclient/requirements.lock as tools/apiclient/README.md describes.
     //
     // Every configuration that starts the service sets READERBOARD_OPEN_DOCS,
     // which opens the documentation page once the port answers. The service
@@ -141,6 +156,20 @@
             "env": {
                 "READERBOARD_OPEN_DOCS": "1"
             },
+            "justMyCode": false
+        },
+        {
+            "name": "readerboard sign simulator",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/signsim/run.py",
+            "justMyCode": false
+        },
+        {
+            "name": "readerboard client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/apiclient/run.py",
             "justMyCode": false
         },
         {

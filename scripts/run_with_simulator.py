@@ -38,10 +38,10 @@ right against a sign that keeps its memory across a restart. The simulator does
 not: it starts empty every time. Run the two together with a state file left
 over from last time and the service, believing the sign is already configured,
 sends no memory configuration at all, and the simulator then refuses every write
-to any file but ``A`` because nothing has been allocated. So this uses a fresh
-state file each run by default, which matches the simulator starting fresh.
-``--keep-state`` opts out, for when the persistence path is the thing being
-tested.
+to any file but ``A`` and the priority file because nothing has been allocated.
+So this uses a fresh state file each run by default, which matches the simulator
+starting fresh. ``--keep-state`` opts out, for when the persistence path is the
+thing being tested.
 """
 
 from __future__ import annotations
@@ -154,7 +154,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="reuse the state file instead of starting from a clean one. The "
         "simulator starts empty every run, so a state file that says the sign is "
         "already configured means no memory configuration is sent and the "
-        "simulator refuses every write. Use this only when that is the point",
+        "simulator refuses every write to a file other than A and the priority "
+        "file. Use this only when that is the point",
     )
     parser.add_argument(
         "--clock-sync",

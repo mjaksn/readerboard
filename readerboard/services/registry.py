@@ -74,6 +74,16 @@ from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
+# How long the refresh goes without asking the sign a question after one went
+# unanswered. It bounds two costs at once, whatever the refresh interval is: the
+# sign simulator, which answers no read, stalls one read's three second deadline
+# per period with the sign's lock held, and a sign switched off behind a
+# connected adapter has every picture rewritten on every refresh for at most
+# this long after it comes back. It matches the default refresh interval, so a
+# service left at that default asks every refresh and the simulator costs three
+# seconds in fifteen minutes; it is shorter intervals that this spares.
+ASK_AGAIN_AFTER = timedelta(minutes=15)
+
 
 class RegistryError(Exception):
     """Something was wrong with a request to change the registry."""
@@ -272,13 +282,14 @@ class SlotRegistry:
         self._lock = asyncio.Lock()
         self._dirty = False
         self._priority_hold: PriorityHold | None = None
-        # Whether asking the sign a question is worth doing at all. The sign
-        # simulator decodes reads and answers none of them, so without this
-        # every refresh against it would wait out the read's three second
-        # deadline, with the sign's lock held, and then do exactly what it would
-        # have done anyway. One unanswered read is enough to stop asking; a
-        # restart is what tries again.
-        self._sign_answers_a_read = True
+        # When asking the sign a question is worth doing again, or None while it
+        # is worth doing every time. The sign simulator decodes reads and
+        # answers none of them, so without this every refresh against it would
+        # wait out the read's three second deadline, with the sign's lock held,
+        # and then do exactly what it would have done anyway. One unanswered
+        # read is enough to stop asking for ASK_AGAIN_AFTER, or until the link
+        # comes back from being down: see :meth:`ask_the_sign_again`.
+        self._ask_again_at: datetime | None = None
 
     def set_priority_hold(self, hold: PriorityHold) -> None:
         """Give the registry a way to hand the sign back while it writes a picture.
@@ -356,7 +367,7 @@ class SlotRegistry:
 
         Reconfiguring memory is avoided unless the pool itself changed, because
         it erases the sign. On the ordinary restart, where nothing changed, this
-        rewrites the files and the run sequence and the sign never blinks.
+        rewrites the files and the run sequence and nothing is erased.
         """
         async with self._lock:
             if self._layout.needs_reconfiguration(self._state.layout):
@@ -623,6 +634,33 @@ class SlotRegistry:
         await self._apply_run_sequence()
         return handed_the_alert_back
 
+    async def ask_the_sign_again(self) -> None:
+        """Let the next refresh ask the sign a question, even if one went unanswered.
+
+        Called when the link comes back up. An unanswered read stops the refresh
+        asking, which is right for the sign simulator, but it cannot be told
+        apart from a network adapter that has dropped off: a write to an adapter
+        that has gone lands in the local socket buffer and returns, and the read
+        after it hears nothing, with the link still looking up. What tells them
+        apart is what happens next. The adapter's link goes down within a minute
+        or so, and later comes back, and the simulator's never does. Without
+        this, one adapter drop would leave a sign with icons blanking once for
+        every picture on every refresh until :data:`ASK_AGAIN_AFTER` ran out.
+
+        It only helps where a link drops. A sign switched off behind a connected
+        adapter for longer than a refresh interval stops the asking with no
+        reconnect to follow, and so does a sign power cycled while a refresh
+        lands, or an outage that outlasts the read's deadline and is over before
+        the connection gives up. Those wait out :data:`ASK_AGAIN_AFTER` instead,
+        and every refresh until then rewrites every picture.
+
+        It takes the lock so that a refresh already under way finishes first. A
+        read that refresh had out could otherwise fail after the reset and stop
+        the asking straight away again.
+        """
+        async with self._lock:
+            self._ask_again_at = None
+
     async def refresh(self) -> bool:
         """Check that the sign still holds what it was given, and push it all again if not.
 
@@ -632,26 +670,30 @@ class SlotRegistry:
         fires, the cache stays warm, and suppression then skips exactly the
         writes that would repair a sign which is now blank.
 
-        Refreshing drops what the controller believes about the sign's contents
-        and writes it all again. It runs on a timer, and on every reconnect.
-        Rewriting a TEXT file restarts the message in it, so every message
-        restarts once a refresh; variables spare the display a blank on every
-        change of value, not on this.
+        A re-push drops what the controller believes about the sign's contents
+        and writes it all again. The refresh runs on a timer, and on every
+        reconnect. Rewriting a TEXT file restarts the message in it, so every
+        message restarts once a re-push; variables spare the display a blank on
+        every change of value, not on this.
 
         So it asks first, which is what :meth:`_sign_still_holds_its_pictures`
         is for, and re-pushes only when the answer is no or there is no answer.
         The re-push is expensive in the one currency that matters here: writing
-        a picture blanks the whole display, so a sign with five icons on it blank
-        five times an interval, for a repair that is almost never needed. Asking
-        costs a message held still nothing at all and a scrolling one about half
-        a second of stall, measured on 2026-09-12.
+        a picture blanks the whole display, so a sign with five icons on it would
+        blank five times an interval, for a repair that is almost never needed.
+        Asking costs a message held still nothing at all and a scrolling one
+        about half a second of stall, measured on 2026-09-12.
 
-        Returns whether an alert was put back on the sign as part of it, which
-        the caller needs so that it does not write the alert a second time. See
-        :meth:`_rewrite_all`. Nothing is put back when nothing was re-pushed, so
-        the caller re-asserts the alert on that path exactly as it would have
-        before: what the sign holds in its priority file is a separate question
-        from what it holds in a picture file, and this does not ask it.
+        Returns whether the caller can leave the alert alone, which it needs so
+        that it does not write the alert a second time: the sign restarts an
+        alert on the display whenever it takes one. That is so when an alert was
+        put back on the sign as part of the re-push, see :meth:`_rewrite_all`,
+        and when the sign answered that it still holds its picture. The second
+        rests on a measurement: a sign unplugged for half a minute in the middle
+        of an alert came back showing it, on 2026-11-05, so the priority file
+        goes with the rest of the sign's memory, and one answer stands in for it
+        as it does for every other file. Re-asserting there restarted the alert
+        once a refresh interval for as long as it was up.
         """
         async with self._lock:
             if await self._sign_still_holds_its_pictures():
@@ -659,7 +701,7 @@ class SlotRegistry:
                     "the sign still holds the picture it was given, so nothing was "
                     "re-pushed"
                 )
-                return False
+                return True
 
             self._controller.forget_sign_contents()
             put_the_alert_back = await self._rewrite_all()
@@ -722,7 +764,8 @@ class SlotRegistry:
             # sign's lock held, and the re-push is about to fail anyway.
             return False
 
-        if not self._sign_answers_a_read:
+        if self._ask_again_at is not None and self._now() < self._ask_again_at:
+            # A read went unanswered not long ago. See ASK_AGAIN_AFTER.
             return False
 
         written = set(self._controller.cached_labels())
@@ -735,15 +778,20 @@ class SlotRegistry:
             return bool(replies.picture_contents(reply, label))
         except TransportError as err:
             # Nothing came back at all, which is what the sign simulator does to
-            # every read and what a sign that has stopped listening does. Asking
-            # again every interval would cost the deadline each time and answer
-            # nothing, so stop.
-            self._sign_answers_a_read = False
+            # every read, what a sign that has stopped listening does, and what
+            # an adapter that has dropped off the network looks like before its
+            # link is declared down. Asking again every interval would cost the
+            # deadline each time and answer nothing, so stop for a while: until
+            # the link has been down and come back, which is the adapter case
+            # and never the simulator's, or until ASK_AGAIN_AFTER has passed,
+            # which is what brings back a sign that was only switched off.
+            self._ask_again_at = self._now() + ASK_AGAIN_AFTER
             logger.info(
-                "the sign did not answer a read (%s), so the periodic re-push will "
-                "stop asking and go back to pushing everything every time. A restart "
-                "tries again.",
+                "the sign did not answer a read (%s), so the periodic refresh will "
+                "stop asking and go back to pushing everything every time. It asks "
+                "again in %d minutes, or sooner if the link drops and comes back.",
                 err,
+                ASK_AGAIN_AFTER // timedelta(minutes=1),
             )
             return False
         except replies.ReplyError as err:
