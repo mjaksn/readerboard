@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "readerboard"
-version = "0.6.0"
+version = "0.8.2"
 description = "An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, expiring messages and clock sync"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -40,7 +40,7 @@ classifiers = [
 # is allowed to live. tzdata is the exception and takes a floor only: it is a
 # calendar-versioned data package with no API to break.
 dependencies = [
-    "fastapi>=0.141.1,<0.142",
+    "fastapi>=0.141.1,<0.144",
     # Plain uvicorn, not the "standard" extra. That extra exists to make a busy
     # server faster, and nothing here is busy: this one answers a handful of
     # requests and then waits on a 9600 baud serial line behind a deliberate
@@ -52,7 +52,7 @@ dependencies = [
     # watchfiles, which only makes --reload quicker. That flag is for working on
     # the service rather than for running one, and uvicorn polls the tree
     # without it.
-    "uvicorn>=0.52.1,<0.54",
+    "uvicorn>=0.52.1,<0.55",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
     "pyserial>=3.5,<4",
@@ -63,7 +63,12 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.1.1,<10",
+    # pytest 9.2 renamed CallSpec2 and deprecated the old name, which the anyio
+    # held below 4.15 further down still imports in its pytest plugin. That is
+    # the same collection error again, raised as the plugin loads, so no test
+    # runs at all. anyio 4.16 copes with the rename, so this ceiling comes off
+    # when the anyio one does.
+    "pytest>=9.1.1,<9.2",
     "pytest-asyncio>=1.4.0,<2",
     # starlette's TestClient moved to httpx2; plain httpx now raises a
     # deprecation warning, which this suite is configured to treat as an error.

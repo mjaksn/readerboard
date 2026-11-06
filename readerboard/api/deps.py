@@ -42,9 +42,9 @@ api_key_scheme = APIKeyHeader(
     auto_error=False,
     scheme_name="ApiKeyAuth",
     description=(
-        "The shared key every write carries. Set it with `api_key` in the config "
-        "file or `READERBOARD_API_KEY` in the environment; `scripts/install.sh` "
-        "generates one."
+        "The shared key every write carries, and GET /sign/information with it. Set "
+        "it with `api_key` in the config file or `READERBOARD_API_KEY` in the "
+        "environment; `scripts/install.sh` generates one."
     ),
 )
 
@@ -93,8 +93,9 @@ def require_api_key(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                "no API key is configured, so every write is refused. Set api_key in "
-                "the config file or READERBOARD_API_KEY in the environment."
+                "no API key is configured, so every write, and every read of the sign "
+                "itself, is refused. Set api_key in the config file or "
+                "READERBOARD_API_KEY in the environment."
             ),
         )
 
