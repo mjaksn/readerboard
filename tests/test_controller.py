@@ -150,6 +150,45 @@ class TestMemoryConfiguration:
 
         assert "clears every message" in caplog.text
 
+    async def test_a_link_reopened_under_it_sends_it_again_from_the_clear(self):
+        # The clear may have gone down the connection that had died, and a
+        # configuration the sign takes without a clear ahead of it leaves the
+        # sign blank. So the whole sequence goes again, clear first.
+        class ReopensUnderTheConfiguration(FakeTransport):
+            reopens = 0
+
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                configuration = frames.packet(frames.set_memory_config(allocations))
+                if data == configuration and not self.reopens:
+                    self.reopens += 1
+
+        allocations = [frames.FileAllocation(b"A", 256)]
+        transport = ReopensUnderTheConfiguration()
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+
+        await controller.apply_memory_config(allocations)
+
+        assert transport.packets == [
+            frames.packet(frames.clear_memory()),
+            frames.packet(frames.set_memory_config(allocations)),
+        ] * 2
+
+    async def test_a_link_that_keeps_reopening_under_it_is_a_failure(self):
+        class ReopensEveryTime(FakeTransport):
+            reopens = 0
+
+            def write(self, data: bytes) -> None:
+                super().write(data)
+                self.reopens += 1
+
+        transport = ReopensEveryTime()
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+
+        with pytest.raises(TransportError, match="opened again twice"):
+            await controller.apply_memory_config([frames.FileAllocation(b"A", 256)])
+        assert len(transport.packets) == 4
+
 
 class TestConcurrency:
     async def test_concurrent_writes_are_serialised(self):

@@ -356,21 +356,44 @@ class SignController:
         # it as delivered, and the caller is told 200. Holding the lock makes
         # every other writer queue behind the reset instead. That is why the
         # sends below are ``_send_locked``; ``asyncio.Lock`` is not reentrant.
+        #
+        # A link opened again under any write of the sequence sends it all
+        # again from the clear, once. The clear before it may have gone down
+        # the connection that had died, and a configuration the sign takes
+        # without a clear ahead of it is the blank sign described above. A
+        # second reopen is reported as a failure rather than chased.
         async with self._lock:
-            await self._send_locked(frames.clear_memory())
-            # Let the reset the clear triggers finish before the configuration
-            # lands, or the configuration arrives while the sign is deaf and is
-            # lost.
-            if self._settle:
-                await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
-            await self._send_locked(frames.set_memory_config(allocations))
-            # The configuration buffers through the reset, but message content
-            # needs the sign actually back and listening rather than merely able
-            # to hold one buffered write. Whoever rebuilds the display next is
-            # holding this lock's queue, so waiting here is what stops their
-            # writes landing on a sign that cannot say it missed them.
-            if self._settle:
-                await self._sleep(RESET_SETTLE_SECONDS)
+            for attempt in range(2):
+                reopens = self._reopens()
+                await self._send_locked(frames.clear_memory())
+                # Let the reset the clear triggers finish before the
+                # configuration lands, or the configuration arrives while the
+                # sign is deaf and is lost.
+                if self._settle:
+                    await self._sleep(MEMORY_CLEAR_SETTLE_SECONDS)
+                await self._send_locked(frames.set_memory_config(allocations))
+                # The configuration buffers through the reset, but message
+                # content needs the sign actually back and listening rather than
+                # merely able to hold one buffered write. Whoever rebuilds the
+                # display next is holding this lock's queue, so waiting here is
+                # what stops their writes landing on a sign that cannot say it
+                # missed them.
+                if self._settle:
+                    await self._sleep(RESET_SETTLE_SECONDS)
+                if self._reopens() == reopens:
+                    break
+                if attempt == 0:
+                    logger.warning(
+                        "the link to %s was opened again during the reallocation, "
+                        "so it is being sent again from the clear",
+                        self._transport.description,
+                    )
+            else:
+                self.forget_sign_contents()
+                raise TransportError(
+                    "the link to %s was opened again twice during the reallocation, "
+                    "so the sign may not have taken it" % self._transport.description
+                )
         # The sign is now empty, so nothing we thought we knew about it holds.
         self.forget_sign_contents()
 
