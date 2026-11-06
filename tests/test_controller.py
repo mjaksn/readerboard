@@ -931,6 +931,41 @@ class TestReconnectHooks:
 
         assert calls == [1]
 
+    async def test_a_hook_the_pending_repair_finished_runs_again_after_a_reconnect(self):
+        # The repair's clock sync ran, and failed, on the connection that then
+        # went; the registry's refresh is still waiting for its lock. After the
+        # reconnect the clock sync must run again on the new connection, and
+        # the refresh, which pushes down the new one anyway, must run once.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        registry_lock = asyncio.Event()
+        clock_syncs: list[int] = []
+        refreshes: list[int] = []
+
+        async def clock_sync() -> None:
+            clock_syncs.append(1)
+
+        async def refresh() -> None:
+            await registry_lock.wait()
+            refreshes.append(1)
+
+        controller.on_reconnect(clock_sync)
+        controller.on_reconnect(refresh)
+        transport.reopens = 1  # type: ignore[attr-defined]
+        await controller.write_text_file(b"A", b"HI")
+        await asyncio.sleep(0)
+        assert clock_syncs == [1]
+
+        transport._is_open = False
+        await asyncio.wait_for(controller._connect(), timeout=2)
+        registry_lock.set()
+        task = controller._repair_task
+        assert task is not None
+        await asyncio.wait_for(task, timeout=2)
+
+        assert clock_syncs == [1, 1]
+        assert refreshes == [1]
+
     async def test_no_hook_runs_when_something_else_opened_the_link(self):
         # A write reopening the link holds the transport's lock with the link
         # reading as down. A reconnect attempt that saw it down and then waited

@@ -157,6 +157,10 @@ class SignController:
         self._seen_reopens = self._reopens()
         self._repair_wanted = False
         self._repair_task: asyncio.Task[None] | None = None
+        # Which hooks the repair has finished, and which to run again because
+        # the link came back after they finished. See _repair_after_reopen.
+        self._repair_finished: list[ReconnectHook] = []
+        self._repair_repeat: list[ReconnectHook] = []
 
         self.writes = 0
         self.suppressed = 0
@@ -583,6 +587,16 @@ class SignController:
                 # A push of its that this link going down cut short failed on
                 # a write, which leaves the registry out of sync, so the next
                 # refresh finishes it.
+                #
+                # The hooks it has already finished ran on the connection that
+                # just went, so those run again: a clock sync that failed with
+                # the link down, say, would otherwise wait for the next
+                # scheduled one. The hook it is in, and those after it, run on
+                # this connection anyway.
+                for hook in self._repair_finished:
+                    if hook not in self._repair_repeat:
+                        self._repair_repeat.append(hook)
+                self._repair_finished = []
                 return
             await self._run_reconnect_hooks()
 
@@ -632,16 +646,32 @@ class SignController:
         # Round again if a reopen happened while the hooks were running, since
         # the writes before it in this round may not have arrived either. With
         # no hooks yet, the repair stays owed, see on_reconnect.
+        #
+        # Each pass records the hooks it finishes, so that a reconnect partway
+        # through can ask for just those again, see _connect, and the next pass
+        # runs them.
         while self._repair_wanted and self._reconnect_hooks:
             self._repair_wanted = False
-            await self._run_reconnect_hooks()
+            self._repair_finished = []
+            todo = list(self._reconnect_hooks)
+            while todo:
+                self._repair_repeat = []
+                for hook in todo:
+                    await self._run_hook(hook)
+                    self._repair_finished.append(hook)
+                todo = self._repair_repeat
+        self._repair_finished = []
+        self._repair_repeat = []
 
     async def _run_reconnect_hooks(self) -> None:
         for hook in self._reconnect_hooks:
-            try:
-                await hook()
-            except Exception:
-                logger.exception("a reconnect hook failed")
+            await self._run_hook(hook)
+
+    async def _run_hook(self, hook: ReconnectHook) -> None:
+        try:
+            await hook()
+        except Exception:
+            logger.exception("a reconnect hook failed")
 
     async def _reconnect_loop(self) -> None:
         """Keep trying to bring the link back while the service is running.
