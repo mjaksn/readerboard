@@ -40,7 +40,7 @@ classifiers = [
 # is allowed to live. tzdata is the exception and takes a floor only: it is a
 # calendar-versioned data package with no API to break.
 dependencies = [
-    "fastapi>=0.141.1,<0.142",
+    "fastapi>=0.141.1,<0.144",
     # Plain uvicorn, not the "standard" extra. That extra exists to make a busy
     # server faster, and nothing here is busy: this one answers a handful of
     # requests and then waits on a 9600 baud serial line behind a deliberate
@@ -52,7 +52,7 @@ dependencies = [
     # watchfiles, which only makes --reload quicker. That flag is for working on
     # the service rather than for running one, and uvicorn polls the tree
     # without it.
-    "uvicorn>=0.52.1,<0.54",
+    "uvicorn>=0.52.1,<0.55",
     "pydantic>=2.13.4,<3",
     "pydantic-settings>=2.15.0,<3",
     "pyserial>=3.5,<4",
