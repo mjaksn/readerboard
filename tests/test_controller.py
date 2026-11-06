@@ -847,6 +847,26 @@ class TestReconnectHooks:
         assert calls == [1]
         assert controller._repair_task is None
 
+    async def test_a_repair_asked_for_before_any_hook_runs_once_one_is_registered(self):
+        # The service registers its hooks after the startup push. A write in
+        # that push which had to open the link again asks for a repair with
+        # nothing yet to run it, and the repair must still happen.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        transport.reopens = 1  # type: ignore[attr-defined]
+        await controller.write_text_file(b"A", b"HI")
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        calls: list[int] = []
+        controller.on_reconnect(lambda: _record(calls))
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert calls == [1]
+
     async def test_no_hook_runs_when_something_else_opened_the_link(self):
         # A write reopening the link holds the transport's lock with the link
         # reading as down. A reconnect attempt that saw it down and then waited

@@ -172,8 +172,16 @@ class SignController:
         that lost power has a wrong clock, and the link coming back is the
         closest signal the service gets to that having happened. A link a write
         had to open again counts too, see :meth:`_notice_a_reopen`.
+
+        A repair asked for before any hook was registered is still owed, and
+        starts here. The service registers its hooks only after the startup
+        push, so that opening the link does not repeat that push, and a write in
+        the push that had to open the link again would otherwise ask for a
+        repair with nothing to run it.
         """
         self._reconnect_hooks.append(hook)
+        if self._repair_wanted:
+            self._start_the_repair()
 
     async def start(self) -> None:
         """Open the link if it will open, and begin watching it."""
@@ -596,13 +604,17 @@ class SignController:
             self._transport.description,
         )
         self._repair_wanted = True
+        self._start_the_repair()
+
+    def _start_the_repair(self) -> None:
         if self._repair_task is None or self._repair_task.done():
             self._repair_task = asyncio.create_task(self._repair_after_reopen())
 
     async def _repair_after_reopen(self) -> None:
         # Round again if a reopen happened while the hooks were running, since
-        # the writes before it in this round may not have arrived either.
-        while self._repair_wanted:
+        # the writes before it in this round may not have arrived either. With
+        # no hooks yet, the repair stays owed, see on_reconnect.
+        while self._repair_wanted and self._reconnect_hooks:
             self._repair_wanted = False
             await self._run_reconnect_hooks()
 
