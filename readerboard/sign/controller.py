@@ -553,6 +553,11 @@ class SignController:
         opened = await asyncio.to_thread(self._transport.ensure_open)
         if opened:
             self.forget_sign_contents()
+            # Any reopen counted before now is covered by this repair. One a
+            # write made before failing anyway, which is what took the link
+            # down, would otherwise look new to the first write the hooks make,
+            # and the repair would run a second time.
+            self._seen_reopens = self._reopens()
             await self._run_reconnect_hooks()
 
     def _notice_a_reopen(self) -> None:

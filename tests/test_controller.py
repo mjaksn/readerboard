@@ -811,6 +811,42 @@ class TestReconnectHooks:
 
         assert calls == [1]
 
+    async def test_a_reopen_that_then_failed_is_repaired_once(self):
+        # The write reopened the link and the resend failed anyway, so the link
+        # is down and the reconnect repairs the sign. The count that reopen left
+        # behind must not look new to the hooks' own writes and start a second
+        # repair straight after the first.
+        class ReopensThenFails(FakeTransport):
+            reopens = 0
+            fail_once = False
+
+            def write(self, data: bytes) -> None:
+                if self.fail_once:
+                    self.fail_once = False
+                    self.reopens += 1
+                    self._is_open = False
+                    raise TransportError("write failed after reopening")
+                super().write(data)
+
+        transport = ReopensThenFails()
+        controller = SignController(transport, inter_packet_delay=0)
+        calls: list[int] = []
+
+        async def writes_something() -> None:
+            calls.append(1)
+            await controller.write_text_file(b"A", b"REPAIRED")
+
+        await controller.write_text_file(b"A", b"HI")
+        transport.fail_once = True
+        with pytest.raises(TransportError):
+            await controller.write_text_file(b"B", b"THERE")
+        controller.on_reconnect(writes_something)
+
+        await controller._connect()
+
+        assert calls == [1]
+        assert controller._repair_task is None
+
     async def test_no_hook_runs_when_something_else_opened_the_link(self):
         # A write reopening the link holds the transport's lock with the link
         # reading as down. A reconnect attempt that saw it down and then waited
