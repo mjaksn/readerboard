@@ -5,10 +5,13 @@ presses the button that calls the endpoint, which is the point: a client that
 ships its own copy of the markup tokens is a client that goes on offering
 ``<degree>`` for a year after the service stopped answering it.
 
-All five sets arrive in one shape, ``{"name": ..., "description": ...}``, and
+All six sets arrive in one shape, ``{"name": ..., "description": ...}``, and
 land here as :class:`Entry`. The icons carry three more fields saying the same
 things in a sortable form, and those are read past rather than kept: this tool
 shows a table of names and descriptions, and has nothing to do with a width.
+What an icon looks like is a separate answer from a separate endpoint, kept
+beside the sets as bitmaps by :class:`EnumStore` and parsed by
+:mod:`apiclient.bitmaps`.
 
 The parsing is still strict about the two fields it does read rather than
 tolerant of anything list-like, because a set of empty names looks exactly like
@@ -19,6 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from apiclient.bitmaps import Bitmap, LoadedBitmaps
 
 
 class MalformedEnumeration(Exception):
@@ -108,6 +113,7 @@ class EnumStore:
     """What has been loaded so far, keyed by the client's name for each set."""
 
     sets: dict[str, LoadedSet] = field(default_factory=dict)
+    drawn: dict[str, LoadedBitmaps] = field(default_factory=dict)
 
     def load(self, set_key: str, endpoint: str, entries: tuple[Entry, ...]) -> LoadedSet:
         """Record a freshly fetched set, replacing whatever was there before."""
@@ -137,3 +143,20 @@ class EnumStore:
             if entry.name == name:
                 return entry.description
         return ""
+
+    def load_bitmaps(
+        self, set_key: str, endpoint: str, by_name: dict[str, Bitmap]
+    ) -> LoadedBitmaps:
+        """Record the pictures for a set's entries, replacing any there were.
+
+        Kept apart from the set itself, so that loading either one leaves the
+        other as it was. The two are joined on the entry's name only when
+        something is shown.
+        """
+        loaded = LoadedBitmaps(by_name=by_name, endpoint=endpoint, loaded_at=datetime.now())
+        self.drawn[set_key] = loaded
+        return loaded
+
+    def bitmaps(self, set_key: str) -> LoadedBitmaps | None:
+        """Return the pictures loaded for a set's entries, if any have been."""
+        return self.drawn.get(set_key)

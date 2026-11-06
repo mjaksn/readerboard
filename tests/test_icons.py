@@ -113,6 +113,24 @@ class TestTheSetAsAWhole:
     def test_the_marker_is_not_itself_an_ink(self):
         assert icons.INK_MARKER not in icons.INK_CODES
 
+    def test_every_lit_ink_has_a_colour_word(self):
+        # Icon.inks names each dot by its word, so an ink with no word would
+        # be a KeyError the first time an icon drawn in it was listed.
+        assert set(icons.INK_WORDS) == set(icons.INK_CODES) - {"."}
+
+
+class TestInks:
+    def test_a_tintable_icon_names_its_marker_by_the_default_ink(self):
+        assert icons.ICONS["check"].inks() == {"#": "green"}
+
+    def test_a_fixed_colour_icon_names_each_of_its_own_inks(self):
+        assert icons.ICONS["house"].inks() == {"R": "red", "A": "amber"}
+
+    def test_every_icon_names_exactly_the_inks_its_rows_use(self):
+        for icon in ALL_ICONS:
+            used = {dot for row in icon.rows for dot in row} - {"."}
+            assert set(icon.inks()) == used, icon.name
+
 
 class TestResolving:
     def test_an_icon_draws_in_its_own_ink_by_default(self):

@@ -59,11 +59,13 @@ Changing it rewrites only the variable, so the sign shows the new value without
 blanking or restarting what calls it.
 
 An **icon** is one of the built-in bitmaps, drawn where `<icon:name>` sits in a
-message or an alert. `GET /enumerations/icons` lists them. There is a fixed pool
-of picture files on the sign and it is far smaller than the library, so a file is
-claimed by whichever icon a message calls and kept until another icon needs it.
-Icons are off until `picture_count` is raised, because raising it reallocates the
-sign's memory and clears it.
+message or an alert. `GET /enumerations/icons` lists them,
+`GET /enumerations/icons/bitmaps` gives the dots each is drawn with, and
+`GET /enumerations/icon-tints` lists the colours one that takes a tint can be
+asked for. There is a fixed pool of picture files on the sign and it is far
+smaller than the library, so a file is claimed by whichever icon a message calls
+and kept until another icon needs it. Icons are off until `picture_count` is
+raised, because raising it reallocates the sign's memory and clears it.
 
 Every write needs an `X-API-Key` header, and so does `GET /sign/information`,
 which reads the sign rather than the service: it puts a question on the wire and
@@ -78,12 +80,13 @@ a variable that does not exist, an icon nobody has, a colour asked for on an ico
 drawn in fixed colours, or an icon called while icons are switched off, 401 for a
 missing or wrong `X-API-Key`, 404 for a slot or variable that does not exist, 409
 when every slot, every variable or every picture file is already in use, a
-variable something still calls is deleted, or an alert is raised with
-`fail_if_active` while one is already up, 503 when the sign is unreachable,
-stops partway through an answer or answers with something the service cannot
-read, or no API key is configured at all, 500 for something the service has no
-code for, and 422 for a body that is not the shape the endpoint declares, which
-includes a display mode the sign does not have.
+variable something still calls is deleted, an alert is raised with
+`fail_if_active` while one is already up, or a reboot finds the sign has less
+memory than the configuration needs, 503 when the sign is unreachable, stops
+partway through an answer or answers with something the service cannot read, or
+no API key is configured at all, 500 for something the service has no code for,
+and 422 for a body that is not the shape the endpoint declares, which includes a
+display mode the sign does not have.
 """
 
 
@@ -99,30 +102,53 @@ def build_transport(settings: Settings) -> Transport:
 
 
 async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) -> None:
-    """Push everything to the sign again, and make sure any alert is back on it.
+    """Refresh the sign, and make sure any alert is back on it.
 
-    Both of the places that re-push go through here, the timer below and the
-    reconnect hook, because both are answering the same question: the sign may
-    have been power cycled and nothing the controller believes about it holds.
+    The refresh checks that the sign still holds what it was given, and pushes
+    all of it again if not. Both of the places that refresh go through here, the
+    timer below and the reconnect hook, because both are answering the same
+    question: the sign may have been power cycled and nothing the controller
+    believes about it holds.
 
     The refresh puts the slots back, and it puts the alert back too when it had
-    to hand the sign over to write a picture. It says which, and that is why
-    this asks rather than always re-asserting: re-asserting an alert that is
-    already back on the priority file restarts it on the display for nothing,
-    which is a visible flicker every refresh interval for as long as the alert
-    is up. In the case where the refresh did not touch the priority file, which
-    is a service with no icons, the re-assert is the only thing that would put
-    the alert on a sign that came back blank.
+    to hand the sign over to write a picture. It says whether the alert can be
+    left alone, and that is why this asks rather than always re-asserting:
+    re-asserting an alert the sign already holds restarts it on the display for
+    nothing, which is a visible flicker every refresh interval for as long as
+    the alert is up. It can be left alone after that hand-back, and after a
+    picture read that found the sign still holding what it was given, since the
+    sign keeps its priority file exactly as long as it keeps everything else.
+    The re-assert runs in the remaining case, a re-push that never went near the
+    priority file, which is a service with no icons; there it is the only thing
+    that would put the alert on a sign that came back blank. It also runs when
+    the alert service says a change it made to the priority file did not
+    finish, such as an alert lifted for a picture write and never put back,
+    which no answer from the sign can speak for.
     """
-    if not await registry.refresh():
+    if not await registry.refresh() or alerts.sign_may_not_match:
         await alerts.reassert()
 
 
-async def _refresh_loop(app: FastAPI, interval: float) -> None:
-    """Push everything to the sign again, periodically.
+async def _after_reconnect(registry: SlotRegistry, alerts: AlertService) -> None:
+    """Refresh a sign whose link has just come back, and let it be asked again.
 
-    See ``SlotRegistry.refresh`` for why blind re-pushing is the only thing
-    that repairs a sign power cycled behind a still-connected adapter.
+    The refresh on the reconnect itself re-pushes everything without asking,
+    because the controller forgets what the sign holds before this runs. It is
+    every refresh after it that this is for: they read a picture back again,
+    rather than re-pushing everything because a read went unanswered while the
+    link was on its way down. See ``SlotRegistry.ask_the_sign_again``.
+    """
+    await registry.ask_the_sign_again()
+    await _refresh_and_reassert(registry, alerts)
+
+
+async def _refresh_loop(app: FastAPI, interval: float) -> None:
+    """Check periodically that the sign still holds what it was given.
+
+    This is the only thing that repairs a sign power cycled behind a
+    still-connected adapter, and it pushes everything again when the sign has
+    lost it. See ``SlotRegistry.refresh`` for why it asks the sign first rather
+    than pushing everything every time.
     """
     registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
@@ -260,9 +286,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # The alert goes back on with everything else: it was only the slots
         # before, so a reconnect to a sign that had lost an alert left the
         # priority file empty until the next tick of the timer above.
-        controller.on_reconnect(
-            functools.partial(_refresh_and_reassert, registry, alerts)
-        )
+        controller.on_reconnect(functools.partial(_after_reconnect, registry, alerts))
 
         if settings.clock_sync_enabled:
             await clock.start()

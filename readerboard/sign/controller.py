@@ -51,8 +51,9 @@ MEMORY_CLEAR_SETTLE_SECONDS = 2.0
 # it: a write arriving while the sign is deaf is not refused, it is lost, because
 # the transport accepts it, the suppression cache records it as delivered and the
 # caller is told it worked. Holding the lock makes other writers queue instead.
-# Paid only against real hardware, since a link told to pace nothing is a fake or
-# a simulator, and neither has a reset to sit through.
+# Skipped only when the controller is told the far end is not a sign, which is
+# what settle false means: a fake or the simulator, neither of which has a reset
+# to sit through.
 RESET_SETTLE_SECONDS = 10.0
 
 # How long the sign cannot hear anything after it has been asked to make a
@@ -73,7 +74,9 @@ RESET_SETTLE_SECONDS = 10.0
 # Without it the next write goes out one inter_packet_delay later, a quarter of
 # a second by default, into a sign that is not listening. It is not refused: the
 # transport accepts it, the suppression cache records the file as holding those
-# bytes, and nothing writes them again until the next periodic re-push.
+# bytes, and nothing writes them again until a refresh re-pushes everything,
+# which with icons in use it does only when a picture read back says the sign
+# has lost what it was given or the sign does not answer.
 SOUND_SETTLE_SECONDS = 3.0
 
 # Reading a reply. A reply comes in however many pieces the link hands over, and
@@ -340,6 +343,7 @@ class SignController:
         # erases the sign, which is why this whole method is the one dangerous
         # operation, so clearing first reaches the same empty sign by a
         # different door. See docs/protocol-notes.md.
+        #
         # The whole sequence runs under one acquisition of the lock. The sign is
         # deaf from the moment the clear reaches it until its diagnostics
         # finish, and a write arriving in that window is not refused, it is
@@ -395,7 +399,7 @@ class SignController:
         The one read the service makes on its own timer rather than for a
         request, and :meth:`SlotRegistry.refresh` has why: an answer that
         carries rows says the sign still holds what it was given, which is the
-        question the periodic re-push exists to guess at.
+        question the refresh exists to answer.
 
         Goes through :meth:`read_special` because collecting a reply is the same
         work whatever was asked. The name is about the four special functions
