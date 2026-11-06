@@ -13,6 +13,104 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A sign switched off behind an adapter that stays connected no longer stops
+  the refresh asking for good.** One unanswered read stopped the refresh asking
+  the sign whether it still holds its pictures until the link next dropped or
+  the service restarted, and every refresh until then rewrote every picture,
+  blanking the display once for each. A sign switched off for longer than
+  `refresh_interval_seconds` was the common way to get there, and a sign power
+  cycled while a refresh landed, or a short network outage, did the same. The
+  refresh now asks again fifteen minutes after a read went unanswered, as well
+  as when the link comes back. The sign simulator, which answers no read, costs
+  one three second stall every fifteen minutes in return, rather than once for
+  the life of the process; at the default refresh interval that is a stall on
+  every refresh.
+- **An alert no longer restarts on the display at every refresh while a
+  message calls an icon.** When the refresh's picture read found the sign
+  intact, nothing was pushed, and the alert was then written again anyway,
+  which the sign takes as a cue to start it over. A sign unplugged for half a
+  minute mid-alert came back showing it, so the priority file goes with the rest
+  of the sign's memory and the read answers for it too; the alert is now left
+  alone. A service with no icons re-asserts the alert every refresh as before.
+  What this gives up is an alert raised while the sign is switched off and back
+  on within one refresh interval: the write is lost, the read then finds the
+  sign intact, and nothing writes the alert again until it is raised again. A
+  message written in that window has always had the same gap.
+- **`scripts/dump_openapi.py --help` prints its usage.** It took any argument
+  as the file to write, so it wrote the description to a file called `--help`.
+
+## [0.8.1] - 2026-11-04
+
+**A fix for signs with icons reached through an Ethernet adapter.** One drop of
+the adapter's link no longer leaves the sign blanking once for every picture on
+every refresh until the service is restarted. Upgrading erases nothing: no
+setting, state file or memory configuration changes.
+
+### Fixed
+
+- **A sign with icons no longer blanks every refresh after its adapter drops
+  off the network.** The refresh reads one picture back before deciding whether
+  to push everything again, and stops asking after one read that goes
+  unanswered, so that the sign simulator, which answers no reads, does not cost
+  three seconds every interval. An adapter that has just dropped off looks the
+  same at that moment, so one drop used to stop the asking until the service was
+  restarted, and every refresh after it rewrote every picture, blanking the
+  display once for each. The refresh now asks again once the link has gone down
+  and come back, which an adapter's does and the simulator's never does. **A
+  sign switched off behind an adapter that stays connected still stops the
+  asking**, as soon as one refresh lands while it is off, which is any time it is
+  off for longer than `refresh_interval_seconds`. From then on every refresh
+  rewrites every picture, blanking the display once for each, until the link
+  next drops or the service restarts. A refresh landing while a power cycled
+  sign starts up does the same, and so does a network outage that outlasts the
+  read's three seconds but is over before the connection gives up. No link
+  drops in any of these, so nothing asks again.
+
+## [0.8.0] - 2026-11-04
+
+**Icon thumbnails in the client.** Two new enumerations say what each icon
+looks like and which colours a tint may name, and the client draws every icon
+from them, in its own colours or in a tint chosen beside the list. Upgrading
+erases nothing: no setting, state file or memory configuration changes, and
+the client still works against an older service, without the pictures.
+
+### Added
+
+- **`GET /enumerations/icons/bitmaps` gives the dots each icon is drawn with.**
+  One call answers the whole library, in the same order as `GET
+  /enumerations/icons` and named by the same tags. Each icon comes with its
+  rows, one character a dot, and the colour word every lit character stands for,
+  so a caller can show an icon rather than only name it. A tintable icon is
+  given in the colour it takes when no tint is asked for. Like the list beside
+  it, it needs no API key.
+- **`GET /enumerations/icon-tints` lists the colours a tint may name.** They
+  are the colour tokens' own words, as in `<icon:check:red>`, in the same
+  `name` and `description` shape as the markup tokens.
+- **The client shows a thumbnail of each icon.** The Icons row has a **Load
+  bitmaps** button, and once it has been pressed every list of icons, whether
+  opened with View or with Insert icon, draws each one dot for dot in front of
+  its name, and so does the response panel for the icon list and the bitmaps.
+- **The client can preview and insert a tinted icon.** With the bitmaps and the
+  new Icon tints set loaded, an icon list offers a colour beside its filter.
+  Choosing one redraws the icons that take a tint in it, and Insert icon puts in
+  the tinted tag, `<icon:check:red>` for the check.
+- **Load all asks for the tints and then the bitmaps after every other set.**
+  A service older than both endpoints stops the chain at the tints, with one
+  dialog reporting the 404 and every set it does have already loaded; the
+  client then works as before, without thumbnails or tints.
+
+## [0.7.1] - 2026-11-03
+
+**A fix for signs reached through an Ethernet adapter.** The service now notices
+when the adapter drops off the network, and `GET /health` says so, where until
+now it went on reporting the link as up. Upgrading erases nothing, with one
+exception: **a Compose deployment with icons off that takes the new
+`packaging/docker-compose.yml` turns them on, and its first start erases every
+message on the sign** before the service puts them back. Read the Changed
+section before replacing a Compose file.
+
 ### Changed
 
 - **The client keeps each operation's form when another is selected.** Every
@@ -29,6 +127,23 @@ library, and the names inside it may move without that being a breaking change.
   earlier copy of it, and so with icons off, has its sign reallocated on the
   first start with this one, which erases every message on the sign before the
   service puts them back. Take the line out to keep icons off.
+
+### Fixed
+
+- **An Ethernet to RS-232 adapter that drops off the network is noticed.**
+  Nothing on the link was watching for it, so the operating system kept
+  accepting writes to an adapter that was not there, on Linux for about a
+  quarter of an hour, and `GET /health` said the link was up the whole time. A
+  `socket://` or `rfc2217://` link now turns on TCP keepalive, and on Linux
+  gives up on unacknowledged data after a minute, so the operating system drops
+  the link about a minute after the adapter stops answering. A platform that
+  does not take one of these options keeps its own default for it. The service
+  finds out at its first read or write after the link has gone, and from then
+  `/health` reports it and the reconnect loop takes over. On a sign left alone
+  that is a refresh, every `refresh_interval_seconds` and 15 minutes by
+  default, and a refresh that lands before the link has gone is buffered like
+  any other write, so it can be the one after. A ping of the adapter is still
+  the faster alarm. A serial cable is unaffected.
 
 ## [0.7.0] - 2026-10-08
 
@@ -1630,7 +1745,10 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.1
+[0.8.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.0
+[0.7.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.1
 [0.7.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.7.0
 [0.6.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.6.0
 [0.5.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.5.1

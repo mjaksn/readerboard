@@ -11,10 +11,11 @@ from __future__ import annotations
 
 from html import escape
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from apiclient import catalogue
 from apiclient import format as fmt
+from apiclient.bitmaps import GROUND, Bitmap, tinted_tag
 from apiclient.enums import Entry
 from apiclient.history import History, Record
 from apiclient.request import API_KEY_VARIABLE
@@ -44,6 +46,36 @@ MONO = "font-family:Consolas,'DejaVu Sans Mono',monospace;font-size:12px"
 SERVICE_PROBLEM = "The service reported a problem"
 NOTHING_ANSWERED = "Nothing answered"
 
+# How many pixels each dot of a thumbnail gets at a scale of one, which puts an
+# icon seven dots high at a little over a line of text.
+DOT_PITCH = 4
+
+
+def bitmap_pixmap(bitmap: Bitmap, pitch: int = DOT_PITCH, ratio: float = 1.0) -> QPixmap:
+    """Paint one icon as the dots it is, on the dark ground of the sign.
+
+    Unlit dots are drawn rather than left out, as the sign simulator draws its
+    picture files, so a narrow icon reads as narrow rather than as a gap.
+
+    ``ratio`` is the screen's device pixel ratio. The dots are laid out in
+    whole device pixels and the pixmap told its ratio afterwards, so a desktop
+    scaled to 150% gets crisp dots rather than a small picture stretched.
+    """
+    step = max(round(pitch * ratio), 2)
+    pixmap = QPixmap(max(bitmap.width, 1) * step, max(bitmap.height, 1) * step)
+    pixmap.fill(QColor(GROUND))
+    painter = QPainter(pixmap)
+    try:
+        for y in range(bitmap.height):
+            for x in range(bitmap.width):
+                painter.fillRect(
+                    x * step, y * step, step - 1, step - 1, QColor(bitmap.colour_at(x, y))
+                )
+    finally:
+        painter.end()
+    pixmap.setDevicePixelRatio(ratio)
+    return pixmap
+
 
 class EntryPicker(QDialog):
     """Shows one enumeration, and optionally hands a name back to be inserted.
@@ -51,6 +83,19 @@ class EntryPicker(QDialog):
     The same dialog does both jobs. Opened from the enumerations panel it is a
     reference; opened from the button beside a message field it is a picker, and
     double clicking inserts.
+
+    Given bitmaps, it draws each entry that has one in a column of its own
+    before the name. An entry the bitmaps do not name gets an empty cell. With
+    no bitmaps at all, which is what a service older than the bitmaps endpoint
+    gives, there is no picture column and the list is the one it always was.
+
+    Given tints as well, it offers them in a list beside the filter. Choosing
+    one redraws every icon that takes a tint in that colour and rewrites its
+    name to the tag that draws it so, which is the tag Insert hands back. An
+    icon drawn in its own colours is left as it is in both, because the service
+    refuses a tint on one. ``tints`` is None for a set nothing tints, and empty
+    for one whose tints have not been loaded, which shows the list disabled and
+    says where to load them.
     """
 
     def __init__(
@@ -60,6 +105,8 @@ class EntryPicker(QDialog):
         *,
         parent: QWidget | None = None,
         insert: bool = False,
+        bitmaps: dict[str, Bitmap] | None = None,
+        tints: tuple[str, ...] | None = None,
     ) -> None:
         """Build the dialog for a set of entries."""
         super().__init__(parent)
@@ -67,6 +114,16 @@ class EntryPicker(QDialog):
         self.resize(620, 520)
         self.selected: str | None = None
         self._entries = entries
+        self._bitmaps = bitmaps or {}
+        self._insert = insert
+        self._tint: str | None = None
+        self._pixmaps: dict[str, QPixmap] = {}
+        # The entries in the rows on screen, in their order.
+        self._shown: list[Entry] = []
+        # Painted here and again when the tint changes, rather than on every
+        # keystroke in the filter, which rebuilds the rows each time.
+        self._paint()
+        self._name_column = 1 if self._pixmaps else 0
 
         layout = QVBoxLayout(self)
 
@@ -74,18 +131,58 @@ class EntryPicker(QDialog):
         self._filter.setPlaceholderText("filter by name or description")
         self._filter.setClearButtonEnabled(True)
         self._filter.textChanged.connect(self._apply_filter)
-        layout.addWidget(self._filter)
 
-        self._table = QTableWidget(0, 2)
-        self._table.setHorizontalHeaderLabels(["name", "description"])
+        self._tints: QComboBox | None = None
+        if self._bitmaps and tints is not None:
+            self._tints = QComboBox()
+            self._tints.addItem("own colours", None)
+            for word in tints:
+                self._tints.addItem(word, word)
+            if tints:
+                self._tints.setToolTip(
+                    "Draw the icons that take a tint in another colour"
+                    + (", and insert them so" if insert else "")
+                )
+            else:
+                self._tints.setEnabled(False)
+                self._tints.setToolTip("Load the icon tints on the left first")
+            self._tints.currentIndexChanged.connect(lambda _index: self._retint())
+            top = QHBoxLayout()
+            top.addWidget(self._filter, 1)
+            top.addWidget(self._tints)
+            layout.addLayout(top)
+        else:
+            layout.addWidget(self._filter)
+
+        labels = ["name", "description"]
+        if self._pixmaps:
+            labels.insert(0, "")
+        self._table = QTableWidget(0, len(labels))
+        self._table.setHorizontalHeaderLabels(labels)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
+            len(labels) - 1, QHeaderView.ResizeMode.Stretch
         )
+        if self._pixmaps:
+            # In the pixmaps' own logical size, which is what a cell lays out by.
+            sizes = [pixmap.deviceIndependentSize() for pixmap in self._pixmaps.values()]
+            widest = round(max(size.width() for size in sizes))
+            tallest = round(max(size.height() for size in sizes))
+            self._table.setIconSize(QSize(widest, tallest))
+            self._table.verticalHeader().setDefaultSectionSize(
+                max(tallest + 8, self._table.verticalHeader().defaultSectionSize())
+            )
         self._table.itemDoubleClicked.connect(lambda _item: self._take())
         layout.addWidget(self._table, 1)
+
+        # Says what a chosen tint does not reach, so that an icon keeping its
+        # own colours reads as the rule rather than as a fault.
+        self._tint_note = QLabel("")
+        self._tint_note.setWordWrap(True)
+        self._tint_note.setVisible(False)
+        layout.addWidget(self._tint_note)
 
         buttons = QDialogButtonBox()
         if insert:
@@ -99,27 +196,83 @@ class EntryPicker(QDialog):
 
         self._apply_filter("")
 
+    def _paint(self) -> None:
+        """Paint every thumbnail in the tint now chosen."""
+        ratio = self.devicePixelRatioF()
+        self._pixmaps = {
+            name: bitmap_pixmap(bitmap.tinted(self._tint), ratio=ratio)
+            for name, bitmap in self._bitmaps.items()
+        }
+
+    def _shown_name(self, entry: Entry) -> str:
+        """Return the name as this list shows it, which is the tag Insert hands back."""
+        bitmap = self._bitmaps.get(entry.name)
+        if self._tint and bitmap is not None and bitmap.takes_tint:
+            return tinted_tag(entry.name, self._tint)
+        return entry.name
+
+    def _retint(self) -> None:
+        """Redraw and rename for the tint just chosen, keeping the entry that was highlighted.
+
+        The entry rather than the row number: a tint renames rows, the filter
+        matches the new names, and so the rows it keeps can change around the
+        one that was chosen.
+        """
+        row = self._table.currentRow()
+        chosen = self._shown[row] if 0 <= row < len(self._shown) else None
+        self._tint = self._tints.currentData() if self._tints is not None else None
+        self._paint()
+        self._apply_filter(self._filter.text())
+        if chosen is not None and chosen in self._shown:
+            self._table.selectRow(self._shown.index(chosen))
+        if self._tint:
+            if self._insert:
+                note = (
+                    "Icons that take a tint are shown in %s and inserted so. The rest "
+                    "keep their own colours, which the service will not change, and "
+                    "go in as they are." % self._tint
+                )
+            else:
+                note = (
+                    "Icons that take a tint are shown in %s. The rest keep their own "
+                    "colours, which the service will not change." % self._tint
+                )
+            self._tint_note.setText(note)
+        self._tint_note.setVisible(bool(self._tint))
+
     def _apply_filter(self, text: str) -> None:
         """Show only the entries matching what has been typed."""
         needle = text.strip().lower()
+        # The name as shown as well as the name as listed, so that a tag typed
+        # exactly as a tinted row spells it finds that row.
         matching = [
             entry
             for entry in self._entries
             if not needle
             or needle in entry.name.lower()
+            or needle in self._shown_name(entry).lower()
             or needle in entry.description.lower()
         ]
+        self._shown = matching
         self._table.setRowCount(len(matching))
+        names = self._name_column
         for row, entry in enumerate(matching):
-            self._table.setItem(row, 0, QTableWidgetItem(entry.name))
-            self._table.setItem(row, 1, QTableWidgetItem(entry.description))
-        self._table.resizeColumnToContents(0)
+            if self._pixmaps:
+                picture = QTableWidgetItem()
+                pixmap = self._pixmaps.get(entry.name)
+                if pixmap is not None:
+                    picture.setData(Qt.ItemDataRole.DecorationRole, pixmap)
+                self._table.setItem(row, 0, picture)
+            self._table.setItem(row, names, QTableWidgetItem(self._shown_name(entry)))
+            self._table.setItem(row, names + 1, QTableWidgetItem(entry.description))
+        for column in range(names + 1):
+            self._table.resizeColumnToContents(column)
         if matching:
             self._table.selectRow(0)
 
     def _take(self) -> None:
         """Accept the highlighted row as the choice."""
-        item = self._table.item(self._table.currentRow(), 0)
+        item = self._table.item(self._table.currentRow(), self._name_column)
         if item is not None:
             self.selected = item.text()
             self.accept()

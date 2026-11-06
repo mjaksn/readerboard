@@ -190,7 +190,7 @@ cat <<NEXT
          systemctl status $UNIT_NAME
          journalctl -u $UNIT_NAME -n 50
 
-    2. Check it found the sign:
+    2. Check it opened the link to the sign:
          curl -s http://localhost:$PORT/health
 
     3. Give every client the X-API-Key header. The key is in $CONFIG_FILE, and

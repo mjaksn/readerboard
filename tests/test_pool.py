@@ -178,6 +178,7 @@ class TestCheckFits:
         assert "slot_capacity 200" in message
         assert "variable_count 8" in message
         assert "variable_capacity 32" in message
+        assert "picture_count 0" in message
         assert "%d bytes" % frames.memory_claimed(Layout(26, 200, 8, 32).allocations()) in message
         assert "the sign has 1024" in message
         # And says that nothing has been lost yet, because the thing somebody

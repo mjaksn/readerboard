@@ -9,9 +9,9 @@ write. What the fix did not settle is which of two things the sign was doing:
   A. it never took the write, so the file stayed as it was; or
   B. it took the write, stored the bytes, and would not draw them.
 
-Nothing in the service can tell those apart, because the service only ever
-writes. A SMALL DOTS PICTURE can be read back with ``J`` (4AH), and the Ethernet
-adapter has been shown to answer reads, so this asks.
+Nothing in the service could tell those apart, because the service never read a
+picture back. A SMALL DOTS PICTURE can be read back with ``J`` (4AH), and the
+Ethernet adapter has been shown to answer reads, so this asks.
 
 It also reproduces the message that first bit, rather than an invented one:
 
