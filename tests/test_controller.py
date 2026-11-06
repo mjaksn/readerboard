@@ -901,6 +901,36 @@ class TestReconnectHooks:
 
         assert calls == [1]
 
+    async def test_a_reconnect_leaves_a_pending_repair_to_do_the_work(self):
+        # A repair a reopen asked for is waiting on a lock when the link goes
+        # down and comes back. It pushes down the new connection once it gets
+        # there, so the reconnect must not push everything a second time.
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0)
+        registry_lock = asyncio.Event()
+        calls: list[int] = []
+
+        async def waits_for_the_registry() -> None:
+            await registry_lock.wait()
+            calls.append(1)
+
+        controller.on_reconnect(waits_for_the_registry)
+        transport.reopens = 1  # type: ignore[attr-defined]
+        await controller.write_text_file(b"A", b"HI")
+        await asyncio.sleep(0)
+
+        transport._is_open = False
+        # Bounded, because a reconnect that ran the hooks itself would wait on
+        # the lock the pending repair is waiting on, and hang the suite rather
+        # than fail it.
+        await asyncio.wait_for(controller._connect(), timeout=2)
+        registry_lock.set()
+        task = controller._repair_task
+        assert task is not None
+        await task
+
+        assert calls == [1]
+
     async def test_no_hook_runs_when_something_else_opened_the_link(self):
         # A write reopening the link holds the transport's lock with the link
         # reading as down. A reconnect attempt that saw it down and then waited

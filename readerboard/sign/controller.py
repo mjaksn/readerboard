@@ -574,6 +574,16 @@ class SignController:
             # down, would otherwise look new to the first write the hooks make,
             # and the repair would run a second time.
             self._seen_reopens = self._reopens()
+            if self._repair_task is not None and not self._repair_task.done():
+                # A repair a reopen asked for is still to come or under way,
+                # usually waiting for the registry's lock, and it pushes down
+                # whatever connection is up when it gets there, which is this
+                # one. Running the hooks here as well would push everything
+                # twice, blanking each picture and restarting the alert twice.
+                # A push of its that this link going down cut short failed on
+                # a write, which leaves the registry out of sync, so the next
+                # refresh finishes it.
+                return
             await self._run_reconnect_hooks()
 
     def _notice_a_reopen(self) -> None:
