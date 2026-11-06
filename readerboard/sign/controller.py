@@ -332,6 +332,9 @@ class SignController:
             logger.debug("run sequence unchanged, not writing it again")
             return False
         payload = frames.set_run_sequence(labels)
+        # Unknown until the send has finished, for the reason _send_if_changed
+        # gives.
+        self._run_sequence = None
         await self._send(payload)
         self._run_sequence = list(labels)
         return True
@@ -505,6 +508,11 @@ class SignController:
             )
             return False
 
+        # Unknown until the send has finished. A send cancelled at any point,
+        # the pause after the packet included, may already have changed the
+        # file on the sign, and keeping the old contents would let a later
+        # write of exactly those bytes be skipped.
+        self._file_contents.pop(label, None)
         await self._send(payload)
         self._file_contents[label] = payload
         return True

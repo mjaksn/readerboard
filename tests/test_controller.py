@@ -743,6 +743,40 @@ class TestFailures:
         assert controller._repair_task is not None
         await controller._repair_task
 
+    async def test_a_write_cancelled_in_the_pause_after_it_does_not_keep_old_contents(self):
+        # The packet has gone and the sign has the new file, but the request
+        # was cancelled during the pause between packets, before the new
+        # contents were recorded. The old ones must not be left behind to skip
+        # a later write of exactly those bytes. The run sequence the same.
+        pausing = asyncio.Event()
+        hold = False
+
+        async def sleep(_seconds: float) -> None:
+            if hold:
+                pausing.set()
+                await asyncio.Event().wait()
+
+        transport = FakeTransport()
+        controller = SignController(transport, inter_packet_delay=0.1, sleep=sleep)
+        await controller.write_text_file(b"A", b"HI")
+        await controller.set_run_sequence([b"A"])
+
+        for start in (
+            lambda: controller.write_text_file(b"A", b"NEW"),
+            lambda: controller.set_run_sequence([b"B"]),
+        ):
+            hold = True
+            pausing.clear()
+            write = asyncio.create_task(start())
+            await pausing.wait()
+            write.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await write
+            hold = False
+
+        assert await controller.write_text_file(b"A", b"HI") is True
+        assert await controller.set_run_sequence([b"A"]) is True
+
     async def test_startup_survives_a_sign_that_is_not_there(self, caplog):
         transport = FakeTransport(open_fails_with="no route to host")
         controller = SignController(transport, inter_packet_delay=0)
