@@ -307,12 +307,20 @@ class SerialTransport:
         self._port = None
         if port is None:
             return
+        # Held on to before pyserial closes the port, because pyserial does not
+        # always close it. Its socket handler shuts the socket down and then
+        # closes it inside one bare except, and on Linux the shutdown raises
+        # for a connection the other end has reset, so the close is skipped and
+        # the socket is left for the garbage collector, with a ResourceWarning.
+        sock = getattr(port, "_socket", None)
         try:
             port.close()
         except Exception:
             # A port that will not close cleanly is still a port we are done
             # with, and there is nothing useful for a caller to do about it.
             logger.debug("ignoring error while closing %s", self._url, exc_info=True)
+        if isinstance(sock, socket.socket) and sock.fileno() != -1:
+            sock.close()
 
 
 def _notice_a_dead_peer(port: object, url: str) -> None:
