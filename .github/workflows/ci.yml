@@ -95,9 +95,16 @@ jobs:
       # window that is only constructed never reaches it. So the second build
       # is given a sign holding a picture and asked to redraw.
       #
-      # The client is built twice too. Its second build types into one form,
+      # The client is built three times. Its second build types into one form,
       # selects another operation and comes back, because a form that kept
-      # nothing across a switch would still construct without complaint.
+      # nothing across a switch would still construct without complaint. The
+      # third opens an icon list holding a bitmap, for the simulator's reason: the
+      # thumbnails are painted through QPainter, and nothing else runs that
+      # before somebody presses Load bitmaps. A tint is chosen in it too, which
+      # is the only thing that runs the repaint and the renaming behind it. And
+      # the response panel is asked for a picture, which is the one place the
+      # panel answers a source of its own rather than leaving it to Qt.
+      #
       # Every step before this one only reads PySide6's stubs; this is the
       # first that loads Qt itself, and libQt6Gui links against libraries the
       # runner image does not carry as standard. Without these the step dies on
@@ -143,6 +150,70 @@ jobs:
           assert kept["message"] == "HELLO <red>", "the message was lost"
           assert kept["active"] == "false", "the choice in a list was lost"
           SMOKE
+          python - <<'SMOKE'
+          import sys
+
+          sys.path.insert(0, "tools/apiclient")
+          from PySide6.QtCore import Qt
+          from PySide6.QtWidgets import QApplication
+          from apiclient import bitmaps, enums
+          from apiclient.dialogs import EntryPicker
+
+          app = QApplication([])
+          entries = enums.parse([{"name": "<icon:check>", "description": "status"}])
+          drawn = bitmaps.parse([{
+              "name": "<icon:check>",
+              "rows": ["...", "..#", "##."],
+              "inks": {"#": "green"},
+          }])
+          picker = EntryPicker("Icons", entries, insert=True, bitmaps=drawn, tints=("red",))
+          thumbnail = picker._table.item(0, 0).data(Qt.ItemDataRole.DecorationRole)
+          assert thumbnail is not None and not thumbnail.isNull(), "the icon was drawn as nothing"
+          assert picker._table.item(0, 1).text() == "<icon:check>", "the name moved"
+
+          picker._tints.setCurrentIndex(picker._tints.findData("red"))
+          tinted = picker._table.item(0, 0).data(Qt.ItemDataRole.DecorationRole)
+          assert tinted.toImage() != thumbnail.toImage(), "the tint was not drawn"
+          picker._take()
+          assert picker.selected == "<icon:check:red>", "the tint was not inserted"
+          picker._filter.setText("check:red")
+          assert picker._table.rowCount() == 1, "a tinted name typed as shown was not found"
+
+          # A tint renames rows, so the filter can let one in ahead of the row
+          # that was chosen. The choice is the icon, not its place in the list.
+          entries = enums.parse([
+              {"name": "<icon:check>", "description": "status"},
+              {"name": "<icon:cross>", "description": "status"},
+          ])
+          drawn = bitmaps.parse([
+              {"name": "<icon:check>", "rows": ["..#", "##."], "inks": {"#": "green"}},
+              {"name": "<icon:cross>", "rows": ["R.R", ".R."], "inks": {"R": "red"}},
+          ])
+          picker = EntryPicker("Icons", entries, insert=True, bitmaps=drawn, tints=("red",))
+          picker._filter.setText("r")
+          assert picker._table.item(0, 1).text() == "<icon:cross>", "the filter missed the cross"
+          picker._tints.setCurrentIndex(picker._tints.findData("red"))
+          assert picker._table.rowCount() == 2, "the tinted check was not let in"
+          picker._take()
+          assert picker.selected == "<icon:cross>", "a tint moved the choice to another icon"
+
+          from PySide6.QtCore import QUrl
+          from PySide6.QtGui import QTextDocument
+          from apiclient import catalogue
+          from apiclient.window import MainWindow
+
+          window = MainWindow()
+          assert window._absorb(catalogue.BY_ID["icon_bitmaps"], [{
+              "name": "<icon:check>",
+              "rows": ["...", "..#", "##."],
+              "inks": {"#": "green"},
+          }])
+          picture = window._pictures["<icon:check>"]
+          answered = window.response.loadResource(
+              QTextDocument.ResourceType.ImageResource.value, QUrl(picture.src)
+          )
+          assert answered is not None and not answered.isNull(), "the panel drew nothing"
+          SMOKE
           python -c "import sys; sys.path.insert(0, 'tools/signsim'); from PySide6.QtWidgets import QApplication; from signsim.window import MainWindow; from signsim.server import SignEndpoint; from signsim.model import SignState; app = QApplication([]); MainWindow(SignEndpoint(), SignState())"
           python - <<'SMOKE'
           import sys
@@ -180,6 +251,33 @@ jobs:
           assert drawn is not None, "the picture got no row in the files panel"
           assert not drawn.icon().isNull(), "the picture was drawn as nothing"
           SMOKE
+        env:
+          QT_QPA_PLATFORM: offscreen
+      # The client paints an icon from colour words, and the simulator paints a
+      # picture file from pixel codes. Both claim to be showing the same sign,
+      # and a thumbnail that disagreed with the simulator about what amber looks
+      # like would be the client inventing a colour. The simulator's table lives
+      # in a module that imports Qt, so the comparison is made here rather than
+      # in either suite, going from word to ink to code through the service's
+      # own icon library, which is the one place all three are written down.
+      - name: the client paints icons in the simulator's colours
+        run: |
+          python - <<'PALETTE'
+          import sys
+
+          sys.path[:0] = ["tools/apiclient", "tools/signsim"]
+          from apiclient import bitmaps
+          from readerboard import icons
+          from signsim import window
+
+          for word, ink in icons.TINT_INKS.items():
+              code = ord(icons.INK_CODES[ink])
+              assert bitmaps.COLOURS[word] == window._PIXEL_COLOURS[code], word
+          assert set(bitmaps.COLOURS) == set(icons.TINT_INKS), "a colour word has no shade"
+          assert bitmaps.UNLIT_COLOUR == window._PIXEL_COLOURS[ord(icons.INK_CODES["."])]
+          assert bitmaps.GROUND == window._PANEL
+          assert bitmaps.STRAY == window._STRAY
+          PALETTE
         env:
           QT_QPA_PLATFORM: offscreen
       # Each tool's icon.ico is rendered from the icon.svg beside it, and the

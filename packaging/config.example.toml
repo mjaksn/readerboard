@@ -95,8 +95,9 @@ variable_capacity = 32
 #
 # 0 turns icons off and is the default, because raising it from 0 reallocates
 # the sign. A picture file takes 69 bytes of the sign's memory pool, measured on
-# a BetaBrite Classic whose whole pool is 5482, so 16 is comfortable alongside
-# the defaults above and 32 is about the ceiling.
+# a BetaBrite Classic whose whole pool is 5482. 32 is the most there are picture
+# files for, and even that fits alongside the defaults above, taking the pool to
+# 4726 bytes.
 picture_count = 0
 
 # == behaviour ===============================================================
@@ -107,9 +108,13 @@ picture_count = 0
 # to gain by raising it.
 registry_sweep_seconds = 1.0
 
-# How often to push every message to the sign again whether or not anything
-# changed. This is what repairs a sign that was power cycled while the Ethernet
-# adapter stayed connected, which nothing else can detect.
+# How often to check that the sign still holds what it was given, and push
+# everything again if it does not. This is what repairs a sign that was power
+# cycled while the Ethernet adapter stayed connected, which nothing else can
+# detect. With an icon in use, the check is one read of a picture file, and only
+# a sign that has lost it, or does not answer, gets everything again. With none,
+# or for fifteen minutes after a read goes unanswered, every refresh pushes
+# everything, which restarts every message.
 refresh_interval_seconds = 900.0
 
 # == the sign's clock ========================================================
@@ -135,9 +140,10 @@ clock_sync_interval_seconds = 3600.0
 host = "0.0.0.0"
 port = 5001
 
-# Required on every write. install.sh generates one when it first writes this
-# file; it never touches an existing config file, so a key blanked by hand stays
-# blank. Anyone holding it can write to the sign, so keep this file mode 0640.
+# Required on every write, and on GET /sign/information. install.sh generates
+# one when it first writes this file; it never touches an existing config file,
+# so a key blanked by hand stays blank. Anyone holding it can write to the sign,
+# so keep this file mode 0640.
 api_key = ""
 
 # Open the documentation page in a browser once the service is listening. For

@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from readerboard import icons
 from readerboard.api import errors
-from readerboard.api.app import create_app
+from readerboard.api.app import _after_reconnect, create_app
 from readerboard.config import Settings
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
@@ -89,6 +89,15 @@ def drawing_client(settings, sign) -> Iterator[TestClient]:
     settings.picture_count = 4
     with TestClient(create_app(settings, transport=sign)) as client:
         yield client
+
+
+def test_a_reconnect_lets_the_refresh_ask_the_sign_again(client):
+    # The reconnect hook is what tells an adapter that dropped off the network
+    # apart from the simulator, which never answers a read. Wired to the plain
+    # refresh instead, a read that went unanswered while the link was on its
+    # way down would stop the refresh asking for the next fifteen minutes.
+    hooks = client.app.state.controller._reconnect_hooks
+    assert [getattr(hook, "func", None) for hook in hooks] == [_after_reconnect]
 
 
 class TestHealth:
@@ -910,6 +919,7 @@ class TestEnumerations:
             "/enumerations/display-modes",
             "/enumerations/control-commands",
             "/enumerations/icons",
+            "/enumerations/icon-tints",
         ],
     )
     def test_each_lists_something_described(self, client, path):
@@ -989,6 +999,69 @@ class TestEnumerations:
         groups = [entry["group"] for entry in client.get("/enumerations/icons").json()]
         assert len(set(groups)) == len(icons.GROUPS)
         assert groups == sorted(groups, key=icons.GROUPS.index)
+
+    def test_every_icon_has_a_bitmap_named_as_the_list_names_it(self, client):
+        # The two answers are joined on the name, so a caller drawing the list
+        # loses any icon whose bitmap is spelled differently or missing.
+        listed = [entry["name"] for entry in client.get("/enumerations/icons").json()]
+        drawn = [entry["name"] for entry in client.get("/enumerations/icons/bitmaps").json()]
+        assert drawn == listed
+
+    def test_each_bitmap_is_the_library_rows_exactly(self, client):
+        by_name = {
+            entry["name"]: entry for entry in client.get("/enumerations/icons/bitmaps").json()
+        }
+        for name, icon in icons.ICONS.items():
+            assert by_name["<icon:%s>" % name]["rows"] == list(icon.rows)
+
+    def test_every_dot_that_is_lit_has_its_colour_named(self, client):
+        # A character the caller is not told about is one it can only guess at,
+        # and the client is built to guess nothing.
+        for entry in client.get("/enumerations/icons/bitmaps").json():
+            used = {dot for row in entry["rows"] for dot in row} - {"."}
+            assert set(entry["inks"]) == used, entry["name"]
+            assert set(entry["inks"].values()) <= set(icons.TINT_INKS), entry["name"]
+
+    def test_a_tintable_icon_is_drawn_in_the_colour_it_takes_by_default(self, client):
+        by_name = {
+            entry["name"]: entry for entry in client.get("/enumerations/icons/bitmaps").json()
+        }
+        # check is green unless asked otherwise, and sun is never tinted at all.
+        assert by_name["<icon:check>"]["inks"] == {"#": "green"}
+        assert icons.INK_MARKER not in by_name["<icon:sun>"]["inks"]
+        assert by_name["<icon:sun>"]["inks"] == {"o": "orange", "y": "yellow"}
+
+    def test_the_tints_are_the_library_words_in_its_order(self, client):
+        names = [entry["name"] for entry in client.get("/enumerations/icon-tints").json()]
+        assert names == list(icons.TINT_INKS)
+
+    def test_every_tint_is_a_colour_a_message_can_also_say(self, client):
+        # One spelling for both: <red> in a message and <icon:check:red> on an
+        # icon. A tint word that was not a colour token would be a second one.
+        tokens = {
+            entry["name"] for entry in client.get("/enumerations/markup-tokens").json()
+        }
+        for entry in client.get("/enumerations/icon-tints").json():
+            assert "<%s>" % entry["name"] in tokens
+
+    def test_every_tint_listed_is_one_a_message_can_use(self, drawing_client):
+        # Put the tintable check up in each colour offered, through the markup
+        # parser and the route rather than the library alone: the parser checks
+        # a tint's spelling with a pattern of its own, and a word listed here and
+        # refused there would be a list that sends callers into a 400.
+        listed = drawing_client.get("/enumerations/icon-tints").json()
+        assert listed
+        for entry in listed:
+            response = drawing_client.put(
+                "/slots/tinted",
+                json={"message": "<icon:check:%s> OK" % entry["name"]},
+                headers=HEADERS,
+            )
+            assert response.status_code == 200, (entry["name"], response.text)
+
+    def test_the_bitmaps_need_no_api_key(self, client):
+        # A read of the library, like the list beside it.
+        assert client.get("/enumerations/icons/bitmaps").status_code == 200
 
 
 class TestVariables:

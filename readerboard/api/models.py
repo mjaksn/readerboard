@@ -171,7 +171,8 @@ class VariableRequest(BaseModel):
         description=(
             "the value, with the same markup a message takes except <week_day> and "
             "<var:name>, which the sign draws as a literal character from inside a "
-            "variable. Formatting set here carries on into the message after the call: "
+            "variable, and <icon:name>, which a value cannot draw. Formatting set here "
+            "carries on into the message after the call: "
             "a value of <red>DOWN turns the rest of the message red too. May be empty, "
             "which shows nothing where the variable is called"
         ),
@@ -381,7 +382,13 @@ class LinkHealth(BaseModel):
 class HealthResponse(BaseModel):
     """What the service knows about itself. Requires no API key."""
 
-    status: str = Field(description="'ok' when the sign is reachable, otherwise 'degraded'")
+    status: str = Field(
+        description=(
+            "'ok' when the link to the sign is open, otherwise 'degraded'. Through an "
+            "Ethernet adapter that is the adapter's connection, which stays open with "
+            "the sign switched off behind it"
+        )
+    )
     version: str
     link: LinkHealth
     slots_used: int
@@ -398,9 +405,9 @@ class HealthResponse(BaseModel):
     pictures_total: int = Field(description="0 when icons are switched off")
     sign_in_sync: bool = Field(
         description=(
-            "false when the sign is behind the service's record, which is a removal or "
-            "an expiry that could not reach the sign yet; a message write that cannot "
-            "reach the sign is refused with a 503 rather than held"
+            "false when the sign may not match the service's record: a removal, a hide "
+            "or an expiry that could not reach the sign yet, or a refused write that "
+            "may have partly landed before it failed. The next refresh repairs it"
         )
     )
     alert_active: bool
@@ -417,10 +424,11 @@ class TokenInfo(BaseModel):
 class IconInfo(BaseModel):
     """One icon from the built-in library.
 
-    ``name`` is the whole tag rather than the bare icon name, which is what
-    every other enumeration answers too: the caller writes what it is given,
-    and a client that had to wrap the answer in ``<icon:`` first would be a
-    client that knows a piece of syntax nobody told it.
+    ``name`` is the whole tag rather than the bare icon name, as the markup
+    tokens are: the caller writes what it is given, and a client that had to
+    wrap the answer in ``<icon:`` first would be a client that knows a piece of
+    syntax nobody told it. The icon tints are the exception, and say so: a tint
+    is a colour word that goes inside the tag, as ``<icon:check:red>``.
 
     The three fields after the description are the same facts in a form
     something can sort or filter on without reading prose.
@@ -435,5 +443,33 @@ class IconInfo(BaseModel):
             "whether a colour may be asked for, as <icon:check:red>. False for an icon "
             "whose own colours are the point of it, and asking for one anyway is refused "
             "rather than ignored"
+        )
+    )
+
+
+class IconBitmap(BaseModel):
+    """The dots one icon is drawn with, for a caller that wants to show it.
+
+    The rows are the library's own, so a dot reads the same here as it does in
+    ``readerboard/icons.py``. Every character in them other than the unlit
+    ``.`` is named in ``inks`` rather than left for the caller to know. The ink a
+    tint replaces is given as the colour the icon takes when no tint is asked
+    for, which is what a message calling it bare would draw.
+    """
+
+    name: str = Field(
+        description="the tag that draws it, exactly as GET /enumerations/icons lists it"
+    )
+    rows: list[str] = Field(
+        description=(
+            "the icon top to bottom, one character a dot: '.' is unlit and every "
+            "other character is a key into inks. Every row is the same length"
+        )
+    )
+    inks: dict[str, str] = Field(
+        description=(
+            "the colour each character in rows is drawn in, as the colour words "
+            "<red> and <icon:check:red> use. On an icon that takes a tint, '#' is "
+            "the ink the tint replaces, given as the colour it is when none is asked for"
         )
     )

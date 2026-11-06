@@ -37,15 +37,17 @@ services:
       # whole API and is a good way to try it before there is a sign to point at.
       READERBOARD_SERIAL_URL: socket://192.168.2.51:4001
 
-      # Required on every write, never logged. Taken from the environment rather
-      # than written here, so that this file can be committed and the key cannot.
+      # Required on every write and on GET /sign/information, never logged. Taken
+      # from the environment rather than written here, so that this file can be
+      # committed and the key cannot.
       READERBOARD_API_KEY: ${READERBOARD_API_KEY:?set READERBOARD_API_KEY before starting}
 
       # How many icons can be on the sign at once. The service's own default is
-      # 0, which turns icons off; 16 is comfortable alongside the default slot and
-      # variable settings and about 32 is the ceiling. Changing it ERASES every message on the sign
-      # on the next start, including the first start with this file over a
-      # deployment that ran without it, so set it once and leave it.
+      # 0, which turns icons off; 32 is the most there are picture files for, and
+      # fits alongside the default slot and variable settings. Changing it ERASES
+      # every message on the sign on the next start, including the first start
+      # with this file over a deployment that ran without it, so set it once and
+      # leave it.
       READERBOARD_PICTURE_COUNT: "16"
 
       # Every setting in packaging/config.example.toml is available here with a

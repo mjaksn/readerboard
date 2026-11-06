@@ -14,11 +14,20 @@ Reconnection is deliberately passive. When the link is down, ``ensure_open``
 refuses to try again until a backoff window has passed, and ``write`` fails
 immediately rather than blocking a request behind a device that is not there.
 Something has to drive the retries; that is the controller's reconnect loop.
+
+A link over the network is also told to notice a peer that has gone. An adapter
+that drops off the network says nothing as it goes, and without being told
+otherwise the operating system keeps accepting writes to it: Linux retries an
+unacknowledged one for about a quarter of an hour before reporting anything, and
+an idle connection is never checked at all. Meanwhile ``GET /health`` says the
+link is up and the sign holds whatever it was last sent, which on a sign showing
+the time looks exactly like a working one. See :func:`_notice_a_dead_peer`.
 """
 
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
 from collections.abc import Callable
@@ -34,6 +43,20 @@ logger = logging.getLogger(__name__)
 # delivering, which would otherwise keep the read going for ever, holding the
 # lock, and never let the controller reach its deadline.
 READ_LIMIT_BYTES = 4096
+
+# How a network link finds out that the adapter at the other end has gone. An
+# idle connection is probed after KEEPALIVE_IDLE_SECONDS of quiet, every
+# KEEPALIVE_INTERVAL_SECONDS after that, and given up after KEEPALIVE_PROBES
+# unanswered probes: about a minute. Probes are only sent while nothing is
+# waiting to be acknowledged, and a write that went out as the adapter vanished
+# is exactly that, so Linux is also told to give up on unacknowledged data after
+# UNACKNOWLEDGED_TIMEOUT_SECONDS rather than its own quarter of an hour. Windows
+# already gives up on a retransmission within a minute, and Python exposes no
+# equivalent of that option there.
+KEEPALIVE_IDLE_SECONDS = 30
+KEEPALIVE_INTERVAL_SECONDS = 10
+KEEPALIVE_PROBES = 3
+UNACKNOWLEDGED_TIMEOUT_SECONDS = 60
 
 
 class SerialTransport:
@@ -186,6 +209,8 @@ class SerialTransport:
             self._port = None
             raise TransportError("could not open %s: %s" % (self._url, err)) from err
 
+        _notice_a_dead_peer(self._port, self._url)
+
         if self._failures:
             logger.info("link to %s is back after %d failed attempts", self._url, self._failures)
         else:
@@ -245,3 +270,41 @@ class SerialTransport:
             # A port that will not close cleanly is still a port we are done
             # with, and there is nothing useful for a caller to do about it.
             logger.debug("ignoring error while closing %s", self._url, exc_info=True)
+
+
+def _notice_a_dead_peer(port: object, url: str) -> None:
+    """Tell a network link's socket to find out when the other end has gone.
+
+    Only ``socket://`` and ``rfc2217://`` links have a socket, and pyserial
+    keeps it on a private attribute, so it is looked for rather than assumed: a
+    cable and ``loop://`` have none and are left alone. A test pins the
+    attribute against the pyserial this is installed with, so that an upgrade
+    renaming it fails the suite rather than quietly losing this.
+
+    Each option is set on its own and a refusal is logged and passed over, so
+    that a platform without one of them still opens the link with the rest. An
+    option this platform does not define at all is skipped in the same way.
+    """
+    sock = getattr(port, "_socket", None)
+    if not isinstance(sock, socket.socket):
+        return
+
+    # macOS spells the idle time TCP_KEEPALIVE; everywhere else it is
+    # TCP_KEEPIDLE. Each is looked up by name because not every platform
+    # defines every one of them.
+    idle_option = "TCP_KEEPIDLE" if hasattr(socket, "TCP_KEEPIDLE") else "TCP_KEEPALIVE"
+    options = [
+        (socket.SOL_SOCKET, "SO_KEEPALIVE", 1),
+        (socket.IPPROTO_TCP, idle_option, KEEPALIVE_IDLE_SECONDS),
+        (socket.IPPROTO_TCP, "TCP_KEEPINTVL", KEEPALIVE_INTERVAL_SECONDS),
+        (socket.IPPROTO_TCP, "TCP_KEEPCNT", KEEPALIVE_PROBES),
+        (socket.IPPROTO_TCP, "TCP_USER_TIMEOUT", UNACKNOWLEDGED_TIMEOUT_SECONDS * 1000),
+    ]
+    for level, name, value in options:
+        option = getattr(socket, name, None)
+        if option is None:
+            continue
+        try:
+            sock.setsockopt(level, option, value)
+        except OSError as err:
+            logger.debug("could not set %s on the link to %s: %s", name, url, err)

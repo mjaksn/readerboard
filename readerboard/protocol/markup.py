@@ -64,11 +64,11 @@ THIN_SPACE = "\u2009"
 # mapping asserts an identity and a scan read wrongly would put a silently
 # different glyph on the display.
 #
-# The rest of the table stays unmapped on purpose. Codes B0H to B9H look like a
-# Croatian or Serbian set and the diacritics at BBH to BDH cannot be told apart
-# at five by seven, and guessing one would be worse than leaving it out: an
-# unmapped character is refused with a message saying so, while a wrong one is
-# accepted and drawn.
+# The rest of the table stays unmapped on purpose. Codes AEH to B6H, B8H and
+# B9H look like a Croatian or Serbian set and the diacritics at BBH to BDH
+# cannot be told apart at five by seven, and guessing one would be worse than
+# leaving it out: an unmapped character is refused with a message saying so,
+# while a wrong one is accepted and drawn.
 EXTENDED_CHARACTERS: dict[str, bytes] = {
     "°": c.DEGREES,
     "¢": c.CENTS,
