@@ -33,9 +33,11 @@ class Transport(Protocol):
         """A short human readable name for the link, safe to put in a log line."""
         ...
 
-    def ensure_open(self) -> None:
-        """Open the link if it is down.
+    def ensure_open(self) -> bool:
+        """Open the link if it is down, and return whether this call opened it.
 
+        False means it was already open, which is not always what it looked
+        like to the caller: something else may have opened it in between.
         Raises :class:`TransportError` if it cannot be opened, including when a
         backoff window means it is not yet worth trying.
         """

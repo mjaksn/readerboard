@@ -701,6 +701,28 @@ class TestReconnectHooks:
         finally:
             await controller.stop()
 
+    async def test_no_hook_runs_when_something_else_opened_the_link(self):
+        # A write reopening the link holds the transport's lock with the link
+        # reading as down. A reconnect attempt that saw it down and then waited
+        # on that lock finds it open, and has nothing to do: the write's reopen
+        # is dealt with where it happened.
+        class OpenedMeanwhile(FakeTransport):
+            def ensure_open(self) -> bool:
+                self._is_open = True
+                return False
+
+        transport = OpenedMeanwhile()
+        controller = SignController(transport, inter_packet_delay=0)
+        await controller.write_text_file(b"A", b"HI")
+        transport._is_open = False
+        calls: list[int] = []
+        controller.on_reconnect(lambda: _record(calls))
+
+        await controller._connect()
+
+        assert calls == []
+        assert controller.cached_labels() == ["A"]
+
 
 async def _record(calls: list[int]) -> None:
     calls.append(1)

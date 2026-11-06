@@ -117,10 +117,15 @@ class SerialTransport:
             return 0.0
         return max(0.0, self._retry_after - self._monotonic())
 
-    def ensure_open(self) -> None:
-        """Open the link if it is down, honouring the backoff window."""
+    def ensure_open(self) -> bool:
+        """Open the link if it is down, honouring the backoff window.
+
+        Returns whether this call opened it. That is not the same as whether it
+        was down when the caller looked: a write reopening the link holds the
+        lock this waits on, and finds it open afterwards.
+        """
         with self._lock:
-            self._ensure_open_locked()
+            return self._ensure_open_locked()
 
     def write(self, data: bytes) -> None:
         """Send one complete transmission over a link that is already open.
@@ -232,14 +237,15 @@ class SerialTransport:
 
     # == internals ==========================================================
 
-    def _ensure_open_locked(self) -> None:
+    def _ensure_open_locked(self) -> bool:
         if self.is_open:
-            return
+            return False
 
         if self._retry_after > self._monotonic():
             raise self._down_error()
 
         self._open_locked()
+        return True
 
     def _open_locked(self) -> None:
         """Open the link now, whatever the backoff window says."""

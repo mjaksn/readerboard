@@ -518,15 +518,23 @@ class SignController:
             await self._sleep(self._inter_packet_delay)
 
     async def _connect(self) -> None:
-        was_open = self._transport.is_open
-        await asyncio.to_thread(self._transport.ensure_open)
-        if not was_open:
+        # Whether this call opened the link, not whether it was down a moment
+        # ago. A write that reopens a link holds the transport's lock for the
+        # length of the connect, with the link reading as down, and a tick of
+        # the reconnect loop that lands then waits on that lock and finds the
+        # link open. Going by what it saw first would repeat the reconnect the
+        # write has already dealt with.
+        opened = await asyncio.to_thread(self._transport.ensure_open)
+        if opened:
             self.forget_sign_contents()
-            for hook in self._reconnect_hooks:
-                try:
-                    await hook()
-                except Exception:
-                    logger.exception("a reconnect hook failed")
+            await self._run_reconnect_hooks()
+
+    async def _run_reconnect_hooks(self) -> None:
+        for hook in self._reconnect_hooks:
+            try:
+                await hook()
+            except Exception:
+                logger.exception("a reconnect hook failed")
 
     async def _reconnect_loop(self) -> None:
         """Keep trying to bring the link back while the service is running.
