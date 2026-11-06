@@ -16,8 +16,18 @@ library, and the names inside it may move without that being a breaking change.
 **Fewer blanks and restarts on a sign with icons.** A sign switched off behind
 an adapter that stays connected no longer leaves every refresh rewriting every
 picture until the service restarts, and an alert up while a message calls an
-icon no longer starts over at every refresh. Upgrading erases nothing: no
+icon no longer starts over at every refresh. It also moves fastapi and
+uvicorn forward, which brings in one new package. Upgrading erases nothing: no
 setting, state file or memory configuration changes.
+
+### Changed
+
+- **fastapi 0.143.5 and uvicorn 0.54.0, and a new package with them.** fastapi
+  has required `opentelemetry-api` since 0.142.0, for tracing support of its
+  own, so the image and `scripts/install.sh` now install it. readerboard
+  installs no OpenTelemetry SDK and sets no tracing up. It is one pure Python
+  wheel, locked by version and hash in `requirements.lock` like everything else
+  there.
 
 ### Fixed
 
