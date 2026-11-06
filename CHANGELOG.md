@@ -11,7 +11,13 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.8.3] - 2026-11-06
+
+**A fix for signs reached through an Ethernet adapter.** Since 0.7.1 the
+service dropped a healthy link to an adapter that answers no TCP keepalive
+probe after every minute without traffic, and the next request failed with a
+503 while the link was reopened. Upgrading erases nothing: no setting, state
+file or memory configuration changes.
 
 ### Fixed
 
@@ -1781,7 +1787,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.3
 [0.8.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.2
 [0.8.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.1
 [0.8.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.0
