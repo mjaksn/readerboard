@@ -1,6 +1,6 @@
 """The one screen.
 
-Everything the tool does is on it: the connection, the enumerations, all twenty-five
+Everything the tool does is on it: the connection, the enumerations, all twenty-eight
 operations, the form for whichever one is selected, and the response. Nothing is
 more than one click away, and the things that would need a quarter of the window
 to show properly open as dialogs instead.
@@ -320,6 +320,7 @@ class OperationForm(QWidget):
         self.operation = operation
         self._window = window
         self._path: dict[str, QWidget] = {}
+        self._query: dict[str, QWidget] = {}
         self._body: dict[str, QWidget] = {}
         self._token_buttons: list[tuple[QPushButton, str]] = []
 
@@ -346,12 +347,14 @@ class OperationForm(QWidget):
 
         for item in operation.path_inputs:
             form.addRow(self._label(item, "path"), self._path_widget(item))
+        for item in operation.query:
+            form.addRow(self._label(item, "query"), self._body_widget(item, into=self._query))
         for item in operation.body:
             form.addRow(self._label(item, "body"), self._body_widget(item))
 
         layout.addLayout(form)
 
-        if not operation.path_inputs and not operation.body:
+        if not operation.path_inputs and not operation.query and not operation.body:
             empty = QLabel("This one takes nothing. Press Send.")
             empty.setStyleSheet(_muted(self._window.theme))
             layout.addWidget(empty)
@@ -430,12 +433,19 @@ class OperationForm(QWidget):
         holder.setLayout(row)
         return holder
 
-    def _body_widget(self, item: Input) -> QWidget:
-        """Build a body field of whichever kind the catalogue says it is."""
+    def _body_widget(self, item: Input, into: dict[str, QWidget] | None = None) -> QWidget:
+        """Build a body field of whichever kind the catalogue says it is.
+
+        ``into`` is where the field is kept for reading back, the body's own
+        fields unless it says otherwise. A query parameter is built exactly as a
+        body field of its kind is, and kept apart only so that it goes out in
+        the query string rather than the body.
+        """
+        fields = self._body if into is None else into
         if item.enum_set:
             combo = QComboBox()
             combo.setEditable(True)
-            self._body[item.name] = combo
+            fields[item.name] = combo
             self._fill_combo(item, combo, initial=True)
             return combo
 
@@ -443,7 +453,7 @@ class OperationForm(QWidget):
             edit = QPlainTextEdit()
             edit.setPlaceholderText(item.description)
             edit.setMinimumHeight(70)
-            self._body[item.name] = edit
+            fields[item.name] = edit
             if not item.markup and not item.icons:
                 return edit
 
@@ -486,14 +496,14 @@ class OperationForm(QWidget):
                 # as a field nobody filled in, so the key is left out rather
                 # than sent as a value the caller never chose.
                 combo.addItems(["", "true", "false"])
-            self._body[item.name] = combo
+            fields[item.name] = combo
             return combo
 
         line = QLineEdit()
         line.setPlaceholderText(item.description)
         if item.prefill is not None:
             line.setText(str(item.prefill))
-        self._body[item.name] = line
+        fields[item.name] = line
         return line
 
     def _fill_combo(self, item: Input, combo: QComboBox, *, initial: bool = False) -> None:
@@ -659,6 +669,10 @@ class OperationForm(QWidget):
     def path_values(self) -> dict[str, str]:
         """Return what has been typed into the path parameters."""
         return {name: _text_of(widget) for name, widget in self._path.items()}
+
+    def query_values(self) -> dict[str, str]:
+        """Return what has been chosen for the query parameters."""
+        return {name: _text_of(widget) for name, widget in self._query.items()}
 
     def body_values(self) -> dict[str, str]:
         """Return what has been typed into the body fields."""
@@ -989,12 +1003,15 @@ class MainWindow(QMainWindow):
         form = self._form
         if path_values is None:
             path_values = form.path_values() if form and form.operation is operation else {}
-        body_values = form.body_values() if form and form.operation is operation else {}
+        own = form is not None and form.operation is operation
+        query_values = form.query_values() if form and own else {}
+        body_values = form.body_values() if form and own else {}
         try:
             return request_module.build(
                 operation,
                 self.base_url.text(),
                 path_values=path_values,
+                query_values=query_values,
                 body_values=body_values,
                 api_key=self.api_key.text(),
             )

@@ -482,17 +482,17 @@ class TestAlerts:
         client.post("/alerts", json={"message": "FIRST"}, headers=HEADERS)
         response = client.post(
             "/alerts",
-            json={"message": "SECOND", "fail_if_active": True},
+            json={"message": "SECOND", "if_active": "fail"},
             headers=HEADERS,
         )
 
         assert response.status_code == 409
-        assert "fail_if_active" in response.json()["detail"]
+        assert "if_active" in response.json()["detail"]
         assert client.get("/alerts").json()["message"] == "FIRST"
 
     def test_asking_not_to_replace_is_fine_when_nothing_is_up(self, client):
         response = client.post(
-            "/alerts", json={"message": "ONLY", "fail_if_active": True}, headers=HEADERS
+            "/alerts", json={"message": "ONLY", "if_active": "fail"}, headers=HEADERS
         )
 
         assert response.status_code == 200
@@ -1343,3 +1343,99 @@ def test_the_openapi_schema_can_be_produced_without_a_sign(settings, sign):
 
     assert schema["info"]["title"] == "readerboard"
     assert "/slots/{key}" in schema["paths"]
+
+
+class TestAlertQueue:
+    def post(self, client, message, **body):
+        return client.post("/alerts", json={"message": message, **body}, headers=HEADERS)
+
+    def test_a_queued_alert_answers_200_and_says_it_is_waiting(self, client):
+        self.post(client, "FIRST")
+
+        response = self.post(client, "SECOND", if_active="queue", key="second", ttl_seconds=30)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "waiting"
+        assert body["position"] == 1
+        assert body["key"] == "second"
+        assert body["ttl_seconds"] == 30
+        assert body["started_at"] is None
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_one_that_takes_the_sign_at_once_says_it_is_showing(self, client):
+        body = self.post(client, "ONLY", if_active="queue").json()
+
+        assert body["state"] == "showing"
+        assert body["position"] is None
+        assert body["started_at"] is not None
+
+    def test_the_queue_can_be_read_in_order(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+        self.post(client, "THIRD", if_active="queue", max_wait_seconds=600)
+
+        queue = client.get("/alerts/queue").json()
+
+        assert [(a["message"], a["position"]) for a in queue] == [("SECOND", 1), ("THIRD", 2)]
+        assert queue[1]["wait_until"] is not None
+        assert client.get("/health").json()["alerts_waiting"] == 2
+
+    def test_a_waiting_alert_can_be_cancelled_by_key(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue", key="second")
+
+        assert client.delete("/alerts/queue/second", headers=HEADERS).status_code == 204
+        assert client.get("/alerts/queue").json() == []
+        assert client.delete("/alerts/queue/second", headers=HEADERS).status_code == 404
+
+    def test_the_queue_can_be_emptied(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+
+        assert client.delete("/alerts/queue", headers=HEADERS).status_code == 204
+        assert client.get("/alerts/queue").json() == []
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_releasing_with_clear_queue_empties_it_too(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+
+        response = client.delete("/alerts", params={"clear_queue": True}, headers=HEADERS)
+
+        assert response.status_code == 204
+        assert client.get("/alerts").json() is None
+        assert client.get("/alerts/queue").json() == []
+
+    def test_a_full_queue_is_409(self, settings, sign):
+        with TestClient(
+            create_app(settings.model_copy(update={"alert_queue_limit": 1}), transport=sign)
+        ) as client:
+            self.post(client, "FIRST")
+            self.post(client, "SECOND", if_active="queue")
+
+            response = self.post(client, "THIRD", if_active="queue")
+
+        assert response.status_code == 409
+        assert "alert_queue_limit" in response.json()["detail"]
+
+    def test_a_wait_limit_without_queue_is_422(self, client):
+        response = self.post(client, "ONLY", max_wait_seconds=60)
+
+        assert response.status_code == 422
+        assert client.get("/alerts").json() is None
+
+    def test_the_old_flag_is_422_rather_than_a_quiet_replace(self, client):
+        # A caller still sending fail_if_active must not have its refusal
+        # turned into a replace by the field being ignored.
+        self.post(client, "FIRST")
+
+        response = self.post(client, "SECOND", fail_if_active=True)
+
+        assert response.status_code == 422
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_the_queue_routes_that_change_it_need_the_key(self, client):
+        assert client.get("/alerts/queue").status_code == 200
+        assert client.delete("/alerts/queue").status_code == 401
+        assert client.delete("/alerts/queue/anything").status_code == 401

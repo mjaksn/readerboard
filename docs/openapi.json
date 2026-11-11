@@ -11,11 +11,45 @@
             "title": "Display Mode",
             "type": "string"
           },
-          "fail_if_active": {
-            "default": false,
-            "description": "refuse with a 409 if an alert is already holding the sign, rather than replacing it. For a caller that is one of several raising alerts and has no business overwriting somebody else's alert. An alert whose deadline has already passed does not count as holding the sign. Release the alert that is up, or send the same call without this, to get past a refusal",
-            "title": "Fail If Active",
-            "type": "boolean"
+          "if_active": {
+            "default": "replace",
+            "description": "what to do if an alert is already holding the sign. replace takes the sign from it, and leaves any alerts waiting their turn as they are. queue waits for it to end, by its ttl or by being released, and then takes the sign, after any alerts already waiting; the service holds it, so the caller can send it and forget it. fail refuses with a 409. With queue or fail an alert waiting its turn counts as holding the sign too. An alert whose deadline has already passed does not",
+            "enum": [
+              "replace",
+              "queue",
+              "fail"
+            ],
+            "title": "If Active",
+            "type": "string"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "description": "the name a caller gave an alert, so that it can update or cancel it",
+                "maxLength": 64,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "a name for this alert. A queued alert sent again with the key of one still waiting updates that one where it stands, rather than joining the back, so a caller can send the same alert until it is seen without filling the queue with copies; and a waiting alert can be cancelled by its key. A key matching the alert holding the sign does not touch that alert",
+            "title": "Key"
+          },
+          "max_wait_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "with if_active queue, drop the alert unseen if it has not taken the sign this many seconds from now, for news that stops being true. Separate from ttl_seconds, whose clock starts only when the alert takes the sign. Omit and it waits however long it takes",
+            "title": "Max Wait Seconds"
           },
           "message": {
             "description": "the alert text. The sign's priority file holds 125 bytes once markup has been rendered, and cannot be resized. It can call variables with <var:name> and draw icons with <icon:name>, as a message can. An icon costs the alert two of those 125 bytes. It cannot be empty: a write with no text still carries the formatting bytes around it, which the sign reads as a blank priority message and displays, so the sign would sit blank with the rotation suppressed behind it and an alert reported as active",
@@ -45,7 +79,7 @@
         "type": "object"
       },
       "AlertResponse": {
-        "description": "The alert currently holding the sign.",
+        "description": "An alert, holding the sign or waiting its turn.",
         "properties": {
           "display_mode": {
             "title": "Display Mode",
@@ -61,23 +95,109 @@
                 "type": "null"
               }
             ],
+            "description": "when it gives the sign back, or null if it holds it until released or is still waiting",
             "title": "Expires At"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the name its caller gave it, or null",
+            "title": "Key"
           },
           "message": {
             "title": "Message",
             "type": "string"
           },
+          "position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "while waiting, where it stands: 1 is the next to take the sign",
+            "title": "Position"
+          },
+          "queued_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "when it joined the queue, or null once it is showing",
+            "title": "Queued At"
+          },
           "started_at": {
-            "format": "date-time",
-            "title": "Started At",
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "when it took the sign, or null while it is waiting",
+            "title": "Started At"
+          },
+          "state": {
+            "description": "showing if it holds the sign, waiting if it is queued behind one that does",
+            "enum": [
+              "showing",
+              "waiting"
+            ],
+            "title": "State",
             "type": "string"
+          },
+          "ttl_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "while waiting, how long it will hold the sign once it takes it, or null if until released. Null once it is showing, where expires_at says it",
+            "title": "Ttl Seconds"
+          },
+          "wait_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "while waiting, when it is dropped unseen if it has not taken the sign, or null if it waits however long it takes",
+            "title": "Wait Until"
           }
         },
         "required": [
           "message",
           "display_mode",
+          "key",
+          "state",
           "started_at",
-          "expires_at"
+          "expires_at",
+          "ttl_seconds",
+          "queued_at",
+          "wait_until",
+          "position"
         ],
         "title": "AlertResponse",
         "type": "object"
@@ -139,6 +259,11 @@
           "alert_active": {
             "title": "Alert Active",
             "type": "boolean"
+          },
+          "alerts_waiting": {
+            "description": "how many alerts are queued behind the one showing",
+            "title": "Alerts Waiting",
+            "type": "integer"
           },
           "clock_last_synced_at": {
             "anyOf": [
@@ -209,6 +334,7 @@
           "pictures_total",
           "sign_in_sync",
           "alert_active",
+          "alerts_waiting",
           "clock_last_synced_at"
         ],
         "title": "HealthResponse",
@@ -684,7 +810,7 @@
         "description": "A variable.",
         "properties": {
           "called_by": {
-            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do, nor while called_by_alert is true",
+            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do, nor while called_by_alert is true, nor while an alert waiting its turn calls it",
             "items": {
               "type": "string"
             },
@@ -774,7 +900,7 @@
     }
   },
   "info": {
-    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the slots that are showing by itself. A slot can be\nhidden without being given up, so a message can be taken off the display and put\nback without being sent again. An **alert** takes the whole display over until it\nis released, then the rotation resumes.\n\nA **variable** is a value a slot's message or an alert calls with `<var:name>`.\nChanging it rewrites only the variable, so the sign shows the new value without\nblanking or restarting what calls it.\n\nAn **icon** is one of the built-in bitmaps, drawn where `<icon:name>` sits in a\nmessage or an alert. `GET /enumerations/icons` lists them,\n`GET /enumerations/icons/bitmaps` gives the dots each is drawn with, and\n`GET /enumerations/icon-tints` lists the colours one that takes a tint can be\nasked for. There is a fixed pool of picture files on the sign and it is far\nsmaller than the library, so a file is claimed by whichever icon a message calls\nand kept until another icon needs it. Icons are off until `picture_count` is\nraised, because raising it reallocates the sign's memory and clears it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render, a call to\na variable that does not exist, an icon nobody has, a colour asked for on an icon\ndrawn in fixed colours, or an icon called while icons are switched off, 401 for a\nmissing or wrong `X-API-Key`, 404 for a slot or variable that does not exist, 409\nwhen every slot, every variable or every picture file is already in use, a\nvariable something still calls is deleted, an alert is raised with\n`fail_if_active` while one is already up, or a reboot finds the sign has less\nmemory than the configuration needs, 503 when the sign is unreachable, stops\npartway through an answer or answers with something the service cannot read, or\nno API key is configured at all, 500 for something the service has no code for,\nand 422 for a body that is not the shape the endpoint declares, which includes a\ndisplay mode the sign does not have.\n",
+    "description": "\nDrives a BetaBrite Classic sign over the Alpha protocol, either through a serial\ncable or through an Ethernet to RS-232 adapter.\n\nSeveral sources can share the sign at once. Each registers a named **slot**, and\nthe sign rotates through the slots that are showing by itself. A slot can be\nhidden without being given up, so a message can be taken off the display and put\nback without being sent again. An **alert** takes the whole display over until it\nis released, then the rotation resumes.\n\nA **variable** is a value a slot's message or an alert calls with `<var:name>`.\nChanging it rewrites only the variable, so the sign shows the new value without\nblanking or restarting what calls it.\n\nAn **icon** is one of the built-in bitmaps, drawn where `<icon:name>` sits in a\nmessage or an alert. `GET /enumerations/icons` lists them,\n`GET /enumerations/icons/bitmaps` gives the dots each is drawn with, and\n`GET /enumerations/icon-tints` lists the colours one that takes a tint can be\nasked for. There is a fixed pool of picture files on the sign and it is far\nsmaller than the library, so a file is claimed by whichever icon a message calls\nand kept until another icon needs it. Icons are off until `picture_count` is\nraised, because raising it reallocates the sign's memory and clears it.\n\nEvery write needs an `X-API-Key` header, and so does `GET /sign/information`,\nwhich reads the sign rather than the service: it puts a question on the wire and\nholds the sign until the answer comes back. The service's own reads and\n`GET /health` need none. On this page, put the key in once with the\n**Authorize** button and everything below that needs it carries it.\n\nA failure is reported by the status code, with the reason in a `detail` field:\n400 for a command the sign does not have, a parameter it will not accept, a\nmessage or value too long for its file, markup the sign cannot render, a call to\na variable that does not exist, an icon nobody has, a colour asked for on an icon\ndrawn in fixed colours, or an icon called while icons are switched off, 401 for a\nmissing or wrong `X-API-Key`, 404 for a slot, a variable or a waiting alert that\ndoes not exist, 409 when every slot, every variable or every picture file is\nalready in use, a variable something still calls is deleted, an alert is raised\nwith `if_active` set to `fail` while one is up or waiting, the alert queue is\nfull, or a reboot finds the sign has less memory than the configuration needs,\n503 when the sign is unreachable, stops\npartway through an answer or answers with something the service cannot read, or\nno API key is configured at all, 500 for something the service has no code for,\nand 422 for a body that is not the shape the endpoint declares, which includes a\ndisplay mode the sign does not have.\n",
     "title": "readerboard",
     "version": "0.8.3"
   },
@@ -782,11 +908,35 @@
   "paths": {
     "/alerts": {
       "delete": {
-        "description": "Release an alert so the rotation resumes.",
+        "description": "Release the alert holding the sign.\n\nThe next alert waiting its turn then takes the sign, within a second. Send\n`clear_queue` to cancel the waiting ones as well and have the rotation back.\nTwo calls, emptying the queue and then releasing, would have to be made in\nthat order, or the next alert would be promoted between them.",
         "operationId": "delete_alert_alerts_delete",
+        "parameters": [
+          {
+            "description": "empty the queue in the same step, so that the rotation comes back and stays. Without it the next waiting alert takes the sign straight after",
+            "in": "query",
+            "name": "clear_queue",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "empty the queue in the same step, so that the rotation comes back and stays. Without it the next waiting alert takes the sign straight after",
+              "title": "Clear Queue",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [
@@ -828,7 +978,7 @@
         ]
       },
       "post": {
-        "description": "Take the whole sign over until the alert is released.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.\n\nAn alert can call variables with `<var:name>`, and a change to one shows on\nthe alert without restarting it, as it does in a message. A variable the\nalert calls cannot be deleted until the alert is released or replaced, and a\ncall to a variable that does not exist is a 400.\n\nThis replaces whatever alert is already up, which is what a caller wants\nwhen its alert is the more important one. Send `fail_if_active` and it is a\n409 instead, for a caller that is one of several and has no business\noverwriting somebody else's alert. An alert past its deadline does not count\nas holding the sign.",
+        "description": "Take the whole sign over until the alert is released, or wait to.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.\n\nAn alert can call variables with `<var:name>`, and a change to one shows on\nthe alert without restarting it, as it does in a message. A variable the\nalert calls cannot be deleted until the alert is released or replaced, and a\ncall to a variable that does not exist is a 400.\n\n`if_active` says what happens when an alert is already up. `replace`, the\ndefault, takes the sign from it, which is what a caller wants when its alert\nis the more important one. `queue` waits for it to end and then takes the\nsign, after any alerts already waiting, and the service does the waiting, so\nthe caller can send it and forget it. `fail` is a 409, for a caller that is\none of several and has no business overwriting somebody else's alert. An\nalert past its deadline does not count as holding the sign.\n\nThe answer is the alert either way, and `state` says whether it is showing\nor waiting. A queued alert is checked when it is sent, for everything that\nwould refuse it when its turn came, so a caller hears about a bad one while\nit is still there to hear it.",
         "operationId": "post_alert_alerts_post",
         "requestBody": {
           "content": {
@@ -867,7 +1017,96 @@
             "ApiKeyAuth": []
           }
         ],
-        "summary": "Take the sign over with an alert",
+        "summary": "Raise an alert, or queue one",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/alerts/queue": {
+      "delete": {
+        "description": "Empty the queue. The alert holding the sign, if any, stays up.",
+        "operationId": "delete_alert_queue_alerts_queue_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Cancel every waiting alert",
+        "tags": [
+          "Alerts"
+        ]
+      },
+      "get": {
+        "description": "Return the alerts queued behind the one holding the sign, the next one first.",
+        "operationId": "get_alert_queue_alerts_queue_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlertResponse"
+                  },
+                  "title": "Response Get Alert Queue Alerts Queue Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Read the alerts waiting their turn",
+        "tags": [
+          "Alerts"
+        ]
+      }
+    },
+    "/alerts/queue/{key}": {
+      "delete": {
+        "description": "Take the waiting alert with this key out of the queue.\n\n404 if none is waiting under that key, which includes one that has already\ntaken the sign: that one is released with `DELETE /alerts`.",
+        "operationId": "delete_waiting_alert_alerts_queue__key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "description": "the name a caller gave an alert, so that it can update or cancel it",
+              "maxLength": 64,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._-]+$",
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "summary": "Cancel one waiting alert",
         "tags": [
           "Alerts"
         ]

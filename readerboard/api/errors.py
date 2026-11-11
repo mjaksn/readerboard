@@ -18,7 +18,12 @@ from readerboard.protocol.frames import ProtocolError
 from readerboard.protocol.markup import MarkupError
 from readerboard.protocol.replies import ReplyError
 from readerboard.services import commands
-from readerboard.services.alerts import AlertAlreadyActive, AlertTooLong
+from readerboard.services.alerts import (
+    AlertAlreadyActive,
+    AlertNotWaiting,
+    AlertQueueFull,
+    AlertTooLong,
+)
 from readerboard.services.registry import (
     IconsDisabled,
     MessageTooLong,
@@ -50,6 +55,7 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     (commands.BadParameter, status.HTTP_400_BAD_REQUEST),
     (UnknownSlot, status.HTTP_404_NOT_FOUND),
     (UnknownVariable, status.HTTP_404_NOT_FOUND),
+    (AlertNotWaiting, status.HTTP_404_NOT_FOUND),
     (LayoutFull, status.HTTP_409_CONFLICT),
     # Only POST /sign/reboot can raise this: the sign has less memory than the
     # configuration needs, found by asking it just before the reboot would have
@@ -68,6 +74,7 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     # replace it. The same request would have been accepted a moment earlier, so
     # it is the state of the sign that decides this and not the body.
     (AlertAlreadyActive, status.HTTP_409_CONFLICT),
+    (AlertQueueFull, status.HTTP_409_CONFLICT),
     (TransportError, status.HTTP_503_SERVICE_UNAVAILABLE),
     # A sign that answers with something unreadable is as unusable as one
     # that does not answer, and neither is the caller's doing. The route

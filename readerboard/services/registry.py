@@ -58,6 +58,7 @@ from typing import Protocol
 
 from readerboard import icons
 from readerboard.protocol import replies
+from readerboard.protocol.constants import PICTURE_FILE_LABELS
 from readerboard.protocol.markup import icon_references, references, render, render_value
 from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign import pool
@@ -177,10 +178,12 @@ class _Rendering:
         draw: Callable[[], Awaitable[None]],
         revert: Callable[[], Awaitable[None]],
         *,
+        check: Callable[[str], bytes],
         draws_pictures: bool = False,
     ) -> None:
         """Hold the renderer, the write that has not happened yet, and its undo."""
         self._render = render
+        self._check = check
         self._draw = draw
         self._revert = revert
         self._draws_pictures = draws_pictures
@@ -200,6 +203,18 @@ class _Rendering:
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message, exactly as :meth:`SlotRegistry._render_message` does."""
         return self._render(message, strict=strict)
+
+    def check(self, message: str) -> bytes:
+        """Render a message as it would render once its icons had files, claiming none.
+
+        For an alert being queued rather than shown. It is refused now for
+        everything that would refuse it at the head of the queue, an unknown
+        icon or variable or a body too long, while its caller is still there to
+        hear about it. Its pictures are claimed when it takes the sign, because
+        a queue holding picture files for alerts not yet showing would empty the
+        pool of the ones the display is using.
+        """
+        return self._check(message)
 
     async def revert(self) -> None:
         """Give back what this claimed, and put back on the sign what it evicted.
@@ -339,6 +354,17 @@ class SlotRegistry:
         """
         alert = self._state.alert
         return alert is not None and name in references(alert.message)
+
+    def waiting_alerts_call(self, name: str) -> bool:
+        """Say whether any alert waiting its turn calls a variable.
+
+        A waiting alert is checked against the variables when it is queued, and
+        rendered against them again when it takes the sign. Deleting one in
+        between would leave it calling a file the next variable could be given,
+        so it holds the variable exactly as the alert on the sign does. It holds
+        no picture file, though: those are claimed when it takes the sign.
+        """
+        return any(name in references(waiting.message) for waiting in self._state.alert_queue)
 
     @property
     def occupancy(self) -> tuple[int, int]:
@@ -965,6 +991,7 @@ class SlotRegistry:
                     self._render_message,
                     draw,
                     revert,
+                    check=self._check_message,
                     draws_pictures=bool(claims.claimed),
                 )
             except BaseException:
@@ -1388,8 +1415,9 @@ class SlotRegistry:
             variable = self.get_variable(name)
             callers = self.callers(name)
             alert = self.alert_calls(name)
-            if callers or alert:
-                raise VariableInUse(_in_use(name, callers, alert=alert))
+            waiting = self.waiting_alerts_call(name)
+            if callers or alert or waiting:
+                raise VariableInUse(_in_use(name, callers, alert=alert, waiting=waiting))
 
             del self._state.variables[name]
             self._layout.variables.release(name)
@@ -1726,6 +1754,27 @@ class SlotRegistry:
             icons=self._picture_labels(),
         )
 
+    def _check_message(self, message: str) -> bytes:
+        """Render a message strictly as if every icon it calls had a picture file.
+
+        Each icon is resolved, and refused with icons switched off, exactly as
+        claiming it would; then it is rendered against a stand-in label, which
+        costs the same two bytes as the label it will be given. Nothing is
+        claimed, so the pool and the sign are untouched.
+        """
+        labels = self._picture_labels()
+        for name, tint in icon_references(message):
+            icons.resolve(name, tint)  # raises IconError for a name or a tint we do not have
+            if not self._layout.picture_count:
+                raise IconsDisabled(
+                    "icons are switched off, because picture_count is 0. Raise it and "
+                    "restart, which reallocates the sign and clears it."
+                )
+            labels.setdefault((name, tint), PICTURE_FILE_LABELS[0])
+        if references(message):
+            self._require_variables()
+        return render(message, strict=True, variables=self._variable_labels(), icons=labels)
+
     def _render_value(self, value: str, field: str) -> bytes:
         """Render a value strictly and make sure it fits its STRING file."""
         data = render_value(value)
@@ -1859,7 +1908,7 @@ def _resolve_active(asked: bool | None, previous: SlotState | None) -> bool:
     return previous.active if previous is not None else True
 
 
-def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
+def _in_use(name: str, callers: list[str], *, alert: bool, waiting: bool = False) -> str:
     """Say what still calls a variable, and what to do about each."""
     holders = []
     remedies = []
@@ -1874,6 +1923,9 @@ def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
     if alert:
         holders.append("the alert holding the sign")
         remedies.append("release or replace the alert")
+    if waiting:
+        holders.append("an alert waiting its turn")
+        remedies.append("cancel that alert with DELETE /alerts/queue")
     return (
         "variable %r is called by %s. First %s; deleting it now would leave %s calling a file "
         "another variable could be given next."
@@ -1881,7 +1933,7 @@ def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
             name,
             " and ".join(holders),
             " and ".join(remedies),
-            "it" if len(callers) + alert == 1 else "them",
+            "it" if len(callers) + alert + waiting == 1 else "them",
         )
     )
 

@@ -317,6 +317,27 @@ alert back on the sign after a restart uses the file the alert itself is
 already holding, because failing to restore the display is worse than a call
 that draws nothing.
 
+An alert can also **wait its turn**, `if_active` `queue` on `POST /alerts`. The
+queue is in the state file beside the alert, and three things about it are easy
+to get wrong:
+
+- **Promotion happens in the sweep loop and nowhere else.** An alert ends in
+  several places, and `AlertService._put_back` is one of them with the
+  registry's lock already held, while rendering the next alert has to take that
+  lock first. `AlertService.promote` runs from the sweep, which holds neither, so
+  one step covers every way an alert can end. It costs up to a sweep interval of
+  rotation between two alerts. Do not promote from where an alert is released.
+- **A waiting alert counts as holding the sign** for `queue` and `fail`, so
+  nothing gets ahead of the queue in the moment between one alert ending and the
+  next being promoted. `replace` leaves the queue alone.
+- **A waiting alert is checked when it is sent and claims nothing until it
+  shows.** `_Rendering.check` renders it as if its icons had files, so a caller
+  hears about a bad alert while it is still listening, and the picture pool is
+  not held by alerts nobody can see. It does hold the variables it calls, which
+  cannot be deleted while it waits. One that can no longer be shown when its
+  turn comes is dropped with a warning, because there is nobody left to tell and
+  keeping it would hold everything behind it.
+
 `SignController` is the only thing allowed to talk to the sign. Every write goes
 through one `asyncio.Lock`, with the blocking pyserial call dispatched to a
 worker thread. It also remembers the exact bytes last written to each file and
@@ -509,7 +530,7 @@ emulation, which is reason enough. `tools/signsim/README.md` has the rest.
 
 `tools/apiclient/` is the client, the other end of the same idea: a PySide6
 application that calls the service rather than standing in for the sign. Point
-it at a running service and it can call all twenty-five endpoints, formats
+it at a running service and it can call all twenty-eight endpoints, formats
 every response as text rather than JSON, and knows no vocabulary it was not
 told.
 

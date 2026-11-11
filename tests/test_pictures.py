@@ -349,7 +349,7 @@ class TestTheFullPool:
     async def test_an_alert_refused_for_being_second_claims_no_picture(
         self, controller, store, state, clock, transport, alerts
     ):
-        # fail_if_active is checked inside the rendering, so the refusal takes
+        # if_active "fail" is checked inside the rendering, so the refusal takes
         # back whatever the new alert's icons were given on the way in. With one
         # picture file and the sun holding it, a moon that is refused must not
         # leave the pool full or the sun's file handed away.
@@ -361,7 +361,7 @@ class TestTheFullPool:
         transport.clear()
 
         with pytest.raises(AlertAlreadyActive):
-            await alerts.raise_alert("<icon:moon>", mode="HOLD", fail_if_active=True)
+            await alerts.raise_alert("<icon:moon>", mode="HOLD", if_active="fail")
 
         assert picture_writes(transport) == []
         assert list(state.pictures) == ["sun"]
@@ -2038,3 +2038,59 @@ class TestReconfiguring:
         applied = Layout(3, 256, 0, 32, 2).as_applied()
         applied.picture_columns += 1
         assert Layout(3, 256, 0, 32, 2).needs_reconfiguration(applied)
+
+
+class TestQueuedAlertsAndPictures:
+    """A waiting alert is checked against the icons when it is sent, and claims none.
+
+    Its picture files are claimed when it takes the sign. Claiming them while it
+    waits would hold files for an alert nobody can see, and with a full pool
+    evict ones the display is using.
+    """
+
+    async def wired(self, controller, store, state, clock, alerts) -> SlotRegistry:
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        return registry
+
+    async def test_a_queued_alert_claims_no_picture_and_draws_nothing(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        label = state.pictures["sun"].label
+        transport.clear()
+
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+
+        assert transport.packets == []
+        assert list(state.pictures) == ["sun"]
+        assert state.pictures["sun"].label == label
+
+    async def test_a_queued_alert_calling_no_such_icon_is_refused_when_sent(
+        self, controller, store, state, clock, alerts
+    ):
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+
+        with pytest.raises(icons.IconError):
+            await alerts.raise_alert("<icon:nonesuch>", mode="HOLD", if_active="queue")
+
+        assert alerts.waiting == []
+
+    async def test_its_icon_is_drawn_when_it_takes_the_sign(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await alerts.release()
+        transport.clear()
+
+        assert await alerts.promote() is True
+
+        assert list(state.pictures) == ["moon"]
+        assert len(picture_writes(transport)) == 1
+        assert alerts.active is not None
+        assert alerts.active.message == "<icon:moon> LATER"

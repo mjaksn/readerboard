@@ -25,6 +25,16 @@ file, since the alert calling it is what keeps the file, and claiming is a thing
 that can fail. Failing to put the sign back is a worse outcome than a call that
 draws nothing.
 
+An alert can also wait its turn. One raised with ``if_active="queue"`` while
+the sign is held joins a queue, kept in the state file beside the alert, and
+:meth:`AlertService.promote` puts the head of it on the sign once nothing holds
+it. Promotion runs from the sweep loop rather than wherever an alert ends,
+because an alert ends in several places and one of them,
+:meth:`AlertService._put_back`, runs with the registry's lock already held,
+while rendering the next alert has to take that lock before this service's own.
+The sweep holds neither, so one step there covers every way an alert can end,
+at the cost of up to a sweep interval of the rotation showing in between.
+
 The sign will not take a picture while a priority message is running. Measured
 on 2026-09-13: a slot's icons, written under an alert and then revealed when the
 alert was released, drew nothing or drew a sliver, and stayed that way until the
@@ -42,13 +52,14 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import Literal, Protocol
 
 from readerboard.protocol import constants as c
 from readerboard.protocol.markup import render
 from readerboard.protocol.tokens import MODE_BY_NAME
+from readerboard.services.registry import RegistryError
 from readerboard.sign.controller import SignController
-from readerboard.sign.state import AlertState, ServiceState, StateStore
+from readerboard.sign.state import AlertState, QueuedAlertState, ServiceState, StateStore
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +83,10 @@ class Renderer(Protocol):
 
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message to the bytes the sign is sent."""
+        ...
+
+    def check(self, message: str) -> bytes:
+        """Render a message strictly as it would once its icons had files, claiming none."""
         ...
 
     async def draw_icons(self) -> None:
@@ -116,7 +131,7 @@ class AlertTooLong(ValueError):
 
 
 class AlertAlreadyActive(Exception):
-    """An alert is holding the sign and the caller asked not to replace one.
+    """An alert is holding the sign or waiting for it, and the caller asked to be refused.
 
     The state of the sign rather than anything wrong with the request, which is
     what makes it a conflict and not a bad request. Raising an alert replaces
@@ -127,8 +142,35 @@ class AlertAlreadyActive(Exception):
     """
 
 
+class AlertQueueFull(Exception):
+    """As many alerts are waiting as ``alert_queue_limit`` allows."""
+
+
+class AlertNotWaiting(Exception):
+    """No alert with that key is waiting its turn."""
+
+
+class _SignTaken(Exception):
+    """The sign was held by the time an alert that would only wait got the locks.
+
+    Raised inside the registry's rendering, so that whatever it claimed for the
+    alert is given back on the way out, and caught by the caller, which queues
+    the alert instead or leaves the queue for the next sweep.
+    """
+
+
+IfActive = Literal["replace", "queue", "fail"]
+
+
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def _too_long(size: int) -> str:
+    return (
+        "the alert renders to %d bytes but the sign's priority file holds %d and cannot "
+        "be resized" % (size, c.PRIORITY_FILE_CAPACITY)
+    )
 
 
 class _PlainRenderer:
@@ -145,6 +187,10 @@ class _PlainRenderer:
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render against nothing, so a call to either is refused or draws nothing."""
         return render(message, strict=strict)
+
+    def check(self, message: str) -> bytes:
+        """Render strictly against nothing, which refuses a call to either."""
+        return render(message, strict=True)
 
     async def draw_icons(self) -> None:
         """Nothing was claimed, so there is nothing to draw."""
@@ -172,14 +218,19 @@ class AlertService:
         *,
         now: Callable[[], datetime] = _utcnow,
         rendering: Rendering = _without_variables,
+        queue_limit: int = 10,
     ) -> None:
         """Wire the alert service to the sign and to its restored state.
 
         ``rendering`` is where an alert is rendered, and is the registry's
         :meth:`SlotRegistry.rendering` in the service. Without one an alert
         cannot call a variable, and one that tries is refused.
+
+        ``queue_limit`` is how many alerts may wait their turn at once, which is
+        the ``alert_queue_limit`` setting in the service.
         """
         self._controller = controller
+        self._queue_limit = queue_limit
         self._store = store
         self._state = state
         self._now = now
@@ -215,6 +266,18 @@ class AlertService:
     def active(self) -> AlertState | None:
         """The alert currently holding the sign, if any."""
         return self._state.alert
+
+    @property
+    def waiting(self) -> list[QueuedAlertState]:
+        """The alerts waiting their turn, the next one first. A copy."""
+        return list(self._state.alert_queue)
+
+    def position(self, waiting: QueuedAlertState) -> int | None:
+        """Where a waiting alert stands, 1 for the next to take the sign, or None if it is not."""
+        for index, candidate in enumerate(self._state.alert_queue):
+            if candidate is waiting:
+                return index + 1
+        return None
 
     async def restore(self) -> None:
         """Re-establish or clean up an alert that was running before a restart."""
@@ -334,12 +397,15 @@ class AlertService:
                 # See restore() for how a stored alert outgrows the file. This
                 # runs on a timer and on every reconnect, so raising here would
                 # be a warning every fifteen minutes for something nobody can
-                # act on from a log line.
+                # act on from a log line. Released rather than left recorded,
+                # as restore() does, because a record nothing can put on the
+                # sign would hold every waiting alert behind it for good.
                 logger.warning(
-                    "the active alert no longer fits the sign's priority file; not "
-                    "re-asserting it. The text was: %r",
+                    "the active alert no longer fits the sign's priority file; "
+                    "releasing it. The text was: %r",
                     alert.message,
                 )
+                await self._release_locked()
                 return False
             # Forced, because what is in doubt here is precisely whether the
             # sign still holds what the controller believes it does. Left to
@@ -533,17 +599,62 @@ class AlertService:
         *,
         mode: str,
         ttl_seconds: float | None = None,
-        fail_if_active: bool = False,
-    ) -> AlertState:
-        """Take the sign over with an alert.
+        if_active: IfActive = "replace",
+        key: str | None = None,
+        max_wait_seconds: float | None = None,
+    ) -> AlertState | QueuedAlertState:
+        """Take the sign over with an alert, or queue it behind the one holding it.
 
-        ``fail_if_active`` refuses rather than replaces when the sign is
-        already held. An alert whose deadline has passed does not count as
-        holding it: the sweep that releases one runs on a timer, so an alert
-        that expired a moment ago is still recorded, and refusing for something
-        nobody wanted kept would make the answer depend on where in that second
-        the call arrived.
+        ``if_active`` says what happens when the sign is already held: replace
+        the alert holding it, wait for it to end, or be refused. With ``queue``
+        or ``fail``, an alert waiting its turn counts as holding the sign too,
+        so a call made in the moment between one alert ending and the next
+        being promoted neither jumps the queue nor slips past a refusal. With
+        ``replace`` the waiting alerts are left as they are.
+
+        An alert whose deadline has passed does not hold the sign: the sweep
+        that releases one runs on a timer, so an alert that expired a moment ago
+        is still recorded, and treating it as holding the sign would make the
+        answer depend on where in that second the call arrived.
+
+        Returns the alert holding the sign, or the waiting alert if it was
+        queued.
         """
+        while True:
+            if if_active == "queue":
+                # Checked first, against the files that already exist, so that an
+                # alert that is only going to wait claims no picture file and
+                # evicts nothing: an eviction undone is a picture redrawn, and a
+                # picture write blanks the display.
+                async with self._rendering(None) as renderer, self._lock:
+                    if self._sign_is_held():
+                        return self._enqueue(
+                            renderer,
+                            message,
+                            mode=mode,
+                            ttl_seconds=ttl_seconds,
+                            key=key,
+                            max_wait_seconds=max_wait_seconds,
+                        )
+            try:
+                return await self._show(
+                    message, mode=mode, ttl_seconds=ttl_seconds, if_active=if_active, key=key
+                )
+            except _SignTaken:
+                # Something took the sign between the check above and the locks
+                # below. Go round again, and queue it this time.
+                continue
+
+    async def _show(
+        self,
+        message: str,
+        *,
+        mode: str,
+        ttl_seconds: float | None,
+        if_active: IfActive,
+        key: str | None,
+    ) -> AlertState:
+        """Put an alert on the sign now, unless ``if_active`` says the sign being held stops it."""
         # The render, the write and recording the alert all happen inside the
         # rendering. That is what lets the registry refuse to delete a variable
         # the alert calls: it reads the recorded alert under the same lock, so
@@ -559,23 +670,28 @@ class AlertService:
         async with self._rendering(message) as render_message, self._lock:
             # First, so that a refusal renders nothing, writes nothing and takes
             # nothing from the picture pool. The rendering undoes any claim made
-            # inside it, which is what makes raising this here safe rather than
-            # merely early.
-            current = self._state.alert
-            if fail_if_active and current is not None and not self._has_expired(current):
+            # inside it, which is what makes raising either of these here safe
+            # rather than merely early.
+            if if_active != "replace" and self._sign_is_held():
+                if if_active == "queue":
+                    raise _SignTaken
+                current = self._state.alert
                 raise AlertAlreadyActive(
-                    "an alert has been holding the sign since %s and this call asked to "
-                    "be refused rather than replace one. Release that alert first, or "
-                    "send this again without fail_if_active."
-                    % current.started_at.isoformat()
+                    (
+                        "an alert has been holding the sign since %s and this call asked "
+                        "to be refused rather than replace one. "
+                        % current.started_at.isoformat()
+                        if current is not None and not self._has_expired(current)
+                        else "%d alert(s) are waiting for the sign and this call asked to "
+                        "be refused rather than wait. " % len(self._state.alert_queue)
+                    )
+                    + "Release the alert holding the sign, send this again with if_active "
+                    "replace to replace it, or with if_active queue to wait for it."
                 )
 
             body = render_message(message)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
-                raise AlertTooLong(
-                    "the alert renders to %d bytes but the sign's priority file holds %d "
-                    "and cannot be resized" % (len(body), c.PRIORITY_FILE_CAPACITY)
-                )
+                raise AlertTooLong(_too_long(len(body)))
 
             now = self._now()
             alert = AlertState(
@@ -583,75 +699,9 @@ class AlertService:
                 mode=mode,
                 started_at=now,
                 expires_at=now + timedelta(seconds=ttl_seconds) if ttl_seconds else None,
+                key=key,
             )
-
-            # Only now. Up to here nothing has been written, so the refusal
-            # above leaves the sign holding whatever it held, icons included;
-            # drawing before it would have put this alert's pictures into files
-            # the alert already showing is calling.
-            # The alert this one is replacing, when replacing it means handing
-            # the sign back first. An alert is up and this one brings a picture,
-            # which the sign will not take while a priority message is running.
-            # The release is the alert service's own to make rather than the
-            # registry's, because the registry is called from inside this lock.
-            # Gated on there being a picture at all: without one, every alert
-            # replacing an alert would hand the sign back for nothing.
-            replaced = current if render_message.draws_pictures else None
-            if render_message.draws_pictures:
-                # Gated on there being a picture and on nothing else. Whether an
-                # alert is recorded says nothing about whether the sign is
-                # holding one: an unclean stop leaves a takeover this service
-                # never wrote down, and the picture below would be lost under it
-                # exactly as it would under an alert it does know about.
-                # Unforced, so it is suppressed when the file is already free.
-                #
-                # An alert being replaced is off the sign from here until a
-                # write lands, this one's or the old one's put back, exactly as
-                # under :meth:`lifted`. Set before the release for the same
-                # reason, and cleared only by that write. Forced if it was
-                # already set, for the reason given in :meth:`lifted`.
-                force = self._sign_may_not_match
-                if replaced is not None:
-                    self._sign_may_not_match = True
-                await self._controller.clear_priority(force=force)
-
-            try:
-                await render_message.draw_icons()
-                await self._write(alert, body)
-            except BaseException:
-                if replaced is not None:
-                    # The sign was handed back for the picture and this alert
-                    # never made it onto the file, so the display is showing the
-                    # rotation with an alert still recorded as holding it. Put
-                    # the old one back. Without this the hand-back would be a
-                    # regression on its own: before it, a write that failed here
-                    # left the alert that was up still up, because nothing had
-                    # touched the priority file.
-                    #
-                    # Giving back what this alert claimed comes first, and with
-                    # a full picture pool it is what decides whether the old
-                    # alert comes back whole. Claiming this one's icon can evict
-                    # one only the alert being replaced calls, and the registry
-                    # does not undo that until this failure reaches it, so
-                    # putting the alert back before this renders it without the
-                    # icon it is still asking for.
-                    try:
-                        await render_message.revert()
-                    except Exception:
-                        # A redraw is a write, and the thing that brought us here
-                        # is usually a sign that stopped answering. The refresh
-                        # repairs the pool; what must not happen is this arriving
-                        # in place of the failure the caller asked about.
-                        logger.exception(
-                            "could not give back what the refused alert claimed"
-                        )
-
-                    # Quietly, because the failure being handled is the one the
-                    # caller asked about and this one is not.
-                    await self._put_back_quietly(replaced, render_message)
-                raise
-
-            self._state.alert = alert
+            await self._take_the_sign(render_message, alert, body)
 
         self._store.save(self._state)
 
@@ -661,13 +711,277 @@ class AlertService:
         )
         return alert
 
-    async def release(self) -> bool:
-        """Give the sign back. Returns whether an alert was actually holding it."""
+    async def _take_the_sign(self, render_message: Renderer, alert: AlertState, body: bytes) -> None:
+        """Draw an accepted alert's icons, write it and record it. Both locks are held.
+
+        Shared by an alert raised by a caller and one promoted from the queue.
+        Nothing here refuses anything; the alert has been accepted by the time
+        it gets here.
+        """
+        current = self._state.alert
+        # The alert this one is replacing, when replacing it means handing
+        # the sign back first. An alert is up and this one brings a picture,
+        # which the sign will not take while a priority message is running.
+        # The release is the alert service's own to make rather than the
+        # registry's, because the registry is called from inside this lock.
+        # Gated on there being a picture at all: without one, every alert
+        # replacing an alert would hand the sign back for nothing.
+        replaced = current if render_message.draws_pictures else None
+        if render_message.draws_pictures:
+            # Gated on there being a picture and on nothing else. Whether an
+            # alert is recorded says nothing about whether the sign is
+            # holding one: an unclean stop leaves a takeover this service
+            # never wrote down, and the picture below would be lost under it
+            # exactly as it would under an alert it does know about.
+            # Unforced, so it is suppressed when the file is already free.
+            #
+            # An alert being replaced is off the sign from here until a
+            # write lands, this one's or the old one's put back, exactly as
+            # under :meth:`lifted`. Set before the release for the same
+            # reason, and cleared only by that write. Forced if it was
+            # already set, for the reason given in :meth:`lifted`.
+            force = self._sign_may_not_match
+            if replaced is not None:
+                self._sign_may_not_match = True
+            await self._controller.clear_priority(force=force)
+
+        try:
+            await render_message.draw_icons()
+            await self._write(alert, body)
+        except BaseException:
+            if replaced is not None:
+                # The sign was handed back for the picture and this alert
+                # never made it onto the file, so the display is showing the
+                # rotation with an alert still recorded as holding it. Put
+                # the old one back. Without this the hand-back would be a
+                # regression on its own: before it, a write that failed here
+                # left the alert that was up still up, because nothing had
+                # touched the priority file.
+                #
+                # Giving back what this alert claimed comes first, and with
+                # a full picture pool it is what decides whether the old
+                # alert comes back whole. Claiming this one's icon can evict
+                # one only the alert being replaced calls, and the registry
+                # does not undo that until this failure reaches it, so
+                # putting the alert back before this renders it without the
+                # icon it is still asking for.
+                try:
+                    await render_message.revert()
+                except Exception:
+                    # A redraw is a write, and the thing that brought us here
+                    # is usually a sign that stopped answering. The refresh
+                    # repairs the pool; what must not happen is this arriving
+                    # in place of the failure the caller asked about.
+                    logger.exception("could not give back what the refused alert claimed")
+
+                # Quietly, because the failure being handled is the one the
+                # caller asked about and this one is not.
+                await self._put_back_quietly(replaced, render_message)
+            raise
+
+        self._state.alert = alert
+
+    def _sign_is_held(self) -> bool:
+        """Whether an alert holds the sign or is waiting for it. Under the lock.
+
+        A waiting alert counts, so that nothing slips in ahead of the queue in
+        the moment between one alert ending and the sweep promoting the next.
+        """
+        current = self._state.alert
+        return (current is not None and not self._has_expired(current)) or bool(
+            self._state.alert_queue
+        )
+
+    def _enqueue(
+        self,
+        renderer: Renderer,
+        message: str,
+        *,
+        mode: str,
+        ttl_seconds: float | None,
+        key: str | None,
+        max_wait_seconds: float | None,
+    ) -> QueuedAlertState:
+        """Add an alert to the queue, or update the waiting one with its key. Under both locks."""
+        body = renderer.check(message)
+        if len(body) > c.PRIORITY_FILE_CAPACITY:
+            raise AlertTooLong(_too_long(len(body)))
+
+        now = self._now()
+        waiting = QueuedAlertState(
+            message=message,
+            mode=mode,
+            queued_at=now,
+            ttl_seconds=ttl_seconds,
+            wait_until=now + timedelta(seconds=max_wait_seconds) if max_wait_seconds else None,
+            key=key,
+        )
+        queue = self._state.alert_queue
+
+        if key is not None:
+            for index, candidate in enumerate(queue):
+                if candidate.key == key:
+                    # Updated where it stands rather than sent to the back, so
+                    # that a caller sending the same alert again until it is
+                    # seen does not lose its place by doing so. Only a waiting
+                    # alert is matched: one holding the sign has been seen, and
+                    # this joins the back behind it like any other.
+                    waiting.queued_at = candidate.queued_at
+                    queue[index] = waiting
+                    self._store.save(self._state)
+                    logger.info("updated the waiting alert %r, %d in the queue", key, index + 1)
+                    return waiting
+
+        if len(queue) >= self._queue_limit:
+            raise AlertQueueFull(
+                "%d alerts are already waiting for the sign, which is as many as "
+                "alert_queue_limit allows. Send this again once one has been shown, cancel "
+                "one with DELETE /alerts/queue/{key}, or raise alert_queue_limit." % len(queue)
+            )
+
+        queue.append(waiting)
+        self._store.save(self._state)
+        logger.info(
+            "alert queued%s, %d waiting",
+            " as %r" % key if key is not None else "",
+            len(queue),
+        )
+        return waiting
+
+    async def promote(self) -> bool:
+        """Put the next waiting alert on the sign if nothing holds it. Returns whether it did.
+
+        Called from the sweep loop, which holds no lock, so that this can take
+        the registry's lock before its own as rendering always must. See the
+        module docstring for why it is not called where an alert ends.
+
+        An alert that can never be shown, because it no longer fits or calls
+        something that has gone, is dropped with a warning and the next one is
+        tried at the next sweep: there is no caller left to tell, and holding it
+        would hold every alert behind it. One that cannot be shown because the
+        sign is unreachable stays at the head, and is not tried while the link
+        is down, so a sign switched off does not log a failure every sweep.
+        """
+        self._drop_waited_too_long()
+        if self._state.alert is not None or not self._state.alert_queue:
+            return False
+        if not self._controller.is_connected:
+            return False
+
+        head = self._state.alert_queue[0]
+        try:
+            async with self._rendering(head.message) as render_message, self._lock:
+                queue = self._state.alert_queue
+                if self.active is not None or not queue or queue[0] is not head:
+                    # Something got in while the locks were being taken.
+                    raise _SignTaken
+
+                body = render_message(head.message)
+                if len(body) > c.PRIORITY_FILE_CAPACITY:
+                    raise AlertTooLong(_too_long(len(body)))
+
+                now = self._now()
+                alert = AlertState(
+                    message=head.message,
+                    mode=head.mode,
+                    started_at=now,
+                    expires_at=now + timedelta(seconds=head.ttl_seconds)
+                    if head.ttl_seconds
+                    else None,
+                    key=head.key,
+                )
+                await self._take_the_sign(render_message, alert, body)
+                queue.pop(0)
+        except _SignTaken:
+            return False
+        except (ValueError, RegistryError) as err:
+            # Everything that refuses an alert raised by a caller is one of
+            # these, and nothing about the sign or the link is.
+            async with self._lock:
+                if self._state.alert_queue and self._state.alert_queue[0] is head:
+                    self._state.alert_queue.pop(0)
+                    self._store.save(self._state)
+            logger.warning(
+                "dropped the waiting alert%s, which can no longer be shown: %s. The text was: %r",
+                " %r" % head.key if head.key is not None else "",
+                err,
+                head.message,
+            )
+            return False
+
+        self._store.save(self._state)
+        logger.info(
+            "the next waiting alert took the sign%s, %d still waiting",
+            " until %s" % alert.expires_at.isoformat() if alert.expires_at else "",
+            len(self._state.alert_queue),
+        )
+        return True
+
+    def _drop_waited_too_long(self) -> None:
+        """Drop every waiting alert whose limit on waiting has passed.
+
+        No lock: nothing here awaits, so nothing can interleave with it, and the
+        queue is only ever changed by code that does not await partway through
+        changing it either.
+        """
+        now = self._now()
+        queue = self._state.alert_queue
+        kept = [w for w in queue if w.wait_until is None or w.wait_until > now]
+        if len(kept) == len(queue):
+            return
+        for waiting in queue:
+            if not any(waiting is k for k in kept):
+                logger.info(
+                    "a waiting alert%s waited since %s without taking the sign, and was "
+                    "dropped unseen",
+                    " %r" % waiting.key if waiting.key is not None else "",
+                    waiting.queued_at.isoformat(),
+                )
+        queue[:] = kept
+        self._store.save(self._state)
+
+    async def cancel_waiting(self, key: str) -> None:
+        """Take one waiting alert out of the queue by its key."""
         async with self._lock:
+            queue = self._state.alert_queue
+            for index, waiting in enumerate(queue):
+                if waiting.key == key:
+                    del queue[index]
+                    self._store.save(self._state)
+                    logger.info("cancelled the waiting alert %r", key)
+                    return
+        raise AlertNotWaiting("no alert with the key %r is waiting for the sign" % key)
+
+    async def clear_waiting(self) -> int:
+        """Empty the queue. Returns how many alerts were waiting."""
+        async with self._lock:
+            count = len(self._state.alert_queue)
+            if count:
+                self._state.alert_queue.clear()
+                self._store.save(self._state)
+                logger.info("cancelled %d waiting alert(s)", count)
+            return count
+
+    async def release(self, *, clear_queue: bool = False) -> bool:
+        """Give the sign back. Returns whether an alert was actually holding it.
+
+        The next waiting alert takes the sign at the following sweep, unless
+        ``clear_queue`` empties the queue first, in the same step, so that the
+        rotation comes back and stays.
+        """
+        async with self._lock:
+            cleared = len(self._state.alert_queue) if clear_queue else 0
+            if cleared:
+                self._state.alert_queue.clear()
             was_active = await self._release_locked()
 
+        if cleared:
+            logger.info("cancelled %d waiting alert(s)", cleared)
         if was_active:
-            logger.info("alert released, rotation resumes")
+            logger.info(
+                "alert released, %s",
+                "the next waiting alert follows" if self._state.alert_queue else "rotation resumes",
+            )
 
         return was_active
 
@@ -691,7 +1005,13 @@ class AlertService:
         return was_active
 
     async def sweep(self) -> bool:
-        """Release the alert if its deadline has passed. Returns whether it did."""
+        """Release the alert if its deadline has passed. Returns whether it did.
+
+        Waiting alerts whose limit on waiting has passed are dropped here too,
+        so that the queue reads true while an alert holds the sign for a long
+        time, rather than only when the next one is promoted.
+        """
+        self._drop_waited_too_long()
         alert = self._state.alert
         if alert is None or not self._has_expired(alert):
             return False

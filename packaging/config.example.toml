@@ -117,6 +117,13 @@ registry_sweep_seconds = 1.0
 # everything, which restarts every message.
 check_interval_seconds = 900.0
 
+# How many alerts may wait for the one holding the sign to end, raised with
+# if_active set to queue. One more is refused with a 409, unless its key matches
+# one already waiting, which it then updates. Waiting alerts take no room on the
+# sign, so this bounds the state file and the wait at the back of the queue
+# rather than the memory configuration.
+alert_queue_limit = 10
+
 # == the sign's clock ========================================================
 
 # The service sets the sign's clock at startup, on this interval, and every time

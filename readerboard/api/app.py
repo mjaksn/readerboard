@@ -78,11 +78,12 @@ A failure is reported by the status code, with the reason in a `detail` field:
 message or value too long for its file, markup the sign cannot render, a call to
 a variable that does not exist, an icon nobody has, a colour asked for on an icon
 drawn in fixed colours, or an icon called while icons are switched off, 401 for a
-missing or wrong `X-API-Key`, 404 for a slot or variable that does not exist, 409
-when every slot, every variable or every picture file is already in use, a
-variable something still calls is deleted, an alert is raised with
-`fail_if_active` while one is already up, or a reboot finds the sign has less
-memory than the configuration needs, 503 when the sign is unreachable, stops
+missing or wrong `X-API-Key`, 404 for a slot, a variable or a waiting alert that
+does not exist, 409 when every slot, every variable or every picture file is
+already in use, a variable something still calls is deleted, an alert is raised
+with `if_active` set to `fail` while one is up or waiting, the alert queue is
+full, or a reboot finds the sign has less memory than the configuration needs,
+503 when the sign is unreachable, stops
 partway through an answer or answers with something the service cannot read, or
 no API key is configured at all, 500 for something the service has no code for,
 and 422 for a body that is not the shape the endpoint declares, which includes a
@@ -169,7 +170,12 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
 
 
 async def _sweep_loop(app: FastAPI, interval: float) -> None:
-    """Expire slots and alerts, and turn variables stale, once their deadlines pass."""
+    """Expire slots and alerts, and turn variables stale, once their deadlines pass.
+
+    And put the next waiting alert on the sign once nothing holds it, which is
+    here rather than wherever an alert ends because this loop holds no lock.
+    See ``AlertService.promote``.
+    """
     registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 
@@ -178,6 +184,7 @@ async def _sweep_loop(app: FastAPI, interval: float) -> None:
         try:
             await alerts.sweep()
             await registry.sweep()
+            await alerts.promote()
         except TransportError as err:
             logger.warning("could not apply expiries: %s", err)
         except Exception:
@@ -214,7 +221,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             settings.variable_capacity,
             settings.picture_count,
         )
-        alerts = AlertService(controller, store, state)
+        alerts = AlertService(controller, store, state, queue_limit=settings.alert_queue_limit)
         registry = SlotRegistry(controller, layout, store, state)
         # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
@@ -365,6 +372,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             pictures_total=pictures_total,
             sign_in_sync=registry.in_sync,
             alert_active=alerts.active is not None,
+            alerts_waiting=len(alerts.waiting),
             clock_last_synced_at=clock.last_sync_at,
         )
 

@@ -468,3 +468,16 @@ def test_every_path_parameter_the_service_declares_is_offered():
             if parameter.get("in") == "path"
         }
         assert {item.name for item in operation.path_inputs} == described, operation.id
+
+
+def test_every_query_parameter_the_service_declares_is_offered():
+    document = json.loads(OPENAPI.read_text(encoding="utf-8"))
+    for operation in catalogue.OPERATIONS:
+        described = {
+            parameter["name"]
+            for parameter in document["paths"][operation.path][operation.method.lower()].get(
+                "parameters", []
+            )
+            if parameter.get("in") == "query"
+        }
+        assert {item.name for item in operation.query} == described, operation.id

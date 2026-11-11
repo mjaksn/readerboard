@@ -236,3 +236,18 @@ def test_the_variable_is_the_one_the_curl_command_names():
     # of the client, or the curl command would refer to a variable that had
     # nothing to do with the box it came from.
     assert API_KEY_VARIABLE == "READERBOARD_API_KEY"
+
+
+def test_a_query_flag_goes_in_the_query_string_spelled_as_json_spells_it():
+    operation = catalogue.BY_ID["delete_alert"]
+
+    prepared = build(operation, BASE, query_values={"clear_queue": "true"})
+
+    assert prepared.url == BASE + "/alerts?clear_queue=true"
+    assert prepared.body is None
+
+
+def test_a_query_flag_nobody_chose_is_left_out():
+    operation = catalogue.BY_ID["delete_alert"]
+
+    assert build(operation, BASE, query_values={"clear_queue": ""}).url == BASE + "/alerts"

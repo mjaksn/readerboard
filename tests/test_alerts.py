@@ -1,11 +1,20 @@
 """Tests for alerts: takeover, timed release, and surviving a restart."""
 
+from datetime import timedelta
+
 import pytest
 
 from readerboard.protocol import constants as c
 from readerboard.protocol import frames
-from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertTooLong
+from readerboard.services.alerts import (
+    AlertAlreadyActive,
+    AlertNotWaiting,
+    AlertQueueFull,
+    AlertService,
+    AlertTooLong,
+)
 from readerboard.sign.controller import SignController
+from readerboard.sign.state import AlertState, QueuedAlertState
 
 
 async def raise_alert(alerts, message="<red>ALERT", **kwargs):
@@ -37,7 +46,7 @@ class TestTakeover:
 
 
 class TestRefusingToReplace:
-    """``fail_if_active``: refuse rather than take the sign off another alert."""
+    """``if_active="fail"``: refuse rather than take the sign off another alert."""
 
     async def test_an_alert_replaces_one_already_up_by_default(self, alerts):
         await raise_alert(alerts, "FIRST")
@@ -53,7 +62,7 @@ class TestRefusingToReplace:
         transport.clear()
 
         with pytest.raises(AlertAlreadyActive):
-            await raise_alert(alerts, "SECOND", fail_if_active=True)
+            await raise_alert(alerts, "SECOND", if_active="fail")
 
         assert alerts.active is not None
         assert alerts.active.message == "FIRST"
@@ -62,7 +71,7 @@ class TestRefusingToReplace:
         assert transport.packets == []
 
     async def test_it_is_raised_when_nothing_is_holding_the_sign(self, alerts):
-        alert = await raise_alert(alerts, "ONLY", fail_if_active=True)
+        alert = await raise_alert(alerts, "ONLY", if_active="fail")
         assert alert.message == "ONLY"
 
     async def test_an_alert_past_its_deadline_does_not_count_as_holding_the_sign(
@@ -74,7 +83,7 @@ class TestRefusingToReplace:
         await raise_alert(alerts, "FIRST", ttl_seconds=30)
         clock.advance(31)
 
-        await raise_alert(alerts, "SECOND", fail_if_active=True)
+        await raise_alert(alerts, "SECOND", if_active="fail")
 
         assert alerts.active is not None
         assert alerts.active.message == "SECOND"
@@ -83,8 +92,8 @@ class TestRefusingToReplace:
         await raise_alert(alerts, "FIRST", ttl_seconds=30)
         clock.advance(29)
 
-        with pytest.raises(AlertAlreadyActive, match="fail_if_active"):
-            await raise_alert(alerts, "SECOND", fail_if_active=True)
+        with pytest.raises(AlertAlreadyActive, match="if_active"):
+            await raise_alert(alerts, "SECOND", if_active="fail")
 
 
 class TestRelease:
@@ -226,6 +235,9 @@ class TestRestart:
             assert await restored.reassert() is False
 
         assert "no longer fits" in caplog.text
+        # Released rather than left recorded, or every alert waiting behind it
+        # would wait for good.
+        assert restored.active is None
 
     async def test_starting_with_no_alert_still_releases_the_priority_file(
         self, transport, store, clock
@@ -281,3 +293,246 @@ class TestReassert:
 
         assert await alerts.reassert() is False
         assert transport.packets == []
+
+
+async def queue_alert(alerts, message, **kwargs):
+    return await alerts.raise_alert(message, mode="HOLD", if_active="queue", **kwargs)
+
+
+def priority_packet(text: bytes) -> bytes:
+    return frames.packet(frames.write_text_file(c.FILE_PRIORITY, text))
+
+
+class TestQueue:
+    """``if_active="queue"``: wait for the alert holding the sign to end."""
+
+    async def test_with_nothing_holding_the_sign_it_shows_at_once(self, alerts):
+        alert = await queue_alert(alerts, "ONLY")
+
+        assert isinstance(alert, AlertState)
+        assert alerts.active is alert
+        assert alerts.waiting == []
+
+    async def test_behind_an_alert_it_waits_and_sends_nothing(self, alerts, transport):
+        await raise_alert(alerts, "FIRST")
+        transport.clear()
+
+        waiting = await queue_alert(alerts, "SECOND")
+
+        assert isinstance(waiting, QueuedAlertState)
+        assert alerts.active.message == "FIRST"
+        assert alerts.waiting == [waiting]
+        assert alerts.position(waiting) == 1
+        assert transport.packets == []
+
+    async def test_releasing_lets_the_next_one_take_the_sign_at_the_sweep(
+        self, alerts, transport
+    ):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await alerts.release()
+        transport.clear()
+
+        assert await alerts.promote() is True
+
+        assert alerts.active.message == "SECOND"
+        assert alerts.waiting == []
+        assert transport.last_packet == priority_packet(b"SECOND")
+
+    async def test_an_expiry_lets_the_next_one_take_the_sign(self, alerts, clock):
+        await raise_alert(alerts, "FIRST", ttl_seconds=30)
+        await queue_alert(alerts, "SECOND")
+        clock.advance(31)
+
+        await alerts.sweep()
+        assert await alerts.promote() is True
+
+        assert alerts.active.message == "SECOND"
+
+    async def test_its_ttl_counts_from_when_it_takes_the_sign(self, alerts, clock):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND", ttl_seconds=60)
+        clock.advance(600)
+        await alerts.release()
+
+        await alerts.promote()
+
+        assert alerts.active.started_at == clock.now
+        assert alerts.active.expires_at == clock.now + timedelta(seconds=60)
+
+    async def test_nothing_is_promoted_while_an_alert_holds_the_sign(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        assert await alerts.promote() is False
+        assert alerts.active.message == "FIRST"
+
+    async def test_they_take_the_sign_first_in_first_out(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        for message in ("SECOND", "THIRD", "FOURTH"):
+            await queue_alert(alerts, message)
+
+        shown = []
+        for _ in range(3):
+            await alerts.release()
+            await alerts.promote()
+            shown.append(alerts.active.message)
+
+        assert shown == ["SECOND", "THIRD", "FOURTH"]
+
+    async def test_in_the_gap_before_a_promotion_a_queued_alert_joins_the_back(self, alerts):
+        # Released and not yet swept: nothing shows, but one is waiting, and a
+        # newcomer must not take the sign ahead of it.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await alerts.release()
+
+        late = await queue_alert(alerts, "THIRD")
+
+        assert isinstance(late, QueuedAlertState)
+        assert [w.message for w in alerts.waiting] == ["SECOND", "THIRD"]
+
+    async def test_in_the_gap_before_a_promotion_fail_is_refused(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await alerts.release()
+
+        with pytest.raises(AlertAlreadyActive, match="waiting"):
+            await raise_alert(alerts, "THIRD", if_active="fail")
+
+    async def test_fail_is_refused_while_one_is_waiting(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        with pytest.raises(AlertAlreadyActive):
+            await raise_alert(alerts, "THIRD", if_active="fail")
+
+    async def test_replace_leaves_the_waiting_alerts_alone(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        await raise_alert(alerts, "URGENT")
+
+        assert alerts.active.message == "URGENT"
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_a_key_already_waiting_updates_it_where_it_stands(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        first = await queue_alert(alerts, "DOOR OPEN", key="door")
+        await queue_alert(alerts, "POST", key="post")
+
+        updated = await queue_alert(alerts, "DOOR STILL OPEN", key="door")
+
+        assert [w.message for w in alerts.waiting] == ["DOOR STILL OPEN", "POST"]
+        assert alerts.position(updated) == 1
+        assert updated.queued_at == first.queued_at
+
+    async def test_a_key_matching_the_alert_showing_joins_the_back(self, alerts):
+        await raise_alert(alerts, "DOOR OPEN", key="door")
+
+        waiting = await queue_alert(alerts, "DOOR STILL OPEN", key="door")
+
+        assert alerts.active.message == "DOOR OPEN"
+        assert alerts.waiting == [waiting]
+
+    async def test_a_full_queue_refuses_a_new_alert(self, controller, store, state, clock):
+        alerts = AlertService(controller, store, state, now=clock, queue_limit=2)
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await queue_alert(alerts, "THIRD", key="third")
+
+        with pytest.raises(AlertQueueFull, match="alert_queue_limit"):
+            await queue_alert(alerts, "FOURTH")
+        # A key already waiting is an update, not a newcomer.
+        await queue_alert(alerts, "THIRD AGAIN", key="third")
+
+        assert [w.message for w in alerts.waiting] == ["SECOND", "THIRD AGAIN"]
+
+    async def test_one_waiting_past_its_limit_is_dropped_unseen(self, alerts, clock, transport):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "STALE", max_wait_seconds=60)
+        await queue_alert(alerts, "PATIENT")
+        clock.advance(61)
+
+        await alerts.sweep()
+
+        assert [w.message for w in alerts.waiting] == ["PATIENT"]
+        await alerts.release()
+        await alerts.promote()
+        assert alerts.active.message == "PATIENT"
+        assert priority_packet(b"STALE") not in transport.packets
+
+    async def test_a_queued_alert_too_long_is_refused_when_it_is_sent(self, alerts):
+        await raise_alert(alerts, "FIRST")
+
+        with pytest.raises(AlertTooLong):
+            await queue_alert(alerts, "X" * 126)
+
+        assert alerts.waiting == []
+
+    async def test_one_that_can_no_longer_be_shown_is_dropped_and_the_next_follows(
+        self, alerts, state, caplog
+    ):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "BROKEN")
+        await queue_alert(alerts, "FINE")
+        # Something that fitted when it was queued and does not now, as a
+        # markup token a later version removed would leave it.
+        state.alert_queue[0].message = "X" * 126
+        await alerts.release()
+
+        with caplog.at_level("WARNING"):
+            assert await alerts.promote() is False
+        assert "dropped the waiting alert" in caplog.text
+        assert await alerts.promote() is True
+        assert alerts.active.message == "FINE"
+
+    async def test_nothing_is_tried_while_the_link_is_down(self, alerts, transport):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await alerts.release()
+        transport._is_open = False
+
+        assert await alerts.promote() is False
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_releasing_with_clear_queue_brings_the_rotation_back(self, alerts, transport):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        await alerts.release(clear_queue=True)
+
+        assert alerts.waiting == []
+        assert await alerts.promote() is False
+        assert transport.last_packet == frames.packet(frames.clear_priority_file())
+
+    async def test_a_waiting_alert_can_be_cancelled_by_its_key(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "DOOR OPEN", key="door")
+        await queue_alert(alerts, "POST", key="post")
+
+        await alerts.cancel_waiting("door")
+
+        assert [w.key for w in alerts.waiting] == ["post"]
+        with pytest.raises(AlertNotWaiting):
+            await alerts.cancel_waiting("door")
+
+    async def test_clearing_the_queue_leaves_the_alert_showing(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        assert await alerts.clear_waiting() == 1
+
+        assert alerts.active.message == "FIRST"
+        assert alerts.waiting == []
+
+    async def test_the_queue_survives_a_restart(self, alerts, transport, store, clock):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND", key="second", ttl_seconds=30, max_wait_seconds=600)
+
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        restored = AlertService(controller, store, store.load(), now=clock)
+
+        [waiting] = restored.waiting
+        assert (waiting.message, waiting.key, waiting.ttl_seconds) == ("SECOND", "second", 30)
+        assert waiting.wait_until == clock.now + timedelta(seconds=600)

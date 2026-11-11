@@ -13,11 +13,13 @@ library, and the names inside it may move without that being a breaking change.
 
 ## [Unreleased]
 
-**The last breaking release before 1.0, and one setting is renamed.** A config
-file or environment still naming `refresh_interval_seconds` stops the service
-starting until it is renamed. **Read the Changed section below before upgrading
-a machine that is running.** No byte this service sends to a sign changes, and
-nothing about the memory configuration does, so upgrading erases nothing.
+**An alert can wait its turn, and this is the last breaking release before
+1.0.** One setting is renamed, so a config file or environment still naming
+`refresh_interval_seconds` stops the service starting until it is renamed, and a
+caller still sending `fail_if_active` to `POST /alerts` is answered 422.
+**Read the Changed section below before upgrading a machine that is running.**
+Nothing about the memory configuration changes, so upgrading erases nothing, and
+a state file from 0.8.3 reads as one with no alerts waiting.
 
 ### Changed
 
@@ -42,6 +44,48 @@ nothing about the memory configuration does, so upgrading erases nothing.
   between a reconnect and the push that follows it. A sign power cycled behind a
   connected adapter is still not reported here: the next check finds it and
   repairs it.
+- **`fail_if_active` on `POST /alerts` is replaced by `if_active`**, which takes
+  `replace`, `queue` or `fail`. `replace` is the default and is what leaving
+  `fail_if_active` out did; `fail` is what sending it true did. A caller still
+  sending `fail_if_active` gets a 422 rather than having it ignored, because an
+  ignored refusal would have quietly become a replace. `fail` now also refuses
+  while an alert is waiting its turn, as well as while one is showing.
+- **An alert in the answer to `POST /alerts` and `GET /alerts` carries more
+  fields:** `key`, and `state`, which is `showing` or `waiting`, with
+  `started_at` null for one that is waiting. The fields a caller read before are
+  all still there and mean what they did.
+- **A stored alert that has outgrown the priority file is released when it is
+  re-asserted**, as it already was at startup, rather than left recorded and
+  not shown. Kept, it would have held every alert waiting behind it for good.
+
+### Added
+
+- **An alert can queue behind the one holding the sign.** Raised with
+  `if_active` `queue`, it waits for that alert to end, by its ttl or by being
+  released, and then takes the sign, after any alert queued ahead of it. The
+  service does the waiting, so a caller that used to poll `GET /alerts` or
+  resend with `fail_if_active` until it got through can send once and forget
+  it. Its `ttl_seconds` counts from when it takes the sign. It is checked when it
+  is sent, for everything that would refuse it when its turn came, so a caller
+  still hears about an unknown icon or a message too long; a variable it calls
+  cannot be deleted while it waits. The queue survives a restart.
+- **A queued alert can carry a `key` and a `max_wait_seconds`.** Sent again with
+  the key of one still waiting, it updates that one where it stands rather than
+  queueing a second copy, which is what makes resending harmless. A key matching
+  the alert already showing does not touch it; the new one joins the back. With
+  `max_wait_seconds` an alert that has not taken the sign by then is dropped
+  unseen, for news that stops being true.
+- **`GET /alerts/queue`, `DELETE /alerts/queue` and `DELETE /alerts/queue/{key}`**
+  read the waiting alerts in order, cancel them all, or cancel one. `DELETE
+  /alerts` releases the alert showing and lets the next one through, and with
+  `?clear_queue=true` cancels the waiting ones in the same step, so the rotation
+  comes back and stays.
+- **`alert_queue_limit`, default 10**, is how many alerts may wait. One more is
+  a 409, unless its key matches one already waiting. `GET /health` reports
+  `alerts_waiting`.
+- **The client calls all three new endpoints**, sends `if_active`, `key` and
+  `max_wait_seconds`, and shows a waiting alert and the queue as text. It can
+  now send a query parameter, which `clear_queue` is the first of.
 
 ## [0.8.3] - 2026-11-06
 

@@ -320,6 +320,7 @@ def _health(payload: object) -> list[Block]:
                 Row("status", str(payload.get("status", ""))),
                 Row("version", str(payload.get("version", ""))),
                 Row("alert active", yes_no(payload.get("alert_active"))),
+                Row("alerts waiting", str(payload.get("alerts_waiting", 0))),
                 Row("clock last synced", when(payload.get("clock_last_synced_at"))),
             ),
         ),
@@ -516,17 +517,52 @@ def _variable(payload: object) -> list[Block]:
 
 
 def _alert(payload: object) -> list[Block]:
-    """Render the alert, which is null when the sign is rotating normally."""
+    """Render an alert, which is null when the sign is rotating normally.
+
+    The same shape answers for an alert holding the sign and one waiting its
+    turn, and ``state`` says which. A response from a service older than the
+    queue has no ``state`` at all, and every alert it describes is showing.
+    """
     if payload is None:
         return [Note("No alert is holding the sign. It is rotating normally.")]
     if not isinstance(payload, dict):
         return _generic(payload)
+    key = payload.get("key")
+    if payload.get("state") == "waiting":
+        ttl = payload.get("ttl_seconds")
+        return [
+            Section(
+                title="",
+                rows=(
+                    Row("message", str(payload.get("message", ""))),
+                    Row("display mode", str(payload.get("display_mode", ""))),
+                    Row("key", str(key) if key else "none"),
+                    Row("position", str(payload.get("position", "")), "1 is the next to show"),
+                    Row("queued", when(payload.get("queued_at"))),
+                    Row(
+                        "waits until",
+                        when(payload["wait_until"])
+                        if payload.get("wait_until")
+                        else "however long it takes",
+                    ),
+                    Row(
+                        "holds the sign for",
+                        "%s seconds" % ttl if ttl else "until released",
+                    ),
+                ),
+            ),
+            Note(
+                "Waiting. It takes the sign when the alert holding it ends, by its ttl "
+                "or by being released, after any alert queued ahead of it."
+            ),
+        ]
     return [
         Section(
             title="",
             rows=(
                 Row("message", str(payload.get("message", ""))),
                 Row("display mode", str(payload.get("display_mode", ""))),
+                Row("key", str(key) if key else "none"),
                 Row("started", when(payload.get("started_at"))),
                 Row(
                     "expires",
@@ -537,6 +573,40 @@ def _alert(payload: object) -> list[Block]:
             ),
         ),
         Note("While this is up, every other message on the sign is suppressed."),
+    ]
+
+
+_QUEUE_COLUMNS = ("position", "key", "message", "mode", "holds for", "queued", "waits until")
+
+
+def _waiting_row(alert: dict[str, object]) -> tuple[str, ...]:
+    """Render one waiting alert as a table row."""
+    ttl = alert.get("ttl_seconds")
+    wait_until = alert.get("wait_until")
+    return (
+        str(alert.get("position", "")),
+        str(alert.get("key") or ""),
+        str(alert.get("message", "")),
+        str(alert.get("display_mode", "")),
+        "%s s" % ttl if ttl else "until released",
+        when(alert.get("queued_at")),
+        when(wait_until) if wait_until else "no limit",
+    )
+
+
+def _alert_queue(payload: object) -> list[Block]:
+    """Render the alerts waiting their turn."""
+    if not isinstance(payload, list):
+        return _generic(payload)
+    if not payload:
+        return [Note("No alerts are waiting.")]
+    rows = tuple(_waiting_row(item) for item in payload if isinstance(item, dict))
+    return [
+        Note(
+            "%d alert%s waiting, the next to show first."
+            % (len(rows), "" if len(rows) == 1 else "s")
+        ),
+        Table(title="", columns=_QUEUE_COLUMNS, rows=rows),
     ]
 
 
@@ -714,6 +784,7 @@ _FORMATTERS = {
     "variables": _variables,
     "variable": _variable,
     "alert": _alert,
+    "alert_queue": _alert_queue,
     "clock": _clock,
     "sign_information": _sign_information,
     "tokens": _tokens,

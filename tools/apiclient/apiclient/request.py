@@ -18,7 +18,7 @@ import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 from apiclient.catalogue import Operation
 
@@ -184,17 +184,36 @@ def build_body(operation: Operation, values: dict[str, str]) -> dict[str, object
     return body
 
 
+def build_query(operation: Operation, values: dict[str, str]) -> str:
+    """Assemble the query string, leaving out the parameters nobody filled in.
+
+    Empty means left alone, as it does for an optional body field, so a flag
+    nobody chose is the service's default rather than a value sent for it. A
+    boolean goes out spelled the way JSON spells it, which FastAPI reads.
+    """
+    pairs = []
+    for item in operation.query:
+        text = values.get(item.name) or ""
+        if text:
+            pairs.append((item.name, as_text(coerce(item.kind, text))))
+    return urlencode(pairs)
+
+
 def build(
     operation: Operation,
     base_url: str,
     *,
     path_values: dict[str, str] | None = None,
+    query_values: dict[str, str] | None = None,
     body_values: dict[str, str] | None = None,
     api_key: str = "",
 ) -> Prepared:
     """Turn an operation and the values on screen into a request ready to send."""
     root = normalise_base_url(base_url)
     path = fill_path(operation, path_values or {})
+    query = build_query(operation, query_values or {})
+    if query:
+        path = "%s?%s" % (path, query)
     body = build_body(operation, body_values or {})
 
     headers: dict[str, str] = {"Accept": "application/json"}

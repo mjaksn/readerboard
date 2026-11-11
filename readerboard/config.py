@@ -157,6 +157,18 @@ class Settings(BaseSettings):
             "refresh_interval_seconds before 0.9.0"
         ),
     )
+    alert_queue_limit: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description=(
+            "how many alerts may wait for the one holding the sign to end. An alert "
+            "sent with if_active queue while this many are waiting is refused with a "
+            "409, unless its key matches one already waiting, which it then updates. "
+            "Waiting alerts take no sign memory, so this bounds the state file and "
+            "how long the last of them waits, not the memory configuration"
+        ),
+    )
     clock_sync_enabled: bool = True
     clock_sync_interval_seconds: float = Field(default=3600.0, gt=0)
     timezone: str | None = Field(

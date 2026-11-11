@@ -17,11 +17,14 @@ reader learns anything from.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Response, status
+from typing import Annotated
+
+from fastapi import APIRouter, Query, Response, status
 
 from readerboard import icons
 from readerboard.api.deps import AlertsDep, ClockDep, ControllerDep, RegistryDep, RequireApiKey
 from readerboard.api.models import (
+    AlertKey,
     AlertRequest,
     AlertResponse,
     ClockResponse,
@@ -49,7 +52,7 @@ from readerboard.protocol.tokens import (
 )
 from readerboard.services import commands
 from readerboard.services.registry import SlotRegistry
-from readerboard.sign.state import VariableState
+from readerboard.sign.state import QueuedAlertState, VariableState
 
 router = APIRouter()
 
@@ -252,9 +255,9 @@ async def get_alert(alerts: AlertsDep) -> AlertResponse | None:
     return AlertResponse.of(alert) if alert else None
 
 
-@alerts_routes.post("", summary="Take the sign over with an alert", dependencies=[RequireApiKey])
+@alerts_routes.post("", summary="Raise an alert, or queue one", dependencies=[RequireApiKey])
 async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
-    """Take the whole sign over until the alert is released.
+    """Take the whole sign over until the alert is released, or wait to.
 
     This uses the sign's priority file, which suppresses every other message. If
     a ttl is given, the sign is released automatically and the rotation resumes
@@ -265,18 +268,29 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     alert calls cannot be deleted until the alert is released or replaced, and a
     call to a variable that does not exist is a 400.
 
-    This replaces whatever alert is already up, which is what a caller wants
-    when its alert is the more important one. Send `fail_if_active` and it is a
-    409 instead, for a caller that is one of several and has no business
-    overwriting somebody else's alert. An alert past its deadline does not count
-    as holding the sign.
+    `if_active` says what happens when an alert is already up. `replace`, the
+    default, takes the sign from it, which is what a caller wants when its alert
+    is the more important one. `queue` waits for it to end and then takes the
+    sign, after any alerts already waiting, and the service does the waiting, so
+    the caller can send it and forget it. `fail` is a 409, for a caller that is
+    one of several and has no business overwriting somebody else's alert. An
+    alert past its deadline does not count as holding the sign.
+
+    The answer is the alert either way, and `state` says whether it is showing
+    or waiting. A queued alert is checked when it is sent, for everything that
+    would refuse it when its turn came, so a caller hears about a bad one while
+    it is still there to hear it.
     """
     alert = await alerts.raise_alert(
         body.message,
         mode=body.display_mode,
         ttl_seconds=body.ttl_seconds,
-        fail_if_active=body.fail_if_active,
+        if_active=body.if_active,
+        key=body.key,
+        max_wait_seconds=body.max_wait_seconds,
     )
+    if isinstance(alert, QueuedAlertState):
+        return AlertResponse.waiting(alert, alerts.position(alert))
     return AlertResponse.of(alert)
 
 
@@ -286,9 +300,63 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[RequireApiKey],
 )
-async def delete_alert(alerts: AlertsDep) -> Response:
-    """Release an alert so the rotation resumes."""
-    await alerts.release()
+async def delete_alert(
+    alerts: AlertsDep,
+    clear_queue: Annotated[
+        bool,
+        Query(
+            description=(
+                "empty the queue in the same step, so that the rotation comes back and "
+                "stays. Without it the next waiting alert takes the sign straight after"
+            )
+        ),
+    ] = False,
+) -> Response:
+    """Release the alert holding the sign.
+
+    The next alert waiting its turn then takes the sign, within a second. Send
+    `clear_queue` to cancel the waiting ones as well and have the rotation back.
+    Two calls, emptying the queue and then releasing, would have to be made in
+    that order, or the next alert would be promoted between them.
+    """
+    await alerts.release(clear_queue=clear_queue)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@alerts_routes.get("/queue", summary="Read the alerts waiting their turn")
+async def get_alert_queue(alerts: AlertsDep) -> list[AlertResponse]:
+    """Return the alerts queued behind the one holding the sign, the next one first."""
+    return [
+        AlertResponse.waiting(waiting, position)
+        for position, waiting in enumerate(alerts.waiting, start=1)
+    ]
+
+
+@alerts_routes.delete(
+    "/queue",
+    summary="Cancel every waiting alert",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[RequireApiKey],
+)
+async def delete_alert_queue(alerts: AlertsDep) -> Response:
+    """Empty the queue. The alert holding the sign, if any, stays up."""
+    await alerts.clear_waiting()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@alerts_routes.delete(
+    "/queue/{key}",
+    summary="Cancel one waiting alert",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[RequireApiKey],
+)
+async def delete_waiting_alert(key: AlertKey, alerts: AlertsDep) -> Response:
+    """Take the waiting alert with this key out of the queue.
+
+    404 if none is waiting under that key, which includes one that has already
+    taken the sign: that one is released with `DELETE /alerts`.
+    """
+    await alerts.cancel_waiting(key)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

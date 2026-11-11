@@ -16,7 +16,8 @@ given up, so a message can be taken off the display and put back without being s
 unless it was the last one showing. A **variable** is a value that messages call by name,
 such as a temperature, and changing it does not blank the sign or restart the message
 showing it. An **alert** takes the whole display over until it is released, after which
-the rotation resumes.
+the rotation resumes, and one that is not urgent can wait for the alert already up to
+end rather than replace it.
 
 ## What it does
 
@@ -29,8 +30,9 @@ the rotation resumes.
   time it draws the message, with no blank and no restart. One variable can appear in
   any number of messages, and a value that stops arriving can be made to go stale.
 - **Alerts.** Take the display over, optionally with a deadline, then hand it back.
-  A caller that must not overwrite somebody else's alert can ask to be refused
-  instead.
+  When one is already up, a new alert can replace it, be refused, or queue behind it,
+  and a queued alert is the service's to show when its turn comes, so the caller can
+  send it and forget it.
 - **It keeps the sign's clock right**, at startup, hourly, and whenever the link comes
   back. That last trigger is the one that matters: a sign returning from a power cut
   does so at no particular minute. The sign is set one minute fast on purpose: the
@@ -342,6 +344,22 @@ curl -X POST http://localhost:5001/alerts \
      -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
      -d '{"message": "<red><flash_on>SMOKE ALARM", "ttl_seconds": 30}'
 ```
+
+Or show something for a minute once whatever alert is up has finished, and drop it if
+that has not happened within the hour:
+
+```
+curl -X POST http://localhost:5001/alerts \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"message": "PARCEL AT THE DOOR", "ttl_seconds": 60,
+          "if_active": "queue", "key": "parcel", "max_wait_seconds": 3600}'
+```
+
+The answer says whether it is `showing` or `waiting`. Sending it again with the same
+`key` while it waits updates it where it stands rather than queueing a second copy, and
+`DELETE /alerts/queue/parcel` cancels it. `DELETE /alerts` releases the alert that is up
+and lets the next one through; add `?clear_queue=true` to cancel the waiting ones too
+and have the rotation back.
 
 Make a noise, which is worth pairing with an alert if the sign is somewhere nobody
 is watching it:

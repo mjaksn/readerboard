@@ -1,6 +1,6 @@
 """Every operation the service offers, written down as data.
 
-The window builds its forms from this table rather than from twenty-five hand-written
+The window builds its forms from this table rather than from twenty-eight hand-written
 panels, which is what makes "the client can call any endpoint" true by
 construction. Adding a route to the service is then a row here rather than a new
 screen.
@@ -115,6 +115,10 @@ class Operation:
     operation that is not about losing data but is disruptive to run, such as
     rebooting the sign. An operation sets one or the other, not both.
 
+    ``query`` holds the parameters that go in the query string rather than the
+    path or the body. Only flags so far, and an empty one is left out exactly as
+    an empty optional body field is.
+
     ``loads`` names the set an operation fills, and ``draws`` names the set
     whose entries it supplies pictures for. They are kept apart because a
     picture is not an entry: the icons are listed by one endpoint and drawn by
@@ -128,6 +132,7 @@ class Operation:
     summary: str
     needs_key: bool = False
     path_inputs: tuple[Input, ...] = ()
+    query: tuple[Input, ...] = ()
     body: tuple[Input, ...] = ()
     formatter: str = "generic"
     loads: str | None = None
@@ -362,7 +367,7 @@ OPERATIONS: tuple[Operation, ...] = (
         group="Alerts",
         method="POST",
         path="/alerts",
-        summary="Take the sign over with an alert",
+        summary="Raise an alert, or queue one",
         needs_key=True,
         body=(
             Input(
@@ -380,14 +385,28 @@ OPERATIONS: tuple[Operation, ...] = (
                 description="release the sign this many seconds from now; empty means hold it",
             ),
             Input(
-                name="fail_if_active",
-                kind="bool",
-                prefill=False,
-                description="true refuses with a 409 when an alert is already up",
+                name="if_active",
+                prefill="replace",
+                description=(
+                    "when an alert is already up: replace it, queue behind it, or fail with "
+                    "a 409"
+                ),
+            ),
+            Input(
+                name="key",
+                description="names it, so a waiting one can be updated or cancelled",
+            ),
+            Input(
+                name="max_wait_seconds",
+                kind="float",
+                description="with queue, drop it unseen if it has not shown by then",
             ),
         ),
         formatter="alert",
-        note="An alert suppresses every other message until it is released.",
+        note=(
+            "An alert suppresses every other message until it is released. Queued, it "
+            "waits for the one holding the sign to end and the service shows it then."
+        ),
     ),
     Operation(
         id="delete_alert",
@@ -396,6 +415,47 @@ OPERATIONS: tuple[Operation, ...] = (
         path="/alerts",
         summary="Give the sign back",
         needs_key=True,
+        query=(
+            Input(
+                name="clear_queue",
+                kind="bool",
+                description="true cancels the waiting alerts too; otherwise the next one shows",
+            ),
+        ),
+        formatter="empty",
+    ),
+    Operation(
+        id="list_alert_queue",
+        group="Alerts",
+        method="GET",
+        path="/alerts/queue",
+        summary="Read the alerts waiting their turn",
+        formatter="alert_queue",
+    ),
+    Operation(
+        id="delete_alert_queue",
+        group="Alerts",
+        method="DELETE",
+        path="/alerts/queue",
+        summary="Cancel every waiting alert",
+        needs_key=True,
+        formatter="empty",
+        note="The alert holding the sign, if any, stays up.",
+    ),
+    Operation(
+        id="delete_waiting_alert",
+        group="Alerts",
+        method="DELETE",
+        path="/alerts/queue/{key}",
+        summary="Cancel one waiting alert",
+        needs_key=True,
+        path_inputs=(
+            Input(
+                name="key",
+                required=True,
+                description="the key the alert was queued with",
+            ),
+        ),
         formatter="empty",
     ),
     # == The sign itself ==================================================
