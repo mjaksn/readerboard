@@ -118,6 +118,17 @@ class TestHealth:
         assert body["sign_in_sync"] is True
         assert body["alert_active"] is False
 
+    def test_it_is_degraded_while_the_sign_is_out_of_step(self, client):
+        # The link is open, so before 0.9.0 this said ok. A monitor reading
+        # status alone would miss a sign the service knows is stale.
+        client.app.state.registry._dirty = True
+
+        body = client.get("/health").json()
+
+        assert body["link"]["connected"] is True
+        assert body["sign_in_sync"] is False
+        assert body["status"] == "degraded"
+
     def test_it_reports_the_picture_pool_when_there_is_one(self, drawing_client):
         assert drawing_client.get("/health").json()["pictures_total"] == 4
 

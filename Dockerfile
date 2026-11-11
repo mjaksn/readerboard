@@ -121,9 +121,10 @@ EXPOSE 5001
 # because the interpreter is already here and curl is not.
 #
 # Note what this does and does not prove. It says the service is up and
-# answering. It does not say the sign is reachable either: `status` reports
-# whether the link is open, and against loop:// or a live adapter alike the link
-# reads as open.
+# answering. It does not say the sign is reachable either: the endpoint answers
+# 200 whatever its `status` field says, and that field reports whether the link
+# is open and whether the sign holds what the service wrote. Against loop:// or
+# a live adapter alike the link reads as open.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/health', timeout=4)"]
 

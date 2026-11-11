@@ -384,9 +384,11 @@ class HealthResponse(BaseModel):
 
     status: str = Field(
         description=(
-            "'ok' when the link to the sign is open, otherwise 'degraded'. Through an "
-            "Ethernet adapter that is the adapter's connection, which stays open with "
-            "the sign switched off behind it"
+            "'ok' when the link to the sign is open and sign_in_sync is true, "
+            "otherwise 'degraded'; link.connected and sign_in_sync say which. Through "
+            "an Ethernet adapter the link is the adapter's connection, which stays open "
+            "with the sign switched off behind it, and a sign power cycled there is "
+            "found and repaired by the next check rather than reported here"
         )
     )
     version: str

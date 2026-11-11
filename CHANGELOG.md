@@ -31,6 +31,17 @@ nothing about the memory configuration does, so upgrading erases nothing.
   a message naming the new one. That includes the environment variable, which
   would otherwise have been ignored without a word and the interval quietly
   gone back to fifteen minutes.
+- **`GET /health` says `degraded` while the sign is out of step, not only while
+  the link is down.** It said `ok` whenever the link was open, even with
+  `sign_in_sync` false, so a monitor reading `status` alone missed a sign the
+  service knew was stale: a removal, hide or expiry that could not reach it, or
+  a write refused partway with the link still up. `link.connected` and
+  `sign_in_sync` still say which of the two it is, and the endpoint still
+  answers 200 either way, so the container health check is unaffected. A
+  monitor that alerts on `degraded` will now also fire for the few seconds
+  between a reconnect and the push that follows it. A sign power cycled behind a
+  connected adapter is still not reported here: the next check finds it and
+  repairs it.
 
 ## [0.8.3] - 2026-11-06
 

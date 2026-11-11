@@ -342,8 +342,12 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         used, total = registry.occupancy
         variables_used, variables_total = registry.variable_occupancy
         pictures_used, pictures_total = registry.picture_occupancy
+        # Both, so that a monitor reading this one field hears about a sign the
+        # service knows is stale, not only about a link that is down. A write
+        # that failed with the link still open is what leaves the two apart.
+        healthy = controller.is_connected and registry.in_sync
         return HealthResponse(
-            status="ok" if controller.is_connected else "degraded",
+            status="ok" if healthy else "degraded",
             version=__version__,
             link=LinkHealth(
                 url=controller.link_description,
