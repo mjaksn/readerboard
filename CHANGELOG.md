@@ -11,6 +11,27 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+**The last breaking release before 1.0, and one setting is renamed.** A config
+file or environment still naming `refresh_interval_seconds` stops the service
+starting until it is renamed. **Read the Changed section below before upgrading
+a machine that is running.** No byte this service sends to a sign changes, and
+nothing about the memory configuration does, so upgrading erases nothing.
+
+### Changed
+
+- **`refresh_interval_seconds` is now `check_interval_seconds`.** What it sets
+  has not changed: how often the service checks that the sign still holds what
+  it was given, pushing everything again only when it does not. Since 0.7.0
+  that check asks the sign first whenever an icon is in use, and the old name
+  described only the push. Rename the key in the config file, or the
+  `READERBOARD_REFRESH_INTERVAL_SECONDS` variable to
+  `READERBOARD_CHECK_INTERVAL_SECONDS`. Either old name stops the service with
+  a message naming the new one. That includes the environment variable, which
+  would otherwise have been ignored without a word and the interval quietly
+  gone back to fifteen minutes.
+
 ## [0.8.3] - 2026-11-06
 
 **A fix for signs reached through an Ethernet adapter.** Since 0.7.1 the

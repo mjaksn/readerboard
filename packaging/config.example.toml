@@ -113,9 +113,9 @@ registry_sweep_seconds = 1.0
 # cycled while the Ethernet adapter stayed connected, which nothing else can
 # detect. With an icon in use, the check is one read of a picture file, and only
 # a sign that has lost it, or does not answer, gets everything again. With none,
-# or for fifteen minutes after a read goes unanswered, every refresh pushes
+# or for fifteen minutes after a read goes unanswered, every check pushes
 # everything, which restarts every message.
-refresh_interval_seconds = 900.0
+check_interval_seconds = 900.0
 
 # == the sign's clock ========================================================
 

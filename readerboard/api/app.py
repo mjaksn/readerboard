@@ -297,7 +297,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             await clock.start()
         sweeper = asyncio.create_task(_sweep_loop(app, settings.registry_sweep_seconds))
         refresher = asyncio.create_task(
-            _refresh_loop(app, settings.refresh_interval_seconds)
+            _refresh_loop(app, settings.check_interval_seconds)
         )
 
         try:

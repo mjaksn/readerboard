@@ -30,6 +30,10 @@ from readerboard.protocol.constants import PICTURE_FILE_LABELS
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
+# Settings renamed rather than removed, old name to new. Kept so that a config
+# still naming the old one is told what to call it instead.
+_RENAMED_SETTINGS = {"refresh_interval_seconds": "check_interval_seconds"}
+
 def _config_file() -> Path:
     override = os.environ.get("READERBOARD_CONFIG_FILE")
     return Path(override) if override else DEFAULT_CONFIG_FILE
@@ -140,7 +144,7 @@ class Settings(BaseSettings):
             "sweep that finds nothing due writes nothing to the sign"
         ),
     )
-    refresh_interval_seconds: float = Field(
+    check_interval_seconds: float = Field(
         default=900.0,
         gt=0,
         description=(
@@ -149,7 +153,8 @@ class Settings(BaseSettings):
             "power cycled behind a still-connected Ethernet adapter, which nothing else "
             "can detect. With icons in use the check is one short read of a picture "
             "file; with none, or for fifteen minutes after a read goes unanswered, every "
-            "refresh pushes everything again, which restarts every message"
+            "check pushes everything again, which restarts every message. Called "
+            "refresh_interval_seconds before 0.9.0"
         ),
     )
     clock_sync_enabled: bool = True
@@ -210,6 +215,36 @@ class Settings(BaseSettings):
         except (ZoneInfoNotFoundError, ValueError) as err:
             raise ValueError("unknown timezone %r: %s" % (value, err)) from err
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_renamed(cls, data: Any) -> Any:
+        """Name the new setting when a config still names one that was renamed.
+
+        In a file, ``extra="forbid"`` would refuse the old name anyway, but only
+        by saying it is not allowed, which sends whoever reads it looking for a
+        setting that was removed rather than one still there under another name.
+
+        In the environment it is worse: an unknown ``READERBOARD_`` variable is
+        not an error at all, so the old name would be dropped without a word and
+        the setting would quietly go back to its default. That is why the
+        environment is read here directly rather than through ``data``.
+        """
+        environment = {name.upper() for name in os.environ}
+        for old, new in _RENAMED_SETTINGS.items():
+            variable = "READERBOARD_%s" % old.upper()
+            if variable in environment:
+                raise ValueError(
+                    "the environment sets %s, and that setting is now called %s. "
+                    "Rename the variable to READERBOARD_%s"
+                    % (variable, new, new.upper())
+                )
+            if isinstance(data, dict) and old in data:
+                raise ValueError(
+                    "the setting %s is now called %s. Rename it in the config file"
+                    % (old, new)
+                )
+        return data
 
     @model_validator(mode="after")
     def _check_pool_fits(self) -> Settings:

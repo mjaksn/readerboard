@@ -72,7 +72,7 @@ def settings(tmp_path) -> Settings:
         slot_count=3,
         slot_capacity=256,
         clock_sync_enabled=False,
-        refresh_interval_seconds=3600,
+        check_interval_seconds=3600,
         registry_sweep_seconds=3600,
     )
 
@@ -518,7 +518,7 @@ class TestExpiry:
             inter_packet_delay=0,
             settle_delays_enabled=False,
             clock_sync_enabled=False,
-            refresh_interval_seconds=3600,
+            check_interval_seconds=3600,
         )
         with TestClient(create_app(settings, transport=sign)) as client:
             client.put(
@@ -807,7 +807,7 @@ class TestTheSignsMemoryPool:
             inter_packet_delay=0,
             settle_delays_enabled=False,
             clock_sync_enabled=False,
-            refresh_interval_seconds=3600,
+            check_interval_seconds=3600,
             registry_sweep_seconds=3600,
             **overrides,
         )
