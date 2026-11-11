@@ -161,6 +161,17 @@ jobs:
           prepared = window._prepare(catalogue.BY_ID["delete_alert"])
           assert prepared.url.endswith("/alerts?clear_queue=true"), "the flag left the query"
           assert prepared.body is None, "the flag went in the body"
+
+          # A closed list is a dropdown starting on the default, and nothing
+          # else builds one.
+          select("post_alert")
+          picked = window._form._body["if_active"]
+          assert [picked.itemText(i) for i in range(picked.count())] == [
+              "replace", "queue", "fail"
+          ], "the choices were not offered"
+          assert not picked.isEditable(), "a closed list could be typed into"
+          picked.setCurrentText("queue")
+          assert window._form.body_values()["if_active"] == "queue", "the choice was lost"
           SMOKE
           python - <<'SMOKE'
           import sys

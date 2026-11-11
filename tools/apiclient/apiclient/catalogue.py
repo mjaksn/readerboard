@@ -80,6 +80,12 @@ class Input:
     button because that is where it is worth having, next to the content
     somebody is about to edit.
 
+    ``choices`` is a closed list the field is picked from rather than typed
+    into, for a field the service declares as an enum. It is the one vocabulary
+    written down here rather than loaded from the service, and only because the
+    schema fixes it: ``test_a_closed_list_is_the_enum_the_service_declares`` in
+    ``tools/apiclient/tests/test_catalogue.py`` holds it to that enum both ways.
+
     ``seconds_until`` names the field in that response which this one is a
     duration to. The service takes a deadline as seconds from now and reports
     it as the moment it falls, so the two are the same fact in different
@@ -96,6 +102,7 @@ class Input:
     keys_from: str | None = None
     fill_from: str | None = None
     seconds_until: str | None = None
+    choices: tuple[str, ...] = ()
     description: str = ""
 
     @property
@@ -387,6 +394,7 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(
                 name="if_active",
                 prefill="replace",
+                choices=("replace", "queue", "fail"),
                 description=(
                     "when an alert is already up: replace it, queue behind it, or fail with "
                     "a 409"

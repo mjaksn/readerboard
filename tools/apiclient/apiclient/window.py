@@ -482,6 +482,20 @@ class OperationForm(QWidget):
             holder.setLayout(row)
             return holder
 
+        if item.choices:
+            # Not editable, unlike an enumeration's list: the service declares
+            # these values and no other, so there is nothing else to type.
+            combo = QComboBox()
+            if item.required or item.prefill is not None:
+                combo.addItems(list(item.choices))
+                combo.setCurrentText(request_module.as_text(item.prefill))
+            else:
+                # The empty entry is the default, as it is for an optional
+                # boolean below: the field is left out of the body.
+                combo.addItems(["", *item.choices])
+            fields[item.name] = combo
+            return combo
+
         if item.kind == "bool":
             # A closed list rather than a checkbox, so that reading it back goes
             # through the same text path every other field uses; request.coerce

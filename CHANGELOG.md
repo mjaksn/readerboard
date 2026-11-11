@@ -84,8 +84,9 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   a 409, unless its key matches one already waiting. `GET /health` reports
   `alerts_waiting`.
 - **The client calls all three new endpoints**, sends `if_active`, `key` and
-  `max_wait_seconds`, and shows a waiting alert and the queue as text. It can
-  now send a query parameter, which `clear_queue` is the first of.
+  `max_wait_seconds`, and shows a waiting alert and the queue as text.
+  `if_active` is picked from a list of its three values rather than typed. The
+  client can now send a query parameter, which `clear_queue` is the first of.
 
 ## [0.8.3] - 2026-11-06
 
