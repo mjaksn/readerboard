@@ -186,7 +186,7 @@ async def _sweep_loop(app: FastAPI, interval: float) -> None:
             await registry.sweep()
             await alerts.promote()
         except TransportError as err:
-            logger.warning("could not apply expiries: %s", err)
+            logger.warning("could not apply expiries or show the next waiting alert: %s", err)
         except Exception:
             # A sweep that raises must not take the loop down with it, or
             # nothing would ever expire again.

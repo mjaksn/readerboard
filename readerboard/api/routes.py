@@ -225,10 +225,10 @@ async def put_variable(
 async def delete_variable(name: VariableName, registry: RegistryDep) -> Response:
     """Delete a variable and free the sign file it held.
 
-    409 while any message or the alert still calls it, naming what does. Its
-    file is written into each of those messages, so deleting it would leave them
-    calling a file the next variable could be given, and showing that variable's
-    value.
+    409 while any message, the alert or an alert waiting its turn still calls
+    it, naming what does. Its file is written into each of those messages, so
+    deleting it would leave them calling a file the next variable could be
+    given, and showing that variable's value.
     """
     await registry.remove_variable(name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

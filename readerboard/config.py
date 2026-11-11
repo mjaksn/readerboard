@@ -139,9 +139,11 @@ class Settings(BaseSettings):
         default=1.0,
         gt=0,
         description=(
-            "how often to look for messages, alerts and variables whose ttl has passed. "
-            "An expiry lands up to this much after its deadline, so it is kept short: a "
-            "sweep that finds nothing due writes nothing to the sign"
+            "how often to look for messages, alerts and variables whose ttl has passed, "
+            "and to put the next waiting alert up once nothing holds the sign. An expiry "
+            "lands up to this much after its deadline, and the rotation shows for up to "
+            "this long between two alerts, so it is kept short: a sweep that finds "
+            "nothing due writes nothing to the sign"
         ),
     )
     check_interval_seconds: float = Field(
@@ -154,7 +156,7 @@ class Settings(BaseSettings):
             "can detect. With icons in use the check is one short read of a picture "
             "file; with none, or for fifteen minutes after a read goes unanswered, every "
             "check pushes everything again, which restarts every message. Called "
-            "refresh_interval_seconds before 0.9.0"
+            "refresh_interval_seconds in earlier releases"
         ),
     )
     alert_queue_limit: int = Field(

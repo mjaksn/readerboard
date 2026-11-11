@@ -1714,7 +1714,7 @@
     },
     "/variables/{name}": {
       "delete": {
-        "description": "Delete a variable and free the sign file it held.\n\n409 while any message or the alert still calls it, naming what does. Its\nfile is written into each of those messages, so deleting it would leave them\ncalling a file the next variable could be given, and showing that variable's\nvalue.",
+        "description": "Delete a variable and free the sign file it held.\n\n409 while any message, the alert or an alert waiting its turn still calls\nit, naming what does. Its file is written into each of those messages, so\ndeleting it would leave them calling a file the next variable could be\ngiven, and showing that variable's value.",
         "operationId": "delete_variable_variables__name__delete",
         "parameters": [
           {

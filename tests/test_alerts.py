@@ -15,6 +15,7 @@ from readerboard.services.alerts import (
 )
 from readerboard.sign.controller import SignController
 from readerboard.sign.state import AlertState, QueuedAlertState
+from readerboard.transport.base import TransportError
 
 
 async def raise_alert(alerts, message="<red>ALERT", **kwargs):
@@ -536,3 +537,31 @@ class TestQueue:
         [waiting] = restored.waiting
         assert (waiting.message, waiting.key, waiting.ttl_seconds) == ("SECOND", "second", 30)
         assert waiting.wait_until == clock.now + timedelta(seconds=600)
+
+    async def test_a_release_that_fails_keeps_the_queue_it_was_asked_to_clear(
+        self, alerts, transport
+    ):
+        # The caller is told the sign is unreachable and the alert is still up,
+        # so the waiting alerts must still be there too.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError):
+            await alerts.release(clear_queue=True)
+
+        assert alerts.active.message == "FIRST"
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_a_promotion_whose_write_fails_stays_at_the_head(self, alerts, transport):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await alerts.release()
+        # Open when promotion looks, and failing when it writes.
+        transport.fail_with = "cable unplugged"
+
+        with pytest.raises(TransportError):
+            await alerts.promote()
+
+        assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["SECOND"]

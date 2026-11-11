@@ -119,7 +119,7 @@ class TestHealth:
         assert body["alert_active"] is False
 
     def test_it_is_degraded_while_the_sign_is_out_of_step(self, client):
-        # The link is open, so before 0.9.0 this said ok. A monitor reading
+        # The link is open, so this used to say ok, and a monitor reading
         # status alone would miss a sign the service knows is stale.
         client.app.state.registry._dirty = True
 
@@ -1439,3 +1439,24 @@ class TestAlertQueue:
         assert client.get("/alerts/queue").status_code == 200
         assert client.delete("/alerts/queue").status_code == 401
         assert client.delete("/alerts/queue/anything").status_code == 401
+
+    def test_the_sweep_loop_puts_the_next_one_up(self, settings, sign):
+        # Every other test calls promote itself. This is the one that would fail
+        # if the sweep loop stopped calling it.
+        quick = settings.model_copy(update={"registry_sweep_seconds": 0.05})
+        with TestClient(create_app(quick, transport=sign)) as client:
+            self.post(client, "FIRST")
+            self.post(client, "SECOND", if_active="queue")
+            client.delete("/alerts", headers=HEADERS)
+
+            deadline = time.monotonic() + 5
+            shown = None
+            while time.monotonic() < deadline:
+                shown = client.get("/alerts").json()
+                if shown is not None:
+                    break
+                time.sleep(0.05)
+
+        assert shown is not None, "nothing took the sign after the release"
+        assert shown["message"] == "SECOND"
+        assert shown["state"] == "showing"

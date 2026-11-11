@@ -1410,7 +1410,7 @@ class SlotRegistry:
         return variable
 
     async def remove_variable(self, name: str) -> None:
-        """Delete a variable, refusing while any message or the alert calls it."""
+        """Delete a variable, refusing while any message, the alert or a waiting alert calls it."""
         async with self._lock:
             variable = self.get_variable(name)
             callers = self.callers(name)

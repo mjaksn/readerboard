@@ -406,8 +406,9 @@ the sign while the number changes.
 A few things are worth knowing, all of them measured on the sign:
 
 - **Create the variable before a message calls it.** A message or an alert naming a
-  variable that does not exist is refused with a 400, and a variable that a message or
-  the alert still calls cannot be deleted: that is a 409 naming what calls it.
+  variable that does not exist is refused with a 400, and a variable that a message, the
+  alert or an alert waiting its turn still calls cannot be deleted: that is a 409 naming
+  what calls it.
 - **Formatting in a value carries on after it.** A value of `<red>DOWN` turns the rest
   of the message red as well, and so does a character set or a speed. If the text after
   the call matters, set it again in the message after the call.

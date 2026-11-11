@@ -966,14 +966,17 @@ class AlertService:
         """Give the sign back. Returns whether an alert was actually holding it.
 
         The next waiting alert takes the sign at the following sweep, unless
-        ``clear_queue`` empties the queue first, in the same step, so that the
-        rotation comes back and stays.
+        ``clear_queue`` empties the queue in the same step, so that the rotation
+        comes back and stays. Emptied only once the release has reached the
+        sign: a release that fails leaves the alert recorded as holding it, and
+        must not have thrown away the waiting ones on its way to failing.
         """
         async with self._lock:
+            was_active = await self._release_locked()
             cleared = len(self._state.alert_queue) if clear_queue else 0
             if cleared:
                 self._state.alert_queue.clear()
-            was_active = await self._release_locked()
+                self._store.save(self._state)
 
         if cleared:
             logger.info("cancelled %d waiting alert(s)", cleared)
