@@ -149,6 +149,29 @@ jobs:
           kept = shown.body_values()
           assert kept["message"] == "HELLO <red>", "the message was lost"
           assert kept["active"] == "false", "the choice in a list was lost"
+
+          # A query parameter is built as a body field of its kind is and kept
+          # apart from the body, which is the only thing that sends it in the
+          # query string. Nothing else builds one.
+          from apiclient import catalogue
+
+          select("delete_alert")
+          window._form._query["clear_queue"].setCurrentText("true")
+          window.base_url.setText("http://127.0.0.1:5001")
+          prepared = window._prepare(catalogue.BY_ID["delete_alert"])
+          assert prepared.url.endswith("/alerts?clear_queue=true"), "the flag left the query"
+          assert prepared.body is None, "the flag went in the body"
+
+          # A closed list is a dropdown starting on the default, and nothing
+          # else builds one.
+          select("post_alert")
+          picked = window._form._body["if_active"]
+          assert [picked.itemText(i) for i in range(picked.count())] == [
+              "replace", "queue", "fail"
+          ], "the choices were not offered"
+          assert not picked.isEditable(), "a closed list could be typed into"
+          picked.setCurrentText("queue")
+          assert window._form.body_values()["if_active"] == "queue", "the choice was lost"
           SMOKE
           python - <<'SMOKE'
           import sys

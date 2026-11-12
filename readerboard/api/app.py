@@ -22,9 +22,13 @@ import asyncio
 import contextlib
 import functools
 import logging
+import math
 from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from readerboard import __version__, logging_setup, names
@@ -52,7 +56,9 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the slots that are showing by itself. A slot can be
 hidden without being given up, so a message can be taken off the display and put
 back without being sent again. An **alert** takes the whole display over until it
-is released, then the rotation resumes.
+is released, then the rotation resumes. An alert that is not urgent can queue
+behind the one showing instead, and takes the sign when that one ends; the
+rotation resumes once no alert is showing or waiting.
 
 A **variable** is a value a slot's message or an alert calls with `<var:name>`.
 Changing it rewrites only the variable, so the sign shows the new value without
@@ -78,11 +84,13 @@ A failure is reported by the status code, with the reason in a `detail` field:
 message or value too long for its file, markup the sign cannot render, a call to
 a variable that does not exist, an icon nobody has, a colour asked for on an icon
 drawn in fixed colours, or an icon called while icons are switched off, 401 for a
-missing or wrong `X-API-Key`, 404 for a slot or variable that does not exist, 409
-when every slot, every variable or every picture file is already in use, a
-variable something still calls is deleted, an alert is raised with
-`fail_if_active` while one is already up, or a reboot finds the sign has less
-memory than the configuration needs, 503 when the sign is unreachable, stops
+missing or wrong `X-API-Key`, 404 for a slot, a variable or a waiting alert that
+does not exist, 409 when every slot, every variable or every picture file is
+already in use, a queued alert calls more different icons than the sign has
+picture files, a variable something still calls is deleted, an alert is raised
+with `if_active` set to `fail` while one is up or waiting, the alert queue is
+full, or a reboot finds the sign has less memory than the configuration needs,
+503 when the sign is unreachable, stops
 partway through an answer or answers with something the service cannot read, or
 no API key is configured at all, 500 for something the service has no code for,
 and 422 for a body that is not the shape the endpoint declares, which includes a
@@ -169,7 +177,12 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
 
 
 async def _sweep_loop(app: FastAPI, interval: float) -> None:
-    """Expire slots and alerts, and turn variables stale, once their deadlines pass."""
+    """Expire slots and alerts, and turn variables stale, once their deadlines pass.
+
+    And put the next waiting alert on the sign once nothing holds it, which is
+    here rather than wherever an alert ends because this loop holds no lock.
+    See ``AlertService.promote``.
+    """
     registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 
@@ -178,8 +191,9 @@ async def _sweep_loop(app: FastAPI, interval: float) -> None:
         try:
             await alerts.sweep()
             await registry.sweep()
+            await alerts.promote()
         except TransportError as err:
-            logger.warning("could not apply expiries: %s", err)
+            logger.warning("could not apply expiries or show the next waiting alert: %s", err)
         except Exception:
             # A sweep that raises must not take the loop down with it, or
             # nothing would ever expire again.
@@ -214,10 +228,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             settings.variable_capacity,
             settings.picture_count,
         )
-        alerts = AlertService(controller, store, state)
+        alerts = AlertService(controller, store, state, queue_limit=settings.alert_queue_limit)
         registry = SlotRegistry(controller, layout, store, state)
         # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
+        # One waiting its turn is checked under that lock too.
         alerts.set_rendering(registry.rendering)
         # And the other way: the registry hands the sign back before it writes a
         # picture, because the sign will not take one while a priority message
@@ -297,7 +312,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             await clock.start()
         sweeper = asyncio.create_task(_sweep_loop(app, settings.registry_sweep_seconds))
         refresher = asyncio.create_task(
-            _refresh_loop(app, settings.refresh_interval_seconds)
+            _refresh_loop(app, settings.check_interval_seconds)
         )
 
         try:
@@ -342,8 +357,12 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         used, total = registry.occupancy
         variables_used, variables_total = registry.variable_occupancy
         pictures_used, pictures_total = registry.picture_occupancy
+        # Both, so that a monitor reading this one field hears about a sign the
+        # service knows is stale, not only about a link that is down. A write
+        # that failed with the link still open is what leaves the two apart.
+        healthy = controller.is_connected and registry.in_sync
         return HealthResponse(
-            status="ok" if controller.is_connected else "degraded",
+            status="ok" if healthy else "degraded",
             version=__version__,
             link=LinkHealth(
                 url=controller.link_description,
@@ -361,6 +380,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
             pictures_total=pictures_total,
             sign_in_sync=registry.in_sync,
             alert_active=alerts.active is not None,
+            alerts_waiting=len(alerts.waiting),
             clock_last_synced_at=clock.last_sync_at,
         )
 
@@ -371,7 +391,10 @@ def _install_error_handlers(app: FastAPI) -> None:
     """Turn the service's own exceptions into the status codes they mean.
 
     Registered by walking the table in readerboard.api.errors, which is the one
-    place that decides what any of them means.
+    place that decides what any of them means. The 422 for a body pydantic
+    rejects is FastAPI's, replaced only so that echoing back a rejected
+    Infinity, NaN, lone surrogate or body that is not UTF-8 does not turn it
+    into a 500.
     """
 
     def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
@@ -384,6 +407,61 @@ def _install_error_handlers(app: FastAPI) -> None:
 
     for kind, code in errors.STATUS_FOR_ERROR:
         app.add_exception_handler(kind, handler(code))
+
+    async def refused(_: Request, exc: Exception) -> JSONResponse:
+        # FastAPI's own handler for this, with one difference. It echoes each
+        # rejected value back, and a body holding Infinity, NaN or a literal too
+        # big for a float, such as 1e400, has a value JSON cannot carry, so
+        # encoding the 422 raised and the caller got a 500 for a body that was
+        # simply wrong. A string holding a lone surrogate, such as the JSON
+        # escape for U+D800, is not text UTF-8 can carry and failed the same
+        # way, as a value or as the key of an object echoed back. Those go back
+        # as text instead. So does a body sent as something other than JSON,
+        # which is echoed back as its bytes and failed when they were not
+        # UTF-8; the bytes undecodable as UTF-8 are written out as escapes.
+        assert isinstance(exc, RequestValidationError)
+        encoded = jsonable_encoder(exc.errors(), custom_encoder={bytes: _decoded})
+        return JSONResponse(status_code=422, content={"detail": _encodable(encoded)})
+
+    app.add_exception_handler(RequestValidationError, refused)
+
+
+def _encodable(value: Any) -> Any:
+    """Return ``value`` with everything a JSON response cannot carry turned into text.
+
+    That is a float that is not finite, and a string holding a lone surrogate,
+    which is not valid UTF-8 and has its surrogates written out as escapes,
+    whether it is a value or an object's key.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            return value.encode("utf-8", "backslashreplace").decode("utf-8")
+        return value
+    if isinstance(value, dict):
+        encoded: dict[Any, Any] = {}
+        for key, item in value.items():
+            safe = _encodable(key)
+            # An escaped key reads exactly like a key that was sent spelled
+            # with the escape, and one would overwrite the other, so the echo
+            # would show an object the caller never sent. The escaped one is
+            # marked until it is unique, against what has been written and
+            # against what is still to come.
+            while safe in encoded or (safe != key and safe in value):
+                safe = "%s (escaped)" % safe
+            encoded[safe] = _encodable(item)
+        return encoded
+    if isinstance(value, list):
+        return [_encodable(item) for item in value]
+    return value
+
+
+def _decoded(raw: bytes) -> str:
+    """Return a body echoed back as bytes as text, escaping what is not UTF-8."""
+    return raw.decode("utf-8", "backslashreplace")
 
 
 app = create_app()

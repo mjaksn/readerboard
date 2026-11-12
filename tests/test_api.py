@@ -72,7 +72,7 @@ def settings(tmp_path) -> Settings:
         slot_count=3,
         slot_capacity=256,
         clock_sync_enabled=False,
-        refresh_interval_seconds=3600,
+        check_interval_seconds=3600,
         registry_sweep_seconds=3600,
     )
 
@@ -117,6 +117,17 @@ class TestHealth:
         assert body["pictures_used"] == 0
         assert body["sign_in_sync"] is True
         assert body["alert_active"] is False
+
+    def test_it_is_degraded_while_the_sign_is_out_of_step(self, client):
+        # The link is open, so this used to say ok, and a monitor reading
+        # status alone would miss a sign the service knows is stale.
+        client.app.state.registry._dirty = True
+
+        body = client.get("/health").json()
+
+        assert body["link"]["connected"] is True
+        assert body["sign_in_sync"] is False
+        assert body["status"] == "degraded"
 
     def test_it_reports_the_picture_pool_when_there_is_one(self, drawing_client):
         assert drawing_client.get("/health").json()["pictures_total"] == 4
@@ -269,6 +280,13 @@ class TestMessages:
         body = client.get("/slots/temperature").json()
         assert body["message"] == "<green>18.4<degree>"
         assert body["label"] == "A"
+
+    def test_a_slot_keyed_by_dots_alone_stays_reachable(self, client):
+        # An earlier release accepted a key such as "...", and a slot stored
+        # under one has to remain one that can be hidden and deleted. Only "."
+        # and ".." are rewritten by a client, so this one arrives as sent.
+        assert client.put("/slots/...", json={"message": "HI"}, headers=HEADERS).status_code == 200
+        assert client.delete("/slots/...", headers=HEADERS).status_code == 204
 
     def test_several_messages_share_the_sign(self, client):
         client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
@@ -471,17 +489,17 @@ class TestAlerts:
         client.post("/alerts", json={"message": "FIRST"}, headers=HEADERS)
         response = client.post(
             "/alerts",
-            json={"message": "SECOND", "fail_if_active": True},
+            json={"message": "SECOND", "if_active": "fail"},
             headers=HEADERS,
         )
 
         assert response.status_code == 409
-        assert "fail_if_active" in response.json()["detail"]
+        assert "if_active" in response.json()["detail"]
         assert client.get("/alerts").json()["message"] == "FIRST"
 
     def test_asking_not_to_replace_is_fine_when_nothing_is_up(self, client):
         response = client.post(
-            "/alerts", json={"message": "ONLY", "fail_if_active": True}, headers=HEADERS
+            "/alerts", json={"message": "ONLY", "if_active": "fail"}, headers=HEADERS
         )
 
         assert response.status_code == 200
@@ -518,7 +536,7 @@ class TestExpiry:
             inter_packet_delay=0,
             settle_delays_enabled=False,
             clock_sync_enabled=False,
-            refresh_interval_seconds=3600,
+            check_interval_seconds=3600,
         )
         with TestClient(create_app(settings, transport=sign)) as client:
             client.put(
@@ -807,7 +825,7 @@ class TestTheSignsMemoryPool:
             inter_packet_delay=0,
             settle_delays_enabled=False,
             clock_sync_enabled=False,
-            refresh_interval_seconds=3600,
+            check_interval_seconds=3600,
             registry_sweep_seconds=3600,
             **overrides,
         )
@@ -1080,6 +1098,7 @@ class TestVariables:
         assert body["stale"] is False
         assert body["called_by"] == []
         assert body["called_by_alert"] is False
+        assert body["called_by_waiting_alert"] is False
         assert body["source"] == "thermometer"
 
     def test_it_goes_on_the_sign_as_a_string_write(self, client, sign):
@@ -1155,6 +1174,17 @@ class TestVariables:
         body = client.get("/variables/temp").json()
         assert body["called_by"] == []
         assert body["called_by_alert"] is True
+
+    def test_a_waiting_alert_calling_one_says_so(self, client):
+        # Deleting it is refused while one does, so the variable has to say why.
+        self.put_variable(client)
+        client.post("/alerts", json={"message": "FIRST"}, headers=HEADERS)
+        client.post(
+            "/alerts", json={"message": "<var:temp>", "if_active": "queue"}, headers=HEADERS
+        )
+        body = client.get("/variables/temp").json()
+        assert body["called_by_alert"] is False
+        assert body["called_by_waiting_alert"] is True
 
     def test_an_alert_calling_a_variable_that_does_not_exist_is_400(self, client):
         response = client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
@@ -1249,6 +1279,19 @@ class TestUnreachableSign:
 
         assert client.get("/health").json()["link"]["connected"] is False
 
+    def test_health_is_degraded_with_the_link_down_and_the_record_intact(self, client, sign):
+        # A failed alert write takes the link down without marking any slot
+        # stale, so only the link says anything is wrong, and status has to
+        # listen to it.
+        sign.fail_with = "cable unplugged"
+        client.post("/alerts", json={"message": "ALERT"}, headers=HEADERS)
+
+        body = client.get("/health").json()
+
+        assert body["link"]["connected"] is False
+        assert body["sign_in_sync"] is True
+        assert body["status"] == "degraded"
+
     def test_an_alert_is_503(self, client, sign):
         sign.fail_with = "cable unplugged"
 
@@ -1310,6 +1353,105 @@ class TestTheErrorTable:
         assert response.status_code == 500
 
 
+class TestValuesTheResponseCannotCarry:
+    """A body JSON cannot echo back is a 422 like any other wrong body.
+
+    That is one holding Infinity, NaN, 1e400 or a lone surrogate, or one sent
+    as something other than JSON whose bytes are not UTF-8.
+
+    FastAPI echoes each rejected value back, and none of these can be encoded,
+    so the 422 itself used to raise and the caller got a 500.
+    """
+
+    @pytest.mark.parametrize("number", ["Infinity", "-Infinity", "NaN", "1e400"])
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("PUT", "/slots/a", '{"message": "HI", "ttl_seconds": %s}'),
+            ("PUT", "/variables/a", '{"value": "1", "ttl_seconds": %s}'),
+            ("POST", "/alerts", '{"message": "HI", "ttl_seconds": %s}'),
+            ("POST", "/alerts", '{"message": "HI", "if_active": "queue", "max_wait_seconds": %s}'),
+            ("PUT", "/slots/a", '{"message": "HI", "order": %s}'),
+        ],
+    )
+    def test_it_is_refused_with_a_422(self, client, method, path, body, number):
+        response = client.request(
+            method,
+            path,
+            content=body % number,
+            headers={**HEADERS, "content-type": "application/json"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+    def test_a_string_holding_a_lone_surrogate_is_refused_with_a_422(self, client):
+        # Valid JSON, but not text UTF-8 can carry, so echoing it back failed
+        # the same way a number that is not finite did.
+        response = client.post(
+            "/alerts",
+            content='{"message": "HI", "if_active": "queue", "key": "\\ud800"}',
+            headers={**HEADERS, "content-type": "application/json"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/slots/a", '{"message": {"\\ud800": 1}}'),
+            ("/slots/a", '{"message": "HI", "ttl_seconds": {"\\ud800": 1}}'),
+            ("/variables/a", '{"value": {"\\ud800": 1}}'),
+        ],
+    )
+    def test_an_object_keyed_by_a_lone_surrogate_is_refused_with_a_422(
+        self, client, path, body
+    ):
+        # The object is echoed back whole, so its key has to be escaped as
+        # much as any value.
+        response = client.put(
+            path, content=body, headers={**HEADERS, "content-type": "application/json"}
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+    @pytest.mark.parametrize("content_type", ["application/x-www-form-urlencoded", "text/plain"])
+    def test_a_body_that_is_not_utf8_and_not_json_is_refused_with_a_422(
+        self, client, content_type
+    ):
+        # What Windows PowerShell 5 sends from Invoke-RestMethod with no
+        # -ContentType: a form content type and the body in Latin-1. It is
+        # echoed back as its bytes, which do not decode as UTF-8.
+        response = client.put(
+            "/slots/a",
+            content='{"message": "CAF\xc9"}'.encode("latin-1"),
+            headers={**HEADERS, "content-type": content_type},
+        )
+
+        assert response.status_code == 422
+        assert "\\xc9" in str(response.json()["detail"])
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # The key spelled with the escape first, then the lone surrogate,
+            # and the other way round.
+            '{"message": {"\\\\ud800": 1, "\\ud800": 2}}',
+            '{"message": {"\\ud800": 2, "\\\\ud800": 1}}',
+        ],
+    )
+    def test_an_escaped_key_does_not_overwrite_one_spelled_the_same(self, client, body):
+        response = client.put(
+            "/slots/a", content=body, headers={**HEADERS, "content-type": "application/json"}
+        )
+
+        assert response.status_code == 422
+        echoed = response.json()["detail"][0]["input"]
+        assert echoed == {"\\ud800": 1, "\\ud800 (escaped)": 2}
+
+
 class TestNoApiKeyConfigured:
     def test_writes_are_refused_rather_than_left_open(self, tmp_path, sign):
         settings = Settings(
@@ -1332,3 +1474,178 @@ def test_the_openapi_schema_can_be_produced_without_a_sign(settings, sign):
 
     assert schema["info"]["title"] == "readerboard"
     assert "/slots/{key}" in schema["paths"]
+
+
+class TestAlertQueue:
+    def post(self, client, message, **body):
+        return client.post("/alerts", json={"message": message, **body}, headers=HEADERS)
+
+    def test_a_queued_alert_answers_200_and_says_it_is_waiting(self, client):
+        self.post(client, "FIRST")
+
+        response = self.post(client, "SECOND", if_active="queue", key="second", ttl_seconds=30)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "waiting"
+        assert body["position"] == 1
+        assert body["key"] == "second"
+        assert body["ttl_seconds"] == 30
+        assert body["started_at"] is None
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_one_that_takes_the_sign_at_once_says_it_is_showing(self, client):
+        body = self.post(client, "ONLY", if_active="queue").json()
+
+        assert body["state"] == "showing"
+        assert body["position"] is None
+        assert body["started_at"] is not None
+
+    def test_the_queue_can_be_read_in_order(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+        self.post(client, "THIRD", if_active="queue", max_wait_seconds=600)
+
+        queue = client.get("/alerts/queue").json()
+
+        assert [(a["message"], a["position"]) for a in queue] == [("SECOND", 1), ("THIRD", 2)]
+        assert queue[1]["wait_until"] is not None
+        assert client.get("/health").json()["alerts_waiting"] == 2
+
+    def test_a_waiting_alert_can_be_cancelled_by_key(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue", key="second")
+
+        assert client.delete("/alerts/queue/second", headers=HEADERS).status_code == 204
+        assert client.get("/alerts/queue").json() == []
+        assert client.delete("/alerts/queue/second", headers=HEADERS).status_code == 404
+
+    @pytest.mark.parametrize("key", [".", ".."])
+    def test_a_key_of_dots_alone_is_refused(self, client, key):
+        # A client rewrites these path segments before sending, so a cancel for
+        # an alert keyed ".." would arrive as DELETE /alerts and release the one
+        # showing, and one keyed "." as DELETE /alerts/queue and cancel them all.
+        self.post(client, "FIRST")
+
+        response = self.post(client, "SECOND", if_active="queue", key=key)
+
+        assert response.status_code == 422
+        assert client.get("/alerts/queue").json() == []
+
+    @pytest.mark.parametrize("key", ["..a", "a.b", "v1.2"])
+    def test_a_key_with_dots_in_it_is_still_allowed(self, client, key):
+        self.post(client, "FIRST")
+
+        assert self.post(client, "SECOND", if_active="queue", key=key).status_code == 200
+
+    def test_the_queue_can_be_emptied(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+
+        assert client.delete("/alerts/queue", headers=HEADERS).status_code == 204
+        assert client.get("/alerts/queue").json() == []
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_releasing_with_clear_queue_empties_it_too(self, client):
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+
+        response = client.delete("/alerts", params={"clear_queue": True}, headers=HEADERS)
+
+        assert response.status_code == 204
+        assert client.get("/alerts").json() is None
+        assert client.get("/alerts/queue").json() == []
+
+    def test_a_full_queue_is_409(self, settings, sign):
+        with TestClient(
+            create_app(settings.model_copy(update={"alert_queue_limit": 1}), transport=sign)
+        ) as client:
+            self.post(client, "FIRST")
+            self.post(client, "SECOND", if_active="queue")
+
+            response = self.post(client, "THIRD", if_active="queue")
+
+        assert response.status_code == 409
+        assert "alert_queue_limit" in response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/slots/far", {"message": "HI"}),
+            ("/variables/far", {"value": "1"}),
+        ],
+    )
+    def test_a_message_or_variable_deadline_more_than_a_year_off_is_422(
+        self, client, path, body
+    ):
+        response = client.put(path, json={**body, "ttl_seconds": 1e12}, headers=HEADERS)
+
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("field", ["ttl_seconds", "max_wait_seconds"])
+    def test_a_deadline_more_than_a_year_off_is_422_not_500(self, client, field):
+        # Unbounded, a big enough number put the deadline past the last date
+        # the service can hold, which was a 500 at the send, or for a queued
+        # alert's ttl a 500 on every release once it reached the head.
+        self.post(client, "FIRST")
+
+        response = self.post(client, "LATER", if_active="queue", **{field: 1e12})
+
+        assert response.status_code == 422
+        assert client.get("/alerts/queue").json() == []
+
+    def test_a_wait_limit_without_queue_is_422(self, client):
+        response = self.post(client, "ONLY", max_wait_seconds=60)
+
+        assert response.status_code == 422
+        assert client.get("/alerts").json() is None
+
+    def test_the_old_flag_is_422_rather_than_a_quiet_replace(self, client):
+        # A caller still sending fail_if_active must not have its refusal
+        # turned into a replace by the field being ignored.
+        self.post(client, "FIRST")
+
+        response = self.post(client, "SECOND", fail_if_active=True)
+
+        assert response.status_code == 422
+        assert client.get("/alerts").json()["message"] == "FIRST"
+
+    def test_the_queue_routes_that_change_it_need_the_key(self, client):
+        assert client.get("/alerts/queue").status_code == 200
+        assert client.delete("/alerts/queue").status_code == 401
+        assert client.delete("/alerts/queue/anything").status_code == 401
+
+    def test_releasing_puts_the_next_one_up_before_answering(self, client):
+        # The fixture's sweep never runs, so only the release can have done it,
+        # and a second release straight after must reach the alert that
+        # followed rather than a gap with nothing showing.
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+        self.post(client, "THIRD", if_active="queue")
+
+        assert client.delete("/alerts", headers=HEADERS).status_code == 204
+        assert client.get("/alerts").json()["message"] == "SECOND"
+        assert client.delete("/alerts", headers=HEADERS).status_code == 204
+        assert client.get("/alerts").json()["message"] == "THIRD"
+        assert client.get("/alerts/queue").json() == []
+
+    def test_the_sweep_loop_puts_the_next_one_up(self, settings, sign):
+        # The one test that would fail if the sweep loop stopped calling
+        # promote. The first alert ends by its ttl, since a release would
+        # promote by itself.
+        quick = settings.model_copy(update={"registry_sweep_seconds": 0.05})
+        with TestClient(create_app(quick, transport=sign)) as client:
+            self.post(client, "FIRST", ttl_seconds=0.2)
+            self.post(client, "SECOND", if_active="queue")
+
+            deadline = time.monotonic() + 5
+            shown = None
+            while time.monotonic() < deadline:
+                shown = client.get("/alerts").json()
+                if shown is not None and shown["message"] == "SECOND":
+                    break
+                time.sleep(0.05)
+
+        assert shown is not None, "nothing took the sign after the first expired"
+        assert shown["message"] == "SECOND"
+        assert shown["state"] == "showing"

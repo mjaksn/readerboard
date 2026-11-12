@@ -616,3 +616,47 @@ class TestAlertsAfterARestart:
         _registry, restored = await self.restart(store, transport, clock)
 
         assert restored.active is None
+
+
+class TestWaitingAlerts:
+    """An alert waiting its turn holds the variables it calls, as the one showing does."""
+
+    @pytest.fixture
+    async def wired(self, controller, layout, store, state, clock):
+        return await wire(controller, layout, store, state, clock)
+
+    async def test_a_variable_a_waiting_alert_calls_cannot_be_deleted(self, wired):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "STORM")
+        await alert(alerts, "WIND <var:wind>", if_active="queue", key="w")
+
+        with pytest.raises(VariableInUse, match="an alert waiting its turn") as refused:
+            await registry.remove_variable("wind")
+
+        # The route that cancels that one alert, not the one that empties the
+        # queue and takes every other waiting alert with it.
+        assert "DELETE /alerts/queue/w" in str(refused.value)
+        assert "empty the queue" not in str(refused.value)
+        assert registry.waiting_alerts_call("wind")
+        assert [v.name for v in registry.list_variables()] == ["wind"]
+
+    async def test_a_keyless_waiting_alert_can_only_be_cleared_with_the_queue(self, wired):
+        registry, alerts = wired
+        await put(registry, "wind", "40")
+        await alert(alerts, "STORM")
+        await alert(alerts, "WIND <var:wind>", if_active="queue")
+
+        with pytest.raises(VariableInUse) as refused:
+            await registry.remove_variable("wind")
+
+        assert "empty the queue with DELETE /alerts/queue" in str(refused.value)
+
+    async def test_a_queued_alert_calling_no_such_variable_is_refused_when_sent(self, wired):
+        _registry, alerts = wired
+        await alert(alerts, "STORM")
+
+        with pytest.raises(MarkupError, match="no variable named 'wind'"):
+            await alert(alerts, "WIND <var:wind>", if_active="queue")
+
+        assert alerts.waiting == []

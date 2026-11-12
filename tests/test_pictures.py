@@ -30,11 +30,12 @@ from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertT
 from readerboard.services.registry import (
     ASK_AGAIN_AFTER,
     IconsDisabled,
+    MessageTooLong,
     PicturePoolFull,
     SlotRegistry,
 )
 from readerboard.sign.controller import SignController
-from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout
+from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout, LayoutFull
 from readerboard.sign.state import AlertState
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
@@ -349,7 +350,7 @@ class TestTheFullPool:
     async def test_an_alert_refused_for_being_second_claims_no_picture(
         self, controller, store, state, clock, transport, alerts
     ):
-        # fail_if_active is checked inside the rendering, so the refusal takes
+        # if_active "fail" is checked inside the rendering, so the refusal takes
         # back whatever the new alert's icons were given on the way in. With one
         # picture file and the sun holding it, a moon that is refused must not
         # leave the pool full or the sun's file handed away.
@@ -361,7 +362,7 @@ class TestTheFullPool:
         transport.clear()
 
         with pytest.raises(AlertAlreadyActive):
-            await alerts.raise_alert("<icon:moon>", mode="HOLD", fail_if_active=True)
+            await alerts.raise_alert("<icon:moon>", mode="HOLD", if_active="fail")
 
         assert picture_writes(transport) == []
         assert list(state.pictures) == ["sun"]
@@ -2038,3 +2039,390 @@ class TestReconfiguring:
         applied = Layout(3, 256, 0, 32, 2).as_applied()
         applied.picture_columns += 1
         assert Layout(3, 256, 0, 32, 2).needs_reconfiguration(applied)
+
+
+class TestQueuedAlertsAndPictures:
+    """A waiting alert is checked against the icons when it is sent, and claims none.
+
+    Its picture files are claimed when it takes the sign. Claiming them while it
+    waits would hold files for an alert nobody can see, and with a full pool
+    evict ones the display is using.
+    """
+
+    async def wired(self, controller, store, state, clock, alerts) -> SlotRegistry:
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        return registry
+
+    async def test_a_queued_alert_claims_no_picture_and_draws_nothing(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        label = state.pictures["sun"].label
+        transport.clear()
+
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+
+        assert transport.packets == []
+        assert list(state.pictures) == ["sun"]
+        assert state.pictures["sun"].label == label
+
+    async def test_a_queued_alert_calling_no_such_icon_is_refused_when_sent(
+        self, controller, store, state, clock, alerts
+    ):
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+
+        with pytest.raises(icons.IconError):
+            await alerts.raise_alert("<icon:nonesuch>", mode="HOLD", if_active="queue")
+
+        assert alerts.waiting == []
+
+    async def test_its_icon_is_drawn_when_it_takes_the_sign(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await alerts.release()
+        transport.clear()
+
+        assert await alerts.promote() is True
+
+        assert list(state.pictures) == ["moon"]
+        assert len(picture_writes(transport)) == 1
+        assert alerts.active is not None
+        assert alerts.active.message == "<icon:moon> LATER"
+
+    async def test_one_calling_more_icons_than_there_are_files_is_refused_when_sent(
+        self, controller, store, state, clock, alerts
+    ):
+        # It could never be drawn, whatever else is on the sign, so the caller
+        # hears it now rather than having it dropped at its turn.
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("FIRST", mode="HOLD")
+
+        with pytest.raises(PicturePoolFull, match="2 different icons"):
+            await alerts.raise_alert("<icon:sun><icon:moon>", mode="HOLD", if_active="queue")
+
+        assert alerts.waiting == []
+
+    async def test_one_whose_turn_finds_the_files_held_is_dropped_and_the_next_shown(
+        self, controller, store, state, clock, alerts, caplog
+    ):
+        # A pool full of the slots' icons is a passing state, so it is not a
+        # reason to refuse at the send; at the turn it is, and the alert behind
+        # goes up in the same call rather than at a later sweep.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        await add(registry, "weather", "<icon:sun>")
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await alerts.raise_alert("PLAIN", mode="HOLD", if_active="queue")
+
+        with caplog.at_level("WARNING"):
+            await alerts.dismiss()
+
+        assert "dropped the waiting alert" in caplog.text
+        assert ".. " not in caplog.text
+        assert alerts.active.message == "PLAIN"
+        assert alerts.waiting == []
+
+
+    async def stale_head(self, registry, alerts, *, replacement, hold=False):
+        """Promote while the head changes under it, between its look and its claim.
+
+        The claim is for the message the head had when the promotion looked,
+        and the pool is full of a slot's icon, so it fails. ``replacement`` is
+        what happens to the head while the promotion waits for the locks.
+
+        With ``hold``, the registry's lock is kept until ``replacement`` has
+        finished, so the promotion cannot reach its claim first however the
+        event loop orders the tasks. A replacement that needs that lock itself,
+        such as an update, must not ask for it.
+        """
+        await add(registry, "weather", "<icon:sun>")
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert(
+            "<icon:moon> DOOR", mode="HOLD", if_active="queue", key="door", max_wait_seconds=60
+        )
+        await alerts.raise_alert("SECOND", mode="HOLD", if_active="queue")
+        await alerts.release()
+
+        async with registry.rendering(None):
+            changing = asyncio.create_task(replacement())
+            await asyncio.sleep(0)
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+            if hold:
+                await asyncio.wait_for(changing, 5)
+        await changing
+        return await promoting
+
+    async def test_a_head_updated_while_it_was_claimed_for_is_not_reported_dropped(
+        self, controller, store, state, clock, alerts, caplog
+    ):
+        # The update lands first and drops the icon, so the alert can be shown
+        # and is, in the next round. Saying it was dropped would be false.
+        registry = await self.wired(controller, store, state, clock, alerts)
+
+        async def update():
+            await alerts.raise_alert("DOOR TEXT ONLY", mode="HOLD", if_active="queue", key="door")
+
+        with caplog.at_level("INFO"):
+            assert await self.stale_head(registry, alerts, replacement=update)
+
+        assert "dropped the waiting alert" not in caplog.text
+        assert alerts.active.message == "DOOR TEXT ONLY"
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_a_head_past_its_wait_limit_is_reported_for_that(
+        self, controller, store, state, clock, alerts, caplog
+    ):
+        # The limit passes after the promotion has read the head and while it
+        # waits for the locks, so the head it claims for was still in date when
+        # it looked. Moving the clock any earlier would have it see an expired
+        # head from the start, which is not the case the refusal branch is for.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        looked = asyncio.Event()
+
+        async def age_out():
+            rendering = alerts._rendering
+
+            def watching(message):
+                looked.set()
+                return rendering(message)
+
+            alerts._rendering = watching
+            # Bounded, so a promotion that stops reaching the rendering fails
+            # this test rather than hanging it.
+            await asyncio.wait_for(looked.wait(), 5)
+            assert alerts.waiting[0].wait_until > clock()
+            clock.advance(61)
+
+        with caplog.at_level("INFO"):
+            assert await self.stale_head(registry, alerts, replacement=age_out, hold=True)
+
+        assert "dropped unseen" in caplog.text
+        assert "dropped the waiting alert" not in caplog.text
+        assert alerts.active.message == "SECOND"
+
+
+class TestRefusalsLeaveTheSignInSync:
+    """A refused alert or slot drew nothing, so the sign still matches the record."""
+
+    async def test_an_alert_refused_with_fail_after_an_eviction_leaves_it_in_sync(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # Claiming the new alert's icon evicts an idle one before the refusal.
+        # Undoing that used to mark the sign out of sync, which /health reports
+        # as degraded and the next check answers by redrawing every picture.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        await alerts.raise_alert("<icon:rain>", mode="HOLD")
+        assert registry.in_sync
+        transport.clear()
+
+        with pytest.raises(AlertAlreadyActive):
+            await alerts.raise_alert("<icon:moon>", mode="HOLD", if_active="fail")
+
+        assert transport.packets == []
+        assert registry.in_sync
+        assert set(state.pictures) == {"sun", "rain"}
+
+    async def test_a_failed_draw_still_marks_it_out_of_sync(
+        self, controller, store, state, clock, alerts
+    ):
+        # The other side: once a picture write has started, the evicted icon's
+        # file may hold the new bitmap, so the record going back is not what
+        # the sign has.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        await alerts.release()
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("cable unplugged")
+
+        controller.write_dots_file = unplugged
+        with pytest.raises(TransportError):
+            await alerts.raise_alert("<icon:moon>", mode="HOLD")
+
+        assert list(state.pictures) == ["sun"]
+        assert not registry.in_sync
+
+    async def test_a_slot_too_long_after_an_eviction_leaves_it_in_sync(
+        self, controller, store, state, clock, transport
+    ):
+        # The slot write's version of the alert case above: the claim evicts an
+        # idle icon, then the length check refuses the message before any
+        # picture is drawn.
+        registry = SlotRegistry(controller, Layout(3, 32, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:sun>")
+        await add(registry, "a", "<icon:rain>")
+        await add(registry, "a", "plain")
+        assert set(state.pictures) == {"sun", "rain"}
+        assert registry.in_sync
+        transport.clear()
+
+        with pytest.raises(MessageTooLong):
+            await add(registry, "b", "<icon:moon>" + "X" * 100)
+
+        assert transport.packets == []
+        assert registry.in_sync
+        assert set(state.pictures) == {"sun", "rain"}
+
+    async def test_a_slot_refused_for_a_full_layout_after_an_eviction_leaves_it_in_sync(
+        self, controller, store, state, clock, transport
+    ):
+        registry = SlotRegistry(controller, Layout(1, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:sun>")
+        await add(registry, "a", "<icon:rain>")
+        await add(registry, "a", "plain")
+        assert registry.in_sync
+        transport.clear()
+
+        with pytest.raises(LayoutFull):
+            await add(registry, "b", "<icon:moon>")
+
+        assert transport.packets == []
+        assert registry.in_sync
+        assert set(state.pictures) == {"sun", "rain"}
+
+    async def test_a_slot_whose_picture_write_failed_is_out_of_sync(
+        self, controller, store, state, clock
+    ):
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:sun>")
+        await add(registry, "a", "plain")
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("cable unplugged")
+
+        controller.write_dots_file = unplugged
+        with pytest.raises(TransportError):
+            await add(registry, "b", "<icon:moon>")
+
+        assert list(state.pictures) == ["sun"]
+        assert not registry.in_sync
+
+
+class TestPromotionKeepsThePictureRecordTrue:
+    """A promotion that backs off leaves the state file holding what the sign holds."""
+
+    async def wired(self, controller, store, state, clock, alerts) -> SlotRegistry:
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        return registry
+
+    async def test_a_head_aging_out_under_the_locks_saves_no_claim(
+        self, controller, store, state, clock, alerts
+    ):
+        # Its claim evicted an idle icon before the wait limit was seen to
+        # have passed. Dropping it there saved that claim, the rollback put the
+        # old icon back only in memory, and with nothing behind it nothing
+        # saved again: a restart would load a picture map the sign does not
+        # have.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun> FIRST", mode="HOLD")
+        await alerts.raise_alert(
+            "<icon:moon> LATER", mode="HOLD", if_active="queue", max_wait_seconds=10
+        )
+        await alerts.release()
+
+        async with registry.rendering(None):
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+            clock.advance(11)
+        assert await promoting is False
+
+        assert alerts.waiting == []
+        assert list(state.pictures) == ["sun"]
+        assert list(store.load().pictures) == ["sun"]
+
+    async def test_a_refused_claim_while_another_alert_took_the_sign_keeps_the_head(
+        self, controller, store, state, clock, alerts
+    ):
+        # A replacement alert got the registry's lock first, so the head's
+        # turn had not come; the pool being full then is no reason to drop it.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        await add(registry, "weather", "<icon:sun>")
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await alerts.release()
+
+        async with registry.rendering(None):
+            replacing = asyncio.create_task(alerts.raise_alert("NEW", mode="HOLD"))
+            await asyncio.sleep(0)
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+        await replacing
+        assert await promoting is False
+
+        assert alerts.active.message == "NEW"
+        assert [w.message for w in alerts.waiting] == ["<icon:moon> LATER"]
+
+
+class TestAlertSavesWaitForTheRegistry:
+    """A save the alert service makes never captures a picture claim still in flight.
+
+    The two services share one state file. The registry claims a message's
+    pictures in it before it writes them and, if the write fails, gives them
+    back only in memory, so a save made in between put the claim on disk for a
+    restart to load.
+    """
+
+    async def _cancel(self, alerts, clock):
+        await alerts.cancel_waiting("k")
+
+    async def _clear(self, alerts, clock):
+        await alerts.clear_waiting()
+
+    async def _release(self, alerts, clock):
+        await alerts.release()
+
+    async def _sweep(self, alerts, clock):
+        clock.advance(11)
+        await alerts.sweep()
+
+    @pytest.mark.parametrize("operation", ["_cancel", "_clear", "_release", "_sweep"])
+    async def test_it_waits_for_a_picture_write_and_saves_what_is_left(
+        self, controller, store, state, clock, alerts, operation
+    ):
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert(
+            "LATER", mode="HOLD", if_active="queue", key="k", max_wait_seconds=10
+        )
+        gate, entered = asyncio.Event(), asyncio.Event()
+
+        async def unplugged_midway(*args, **kwargs):
+            entered.set()
+            await gate.wait()
+            raise TransportError("cable unplugged")
+
+        controller.write_dots_file = unplugged_midway
+        writing = asyncio.create_task(add(registry, "weather", "<icon:sun> SUNNY"))
+        await entered.wait()
+        saving = asyncio.create_task(getattr(self, operation)(alerts, clock))
+        # Long enough for it to finish if nothing holds it back, which is what
+        # it did, saving the claim; it should be waiting for the write instead.
+        await asyncio.wait({saving}, timeout=0.5)
+        assert not saving.done()
+        gate.set()
+        with pytest.raises(TransportError):
+            await writing
+        await saving
+
+        assert state.pictures == {}
+        assert store.load().pictures == {}

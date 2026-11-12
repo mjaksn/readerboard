@@ -30,6 +30,10 @@ from readerboard.protocol.constants import PICTURE_FILE_LABELS
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
+# Settings renamed rather than removed, old name to new. Kept so that a config
+# still naming the old one is told what to call it instead.
+_RENAMED_SETTINGS = {"refresh_interval_seconds": "check_interval_seconds"}
+
 def _config_file() -> Path:
     override = os.environ.get("READERBOARD_CONFIG_FILE")
     return Path(override) if override else DEFAULT_CONFIG_FILE
@@ -42,6 +46,11 @@ class Settings(BaseSettings):
         env_prefix="READERBOARD_",
         toml_file=_config_file(),
         extra="forbid",
+        # A refusal from a validator that sees every setting at once would
+        # otherwise print them all as its input, the API key among them, into
+        # a log anyone reading the container's output can see. Each message
+        # names the setting it is about, which is all a reader needs.
+        hide_input_in_errors=True,
     )
 
     # == the link to the sign ==============================================
@@ -135,12 +144,14 @@ class Settings(BaseSettings):
         default=1.0,
         gt=0,
         description=(
-            "how often to look for messages, alerts and variables whose ttl has passed. "
-            "An expiry lands up to this much after its deadline, so it is kept short: a "
-            "sweep that finds nothing due writes nothing to the sign"
+            "how often to look for messages, alerts and variables whose ttl has passed, "
+            "and to put the next waiting alert up once nothing holds the sign. An expiry "
+            "lands up to this much after its deadline, and an alert's with it: the next "
+            "waiting alert goes up in the same sweep that releases one. So it is kept "
+            "short: a sweep that finds nothing due writes nothing to the sign"
         ),
     )
-    refresh_interval_seconds: float = Field(
+    check_interval_seconds: float = Field(
         default=900.0,
         gt=0,
         description=(
@@ -149,7 +160,20 @@ class Settings(BaseSettings):
             "power cycled behind a still-connected Ethernet adapter, which nothing else "
             "can detect. With icons in use the check is one short read of a picture "
             "file; with none, or for fifteen minutes after a read goes unanswered, every "
-            "refresh pushes everything again, which restarts every message"
+            "check pushes everything again, which restarts every message. Called "
+            "refresh_interval_seconds in earlier releases"
+        ),
+    )
+    alert_queue_limit: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description=(
+            "how many alerts may wait for the one holding the sign to end. An alert "
+            "sent with if_active queue while this many are waiting is refused with a "
+            "409, unless its key matches one already waiting, which it then updates. "
+            "Waiting alerts take no sign memory, so this bounds the state file and "
+            "how long the last of them waits, not the memory configuration"
         ),
     )
     clock_sync_enabled: bool = True
@@ -210,6 +234,36 @@ class Settings(BaseSettings):
         except (ZoneInfoNotFoundError, ValueError) as err:
             raise ValueError("unknown timezone %r: %s" % (value, err)) from err
         return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _refuse_renamed(cls, data: Any) -> Any:
+        """Name the new setting when a config still names one that was renamed.
+
+        In a file, ``extra="forbid"`` would refuse the old name anyway, but only
+        by saying it is not allowed, which sends whoever reads it looking for a
+        setting that was removed rather than one still there under another name.
+
+        In the environment it is worse: an unknown ``READERBOARD_`` variable is
+        not an error at all, so the old name would be dropped without a word and
+        the setting would quietly go back to its default. That is why the
+        environment is read here directly rather than through ``data``.
+        """
+        environment = {name.upper() for name in os.environ}
+        for old, new in _RENAMED_SETTINGS.items():
+            variable = "READERBOARD_%s" % old.upper()
+            if variable in environment:
+                raise ValueError(
+                    "the environment sets %s, and that setting is now called %s. "
+                    "Rename the variable to READERBOARD_%s"
+                    % (variable, new, new.upper())
+                )
+            if isinstance(data, dict) and old in data:
+                raise ValueError(
+                    "the setting %s is now called %s. Rename it in the config file"
+                    % (old, new)
+                )
+        return data
 
     @model_validator(mode="after")
     def _check_pool_fits(self) -> Settings:

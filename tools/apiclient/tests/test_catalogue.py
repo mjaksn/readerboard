@@ -468,3 +468,36 @@ def test_every_path_parameter_the_service_declares_is_offered():
             if parameter.get("in") == "path"
         }
         assert {item.name for item in operation.path_inputs} == described, operation.id
+
+
+def test_every_query_parameter_the_service_declares_is_offered():
+    document = json.loads(OPENAPI.read_text(encoding="utf-8"))
+    for operation in catalogue.OPERATIONS:
+        described = {
+            parameter["name"]
+            for parameter in document["paths"][operation.path][operation.method.lower()].get(
+                "parameters", []
+            )
+            if parameter.get("in") == "query"
+        }
+        assert {item.name for item in operation.query} == described, operation.id
+
+
+def test_a_closed_list_is_the_enum_the_service_declares():
+    # Both ways: a field the service declares as an enum is offered as exactly
+    # that list, in that order, and no field offers a list the service did not
+    # declare.
+    for operation, schema in with_bodies():
+        for item in operation.body:
+            declared = schema.get("properties", {}).get(item.name, {})
+            options = [declared, *declared.get("anyOf", [])]
+            enums = [o["enum"] for o in options if "enum" in o]
+            expected = tuple(enums[0]) if enums else ()
+            assert item.choices == expected, (operation.id, item.name)
+
+
+def test_a_closed_list_starts_on_a_value_it_offers():
+    for operation in catalogue.OPERATIONS:
+        for item in (*operation.query, *operation.body):
+            if item.choices and item.prefill is not None:
+                assert item.prefill in item.choices, (operation.id, item.name)

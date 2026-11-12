@@ -105,3 +105,44 @@ def test_the_largest_variable_pool_fits_beside_a_slot_pool_that_makes_room() -> 
     assert chosen.variable_count == 26
     with pytest.raises(ValidationError, match="variable_capacity 125"):
         settings(variable_count=26, variable_capacity=125)
+
+
+# The renamed setting. Only the refusal is tested here; that the new name is
+# read is covered by every test that builds the app with it.
+
+
+def test_the_old_name_for_the_check_interval_is_refused_with_the_new_one() -> None:
+    with pytest.raises(ValidationError, match="now called check_interval_seconds"):
+        settings(refresh_interval_seconds=60)
+
+
+def test_the_old_name_in_the_environment_is_refused_rather_than_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An unknown READERBOARD_ variable is not an error to pydantic-settings, so
+    # without the check this would start with the default and say nothing.
+    monkeypatch.setenv("READERBOARD_REFRESH_INTERVAL_SECONDS", "60")
+    with pytest.raises(ValidationError, match="READERBOARD_CHECK_INTERVAL_SECONDS"):
+        settings()
+
+
+def test_refusing_the_old_name_does_not_print_the_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The refusal sees every setting at once, and pydantic printed them all as
+    # its input, so an upgrade that kept the old variable put the key in the
+    # container's log.
+    monkeypatch.setenv("READERBOARD_API_KEY", "supersecretkey123")
+    monkeypatch.setenv("READERBOARD_REFRESH_INTERVAL_SECONDS", "60")
+    with pytest.raises(ValidationError) as refused:
+        settings()
+
+    assert "supersecretkey123" not in str(refused.value)
+    assert "READERBOARD_CHECK_INTERVAL_SECONDS" in str(refused.value)
+
+
+def test_the_check_interval_is_read_from_the_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("READERBOARD_CHECK_INTERVAL_SECONDS", "60")
+    assert settings().check_interval_seconds == 60

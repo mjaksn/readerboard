@@ -7,6 +7,12 @@ handler and is a 500, which is the honest answer for a failure the service never
 planned for: it cannot say whose fault it was.
 
 Add an exception here and the handler for it is registered with it.
+
+The one other handler is for a body pydantic rejects, which is not the
+service's own exception and so is not here. It is FastAPI's 422, registered
+beside these in ``readerboard.api.app`` only so that a rejected value no JSON
+response can carry, such as Infinity, NaN, a lone surrogate or a body that is
+not UTF-8, can be written back to the caller.
 """
 
 from __future__ import annotations
@@ -18,7 +24,12 @@ from readerboard.protocol.frames import ProtocolError
 from readerboard.protocol.markup import MarkupError
 from readerboard.protocol.replies import ReplyError
 from readerboard.services import commands
-from readerboard.services.alerts import AlertAlreadyActive, AlertTooLong
+from readerboard.services.alerts import (
+    AlertAlreadyActive,
+    AlertNotWaiting,
+    AlertQueueFull,
+    AlertTooLong,
+)
 from readerboard.services.registry import (
     IconsDisabled,
     MessageTooLong,
@@ -50,24 +61,27 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     (commands.BadParameter, status.HTTP_400_BAD_REQUEST),
     (UnknownSlot, status.HTTP_404_NOT_FOUND),
     (UnknownVariable, status.HTTP_404_NOT_FOUND),
+    (AlertNotWaiting, status.HTTP_404_NOT_FOUND),
     (LayoutFull, status.HTTP_409_CONFLICT),
     # Only POST /sign/reboot can raise this: the sign has less memory than the
     # configuration needs, found by asking it just before the reboot would have
     # erased it. The state of the hardware rather than anything wrong with the
     # request, which is what makes it a conflict, and nothing was written.
     (PoolTooLarge, status.HTTP_409_CONFLICT),
-    # Deleting a variable a message still calls would leave that message
-    # calling a file the next variable could be given. Not the caller's
-    # request being malformed, which is what makes it a conflict.
+    # Deleting a variable a message, the alert or a waiting alert still calls
+    # would leave it calling a file the next variable could be given. Not the
+    # caller's request being malformed, which is what makes it a conflict.
     (VariableInUse, status.HTTP_409_CONFLICT),
-    # Every picture file is holding an icon something still calls. Like a full
-    # slot pool and unlike a bad icon name, this is the state of the sign rather
-    # than anything wrong with the request.
+    # Every picture file is holding an icon something still calls, or an alert
+    # being queued calls more icons than the sign has picture files. Like a full
+    # slot pool and unlike a bad icon name, this is the size or the state of the
+    # sign rather than anything wrong with the shape of the request.
     (PicturePoolFull, status.HTTP_409_CONFLICT),
-    # An alert is already up and the caller asked to be refused rather than
-    # replace it. The same request would have been accepted a moment earlier, so
+    # An alert is already up, or waiting, and the caller asked to be refused
+    # rather than replace it or wait. The same request would have been accepted a moment earlier, so
     # it is the state of the sign that decides this and not the body.
     (AlertAlreadyActive, status.HTTP_409_CONFLICT),
+    (AlertQueueFull, status.HTTP_409_CONFLICT),
     (TransportError, status.HTTP_503_SERVICE_UNAVAILABLE),
     # A sign that answers with something unreadable is as unusable as one
     # that does not answer, and neither is the caller's doing. The route

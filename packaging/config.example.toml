@@ -103,9 +103,11 @@ picture_count = 0
 # == behaviour ===============================================================
 
 # How often to expire messages and alerts, and turn variables stale, once their
-# deadlines have passed. An expiry can land up to this long after its deadline.
-# A sweep that finds nothing due writes nothing to the sign, so there is little
-# to gain by raising it.
+# deadlines have passed, and to put the next waiting alert up once nothing holds
+# the sign. An expiry can land up to this long after its deadline, and so can an
+# alert's, with the next waiting alert going up in the same sweep that releases
+# it. A sweep that finds nothing due writes nothing to the sign, so there is
+# little to gain by raising it.
 registry_sweep_seconds = 1.0
 
 # How often to check that the sign still holds what it was given, and push
@@ -113,9 +115,16 @@ registry_sweep_seconds = 1.0
 # cycled while the Ethernet adapter stayed connected, which nothing else can
 # detect. With an icon in use, the check is one read of a picture file, and only
 # a sign that has lost it, or does not answer, gets everything again. With none,
-# or for fifteen minutes after a read goes unanswered, every refresh pushes
+# or for fifteen minutes after a read goes unanswered, every check pushes
 # everything, which restarts every message.
-refresh_interval_seconds = 900.0
+check_interval_seconds = 900.0
+
+# How many alerts may wait for the one holding the sign to end, raised with
+# if_active set to queue. One more is refused with a 409, unless its key matches
+# one already waiting, which it then updates. Waiting alerts take no room on the
+# sign, so this bounds the state file and the wait at the back of the queue
+# rather than the memory configuration.
+alert_queue_limit = 10
 
 # == the sign's clock ========================================================
 

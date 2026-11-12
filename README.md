@@ -16,7 +16,8 @@ given up, so a message can be taken off the display and put back without being s
 unless it was the last one showing. A **variable** is a value that messages call by name,
 such as a temperature, and changing it does not blank the sign or restart the message
 showing it. An **alert** takes the whole display over until it is released, after which
-the rotation resumes.
+the rotation resumes, and one that is not urgent can wait for the alert already up to
+end rather than replace it.
 
 ## What it does
 
@@ -29,8 +30,9 @@ the rotation resumes.
   time it draws the message, with no blank and no restart. One variable can appear in
   any number of messages, and a value that stops arriving can be made to go stale.
 - **Alerts.** Take the display over, optionally with a deadline, then hand it back.
-  A caller that must not overwrite somebody else's alert can ask to be refused
-  instead.
+  When one is already up, a new alert can replace it, be refused, or queue behind it,
+  and a queued alert is the service's to show when its turn comes, so the caller can
+  send it and forget it.
 - **It keeps the sign's clock right**, at startup, hourly, and whenever the link comes
   back. That last trigger is the one that matters: a sign returning from a power cut
   does so at no particular minute. The sign is set one minute fast on purpose: the
@@ -155,9 +157,9 @@ earlier write went down the connection that had died. The service itself only
 finds out at its first read or write after the link has gone, and `GET /health`
 shows `"connected": false` from then on. A sign with a variable updated every
 minute is written to that often. One left alone is written to at the refresh,
-every `refresh_interval_seconds`, which is 15 minutes by default, and a refresh
+every `check_interval_seconds`, which is 15 minutes by default, and a refresh
 that lands before the link has gone is buffered like any other write, so on a
-quiet sign `link.connected` can stay true for a refresh interval and a minute
+quiet sign `link.connected` can stay true for a check interval and a minute
 after the adapter has gone. It is still worth a monitor watching, and needs no
 key, but a ping of the adapter answers within a minute however quiet the sign
 is, and is the better alarm.
@@ -196,8 +198,11 @@ sudo scripts/install.sh --serial-url socket://192.168.2.51:4001
 
 This creates a `readerboard` system user, builds a virtual environment in
 `/opt/readerboard`, writes `/etc/readerboard/config.toml` with a freshly generated API key,
-and enables the `readerboard` service. It prints the key once, and it is safe to run
-again after pulling a new version: your config file and key are left alone.
+and enables the `readerboard` service. It prints the key once, and it can be run again
+after pulling a new version: your config file and key are left alone. Left alone means
+not updated either. When a release renames or removes a setting, `CHANGELOG.md` says so,
+and the file needs that edit before the service will start again; the installer keeps
+the file as it is and reports success either way.
 
 `sudo scripts/uninstall.sh` removes the service and the program but keeps your config and
 your registered messages, so reinstalling puts the sign back as it was. Add `--purge` to
@@ -343,6 +348,22 @@ curl -X POST http://localhost:5001/alerts \
      -d '{"message": "<red><flash_on>SMOKE ALARM", "ttl_seconds": 30}'
 ```
 
+Or show something for a minute once whatever alert is up has finished, and drop it if
+that has not happened within the hour:
+
+```
+curl -X POST http://localhost:5001/alerts \
+     -H 'X-API-Key: YOUR-KEY' -H 'Content-Type: application/json' \
+     -d '{"message": "PARCEL AT THE DOOR", "ttl_seconds": 60,
+          "if_active": "queue", "key": "parcel", "max_wait_seconds": 3600}'
+```
+
+The answer says whether it is `showing` or `waiting`. Sending it again with the same
+`key` while it waits updates it where it stands rather than queueing a second copy, and
+`DELETE /alerts/queue/parcel` cancels it. `DELETE /alerts` releases the alert that is up
+and lets the next one through; add `?clear_queue=true` to cancel the waiting ones too
+and have the rotation back.
+
 Make a noise, which is worth pairing with an alert if the sign is somewhere nobody
 is watching it:
 
@@ -388,8 +409,9 @@ the sign while the number changes.
 A few things are worth knowing, all of them measured on the sign:
 
 - **Create the variable before a message calls it.** A message or an alert naming a
-  variable that does not exist is refused with a 400, and a variable that a message or
-  the alert still calls cannot be deleted: that is a 409 naming what calls it.
+  variable that does not exist is refused with a 400, and a variable that a message, the
+  alert or an alert waiting its turn still calls cannot be deleted: that is a 409 naming
+  what calls it.
 - **Formatting in a value carries on after it.** A value of `<red>DOWN` turns the rest
   of the message red as well, and so does a character set or a speed. If the text after
   the call matters, set it again in the message after the call.

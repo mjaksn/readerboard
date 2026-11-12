@@ -58,6 +58,7 @@ from typing import Protocol
 
 from readerboard import icons
 from readerboard.protocol import replies
+from readerboard.protocol.constants import PICTURE_FILE_LABELS
 from readerboard.protocol.markup import icon_references, references, render, render_value
 from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.sign import pool
@@ -106,7 +107,7 @@ class VariableTooLong(RegistryError):
 
 
 class VariableInUse(RegistryError):
-    """A variable cannot be deleted while a message or the alert calls it."""
+    """A variable cannot be deleted while a message, the alert, or a waiting alert calls it."""
 
 
 class VariablesDisabled(RegistryError):
@@ -168,7 +169,8 @@ class _Rendering:
     So the order is render, decide, then draw. A caller that never draws has
     claimed files and put nothing in them, which is why the two paths that
     re-assert an alert already on the sign are given no message and claim
-    nothing.
+    nothing, and why neither is an alert that is only checked before it joins
+    the queue.
     """
 
     def __init__(
@@ -177,10 +179,12 @@ class _Rendering:
         draw: Callable[[], Awaitable[None]],
         revert: Callable[[], Awaitable[None]],
         *,
+        check: Callable[[str], bytes],
         draws_pictures: bool = False,
     ) -> None:
         """Hold the renderer, the write that has not happened yet, and its undo."""
         self._render = render
+        self._check = check
         self._draw = draw
         self._revert = revert
         self._draws_pictures = draws_pictures
@@ -200,6 +204,20 @@ class _Rendering:
     def __call__(self, message: str, *, strict: bool = True) -> bytes:
         """Render a message, exactly as :meth:`SlotRegistry._render_message` does."""
         return self._render(message, strict=strict)
+
+    def check(self, message: str) -> bytes:
+        """Render a message as it would render once its icons had files, claiming none.
+
+        For an alert being queued rather than shown. It is refused now for
+        everything about the alert itself that would refuse it at the head of
+        the queue, an unknown icon or variable, a body too long, or more icons
+        than the sign has picture files, while its caller is still there to
+        hear about it. Its pictures are claimed when it takes the sign, because
+        a queue holding picture files for alerts not yet showing would empty the
+        pool of the ones the display is using. So a pool that is full of the
+        slots' icons when its turn comes is not checked here, and drops it then.
+        """
+        return self._check(message)
 
     async def revert(self) -> None:
         """Give back what this claimed, and put back on the sign what it evicted.
@@ -339,6 +357,25 @@ class SlotRegistry:
         """
         alert = self._state.alert
         return alert is not None and name in references(alert.message)
+
+    def waiting_alerts_calling(self, name: str) -> list[str | None]:
+        """Return the keys of the waiting alerts that call a variable, None for one with no key."""
+        return [
+            waiting.key
+            for waiting in self._state.alert_queue
+            if name in references(waiting.message)
+        ]
+
+    def waiting_alerts_call(self, name: str) -> bool:
+        """Say whether any alert waiting its turn calls a variable.
+
+        A waiting alert is checked against the variables when it is queued, and
+        rendered against them again when it takes the sign. Deleting one in
+        between would leave it calling a file the next variable could be given,
+        so it holds the variable exactly as the alert on the sign does. It holds
+        no picture file, though: those are claimed when it takes the sign.
+        """
+        return bool(self.waiting_alerts_calling(name))
 
     @property
     def occupancy(self) -> tuple[int, int]:
@@ -902,7 +939,9 @@ class SlotRegistry:
         None renders whatever it is given against the files that already exist,
         which is what the two paths that re-assert an alert already written
         want: those must not claim anything, because failing to would be a
-        reason not to put the sign back.
+        reason not to put the sign back. An alert about to be queued is checked
+        under None as well, since it claims its pictures only when it takes the
+        sign.
 
         What is yielded is a :class:`_Rendering`: call it to render, and await
         its ``draw_icons`` when the alert has been accepted, which is what puts
@@ -917,8 +956,14 @@ class SlotRegistry:
             claims = _Claims()
             if message is not None:
                 claims = self._claim_pictures(message, replacing_alert=True)
+            # Whether a picture write was started. Until one is, every file
+            # still holds the bitmap it held before the claim, so undoing the
+            # claim puts the record back exactly as the sign has it.
+            drawing = False
 
             async def draw() -> None:
+                nonlocal drawing
+                drawing = True
                 await self._write_claims(claims.claimed)
 
             async def revert() -> None:
@@ -965,6 +1010,7 @@ class SlotRegistry:
                     self._render_message,
                     draw,
                     revert,
+                    check=self._check_message,
                     draws_pictures=bool(claims.claimed),
                 )
             except BaseException:
@@ -979,7 +1025,14 @@ class SlotRegistry:
                 # had claimed. A client that gives up mid-write is ordinary, and
                 # enough of them emptied a pool that had nothing in it. Each of
                 # these re-raises, so nothing is swallowed by widening it.
-                self._undo_claims(claims)
+                #
+                # An alert refused before it drew anything, by if_active fail or
+                # for being too long, or one that backed off to wait its turn,
+                # wrote nothing to any picture file. Calling the sign out of
+                # sync for that would report a fault on /health and re-push
+                # every picture at the next check, blanking the display for
+                # each, for a request that changed nothing.
+                self._undo_claims(claims, written=drawing)
                 raise
 
     # == changing slots =====================================================
@@ -1024,6 +1077,13 @@ class SlotRegistry:
             # renders to that variable's label, and a variable deleted between
             # the render and the write would leave the message calling a file
             # somebody else may be handed next.
+            #
+            # Whether a picture write was started, for the same reason as in
+            # :meth:`rendering`: a message refused for its length or for a full
+            # pool wrote nothing, and calling the sign out of sync for that
+            # would report a fault on /health and redraw every picture at the
+            # next check.
+            drawing = False
             try:
                 body = self._render_message(message)
                 if len(body) > self._layout.slot_capacity:
@@ -1047,6 +1107,7 @@ class SlotRegistry:
                 # sign off an alert to write nothing.
                 if claims.claimed:
                     async with self._priority_lifted():
+                        drawing = True
                         await self._write_claims(claims.claimed)
             except BaseException:
                 # The slot file has to go back too, and only here. A new key is
@@ -1064,7 +1125,7 @@ class SlotRegistry:
                 # sign is playing.
                 if key not in self._state.slots:
                     self._layout.slots.release(key)
-                self._undo_claims(claims)
+                self._undo_claims(claims, written=drawing)
                 raise
 
             now = self._now()
@@ -1383,13 +1444,14 @@ class SlotRegistry:
         return variable
 
     async def remove_variable(self, name: str) -> None:
-        """Delete a variable, refusing while any message or the alert calls it."""
+        """Delete a variable, refusing while any message, the alert or a waiting alert calls it."""
         async with self._lock:
             variable = self.get_variable(name)
             callers = self.callers(name)
             alert = self.alert_calls(name)
-            if callers or alert:
-                raise VariableInUse(_in_use(name, callers, alert=alert))
+            waiting = self.waiting_alerts_calling(name)
+            if callers or alert or waiting:
+                raise VariableInUse(_in_use(name, callers, alert=alert, waiting=waiting))
 
             del self._state.variables[name]
             self._layout.variables.release(name)
@@ -1618,11 +1680,12 @@ class SlotRegistry:
                 if key is not None:
                     claims.claimed.append(key)
         except BaseException:
-            self._undo_claims(claims)
+            # Nothing has been drawn yet: the caller draws after this returns.
+            self._undo_claims(claims, written=False)
             raise
         return claims
 
-    def _undo_claims(self, claims: _Claims) -> None:
+    def _undo_claims(self, claims: _Claims, *, written: bool = True) -> None:
         """Put the pool back as it was, for a message that did not reach the sign.
 
         The order is what makes it balance: giving up what was claimed frees
@@ -1637,6 +1700,10 @@ class SlotRegistry:
         and a wrong bitmap would be on screen rather than merely on record; it
         calls :meth:`_Rendering.revert`, which draws the evicted pictures again
         before it puts that alert back.
+
+        ``written`` is False when no picture write was started after the claim,
+        so every file still holds what the record is going back to and the sign
+        is not out of step for it.
         """
         for key in claims.claimed:
             self._state.pictures.pop(key, None)
@@ -1656,7 +1723,8 @@ class SlotRegistry:
                 )
                 continue
             self._state.pictures[picture.key] = picture
-            self._dirty = True
+            if written:
+                self._dirty = True
 
     async def _write_picture(self, picture: PictureState) -> None:
         await self._controller.write_dots_file(
@@ -1725,6 +1793,46 @@ class SlotRegistry:
             variables=self._variable_labels(),
             icons=self._picture_labels(),
         )
+
+    def _check_message(self, message: str) -> bytes:
+        """Render a message strictly as if every icon it calls had a picture file.
+
+        Each icon is resolved, and refused with icons switched off, exactly as
+        claiming it would; then it is rendered against a stand-in label, which
+        costs the same two bytes as the label it will be given. Nothing is
+        claimed, so the pool and the sign are untouched.
+
+        A message calling more different icons than there are picture files is
+        refused too, since claiming them would refuse it whatever else was on
+        the sign. One that only finds the pool full now is not: the icons the
+        slots are calling at its turn may be different ones, or fewer.
+        """
+        labels = self._picture_labels()
+        wanted = icon_references(message)
+        for name, tint in wanted:
+            icons.resolve(name, tint)  # raises IconError for a name or a tint we do not have
+            if not self._layout.picture_count:
+                raise IconsDisabled(
+                    "icons are switched off, because picture_count is 0. Raise it and "
+                    "restart, which reallocates the sign and clears it."
+                )
+            labels.setdefault((name, tint), PICTURE_FILE_LABELS[0])
+        distinct = {_picture_key(name, tint) for name, tint in wanted}
+        if len(distinct) > self._layout.picture_count:
+            # The one picture refusal that is certain. A pool full of icons
+            # the slots call now may have room by the time this alert's turn
+            # comes; a message calling more icons than there are files never
+            # will, and claiming them would refuse it whatever else was on the
+            # sign.
+            raise PicturePoolFull(
+                "this alert calls %d different icons and the sign has %d picture files, "
+                "so it could never be drawn. Call fewer, or raise picture_count and "
+                "restart, which reallocates the sign and clears it."
+                % (len(distinct), self._layout.picture_count)
+            )
+        if references(message):
+            self._require_variables()
+        return render(message, strict=True, variables=self._variable_labels(), icons=labels)
 
     def _render_value(self, value: str, field: str) -> bytes:
         """Render a value strictly and make sure it fits its STRING file."""
@@ -1859,8 +1967,15 @@ def _resolve_active(asked: bool | None, previous: SlotState | None) -> bool:
     return previous.active if previous is not None else True
 
 
-def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
-    """Say what still calls a variable, and what to do about each."""
+def _in_use(
+    name: str, callers: list[str], *, alert: bool, waiting: list[str | None] | None = None
+) -> str:
+    """Say what still calls a variable, and what to do about each.
+
+    ``waiting`` is the keys of the waiting alerts that call it, None for one
+    with no key, which can only be cancelled by emptying the whole queue.
+    """
+    waiting = waiting or []
     holders = []
     remedies = []
     if callers:
@@ -1874,6 +1989,25 @@ def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
     if alert:
         holders.append("the alert holding the sign")
         remedies.append("release or replace the alert")
+    if waiting:
+        keys = [key for key in waiting if key is not None]
+        holders.append(
+            "an alert waiting its turn" if len(waiting) == 1 else "%d alerts waiting their turn"
+            % len(waiting)
+        )
+        if keys:
+            remedies.append(
+                "cancel %s with %s"
+                % (
+                    "it" if len(waiting) == 1 else "those with a key",
+                    ", ".join("DELETE /alerts/queue/%s" % key for key in keys),
+                )
+            )
+        if len(keys) < len(waiting):
+            remedies.append(
+                "empty the queue with DELETE /alerts/queue, since an alert sent without a "
+                "key cannot be cancelled on its own"
+            )
     return (
         "variable %r is called by %s. First %s; deleting it now would leave %s calling a file "
         "another variable could be given next."
@@ -1881,7 +2015,7 @@ def _in_use(name: str, callers: list[str], *, alert: bool) -> str:
             name,
             " and ".join(holders),
             " and ".join(remedies),
-            "it" if len(callers) + alert == 1 else "them",
+            "it" if len(callers) + alert + len(waiting) == 1 else "them",
         )
     )
 

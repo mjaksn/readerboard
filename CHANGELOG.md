@@ -11,6 +11,133 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+**An alert can wait its turn, and this is the last breaking release before
+1.0.** One setting is renamed, so a config file or environment still naming
+`refresh_interval_seconds` stops the service starting until it is renamed, and a
+caller still sending `fail_if_active` to `POST /alerts` is answered 422. Every
+config file `scripts/install.sh` has written names that setting, whether or not
+anybody changed it, so every systemd install needs that edit.
+**Read the Changed section below before upgrading a machine that is running.**
+Nothing about the memory configuration changes, so upgrading erases nothing, and
+a state file from 0.8.3 reads as one with no alerts waiting.
+
+### Changed
+
+- **`refresh_interval_seconds` is now `check_interval_seconds`.** What it sets
+  has not changed: how often the service checks that the sign still holds what
+  it was given, pushing everything again only when it does not. Since 0.7.0
+  that check asks the sign first whenever an icon is in use, and the old name
+  described only the push. Rename the key in the config file, or the
+  `READERBOARD_REFRESH_INTERVAL_SECONDS` variable to
+  `READERBOARD_CHECK_INTERVAL_SECONDS`. Either old name stops the service with
+  a message naming the new one. That includes the environment variable, which
+  would otherwise have been ignored without a word and the interval quietly
+  gone back to fifteen minutes. The example config set the old key, and
+  `scripts/install.sh` copied it into `/etc/readerboard/config.toml`, so a
+  systemd install has it whether or not it was ever changed. Rename it there
+  before re-running the installer, which keeps that file as it is and reports
+  success while the service fails to start.
+- **`GET /health` says `degraded` while the sign is out of step, not only while
+  the link is down.** It said `ok` whenever the link was open, even with
+  `sign_in_sync` false, so a monitor reading `status` alone missed a sign the
+  service knew was stale: a removal, hide or expiry that could not reach it, or
+  a write refused partway with the link still up. `link.connected` and
+  `sign_in_sync` still say which of the two it is, and the endpoint still
+  answers 200 either way, so the container health check is unaffected. A
+  monitor that alerts on `degraded` will now also fire for the few seconds
+  between a reconnect and the push that follows it. A sign power cycled behind a
+  connected adapter is still not reported here: the next check finds it and
+  repairs it.
+- **`fail_if_active` on `POST /alerts` is replaced by `if_active`**, which takes
+  `replace`, `queue` or `fail`. `replace` is the default and is what leaving
+  `fail_if_active` out did; `fail` is what sending it true did. A caller still
+  sending `fail_if_active` gets a 422 rather than having it ignored, because an
+  ignored refusal would have quietly become a replace. `fail` now also refuses
+  while an alert is waiting its turn, as well as while one is showing.
+- **An alert in the answer to `POST /alerts` and `GET /alerts` carries more
+  fields:** `key`, and `state`, which is `showing` or `waiting`, with
+  `started_at` null for one that is waiting. The fields a caller read before are
+  all still there and mean what they did.
+- **Every `ttl_seconds`, on a message, a variable or an alert, and the new
+  `max_wait_seconds`, is at most a year, and a larger one is a 422.** 0.8.3
+  accepted a deadline of up to several thousand years, so a caller sending two
+  years, say, was answered 200 then and is refused now. Only a number big
+  enough to put the deadline past the last date the service can hold was ever
+  a 500, and a queued alert's `ttl_seconds` would have failed that way once the
+  alert reached the head of the queue. Something meant to last longer than a
+  year wants no deadline at all.
+- **A stored alert that has outgrown the priority file is released when it is
+  re-asserted**, as it already was at startup, rather than left recorded and
+  not shown. Kept, it would have held every alert waiting behind it for good.
+
+### Added
+
+- **An alert can queue behind the one holding the sign.** Raised with
+  `if_active` `queue`, it waits for that alert to end, by its ttl or by being
+  released, and then takes the sign, after any alert queued ahead of it. The
+  service does the waiting, so a caller that used to poll `GET /alerts` or
+  resend with `fail_if_active` until it got through can send once and forget
+  it. Its `ttl_seconds` counts from when it takes the sign. It is checked when it
+  is sent for everything about the alert itself that would refuse it when its
+  turn came, so a caller still hears about an unknown icon, a message too long
+  or more icons than the sign has picture files. A variable it calls cannot be
+  deleted while it waits, and `GET /variables` says so in a new field,
+  `called_by_waiting_alert`. One that cannot be shown when its turn comes, such
+  as one whose icons find every picture file held by the messages, is dropped
+  with a warning and the next one shown. The queue survives a restart.
+- **A queued alert can carry a `key` and a `max_wait_seconds`.** Sent again with
+  the key of one still waiting, it updates that one where it stands rather than
+  queueing a second copy, which is what makes resending harmless. A key matching
+  the alert already showing does not touch it; the new one joins the back. With
+  `max_wait_seconds` an alert that has not taken the sign by then is dropped
+  unseen, for news that stops being true. A key takes the same characters as a
+  slot's, but not dots alone: `.` and `..` are rewritten by an HTTP client, so a
+  cancel for one would reach `DELETE /alerts` or `DELETE /alerts/queue` instead.
+- **`GET /alerts/queue`, `DELETE /alerts/queue` and `DELETE /alerts/queue/{key}`**
+  read the waiting alerts in order, cancel them all, or cancel one. `DELETE
+  /alerts` releases the alert showing and puts the next one up before it
+  answers, so a second release sent straight after dismisses that one, and with
+  `?clear_queue=true` cancels the waiting ones in the same step, so the rotation
+  comes back and stays.
+- **`alert_queue_limit`, default 10**, is how many alerts may wait. One more is
+  a 409, unless its key matches one already waiting. `GET /health` reports
+  `alerts_waiting`.
+- **The client calls all three new endpoints**, sends `if_active`, `key` and
+  `max_wait_seconds`, and shows a waiting alert and the queue as text.
+  `if_active` is picked from a list of its three values rather than typed, and
+  left on `replace` it is not sent at all, so the client still raises an alert on
+  a service from before the queue. The client can now send a query parameter,
+  which `clear_queue` is the first of.
+
+### Fixed
+
+- **A setting refused at startup no longer prints the API key.** A refusal that
+  looks at every setting at once, such as the one for a memory configuration too
+  big for any sign, printed all of them as its input, the key among them. Each
+  refusal now prints only its own message, which names the setting it is about.
+- **A body holding `Infinity`, `NaN` or a number too big for a float, such as
+  `1e400`, is a 422 rather than a 500,** and so is one holding a lone surrogate
+  such as `\ud800`, in a value or a key, and one sent as something other than
+  JSON whose bytes are not UTF-8. The refusal echoes the rejected value back,
+  and the response cannot carry these, so writing the 422 failed. A Python
+  caller passing `math.inf` to mean forever sends `Infinity`, and Windows
+  PowerShell 5's `Invoke-RestMethod` with no `-ContentType` sends a form body in
+  Latin-1.
+- **An alert refused with `fail`, or too long for the priority file, no longer
+  marks the sign out of sync** when its icon had to evict an idle one to be
+  checked, and nor does a message refused for its length or for a full slot
+  pool. Nothing was drawn, yet the next check redrew every picture, blanking
+  the display once for each.
+- **An alert raised just after another's deadline is no longer released by the
+  sweep that came for the old one.** The sweep found the old alert expired and
+  then released whichever alert was holding the sign by the time it got there.
+- **Releasing or raising an alert while a message's icon was being drawn no
+  longer saves that icon to the state file before the draw has landed.** If the
+  draw then failed, the service took the icon back but the file kept it, and a
+  restart loaded a picture map the sign did not have.
+
 ## [0.8.3] - 2026-11-06
 
 **A fix for signs reached through an Ethernet adapter.** Since 0.7.1 the

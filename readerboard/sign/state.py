@@ -1,9 +1,10 @@
 """What the service remembers across a restart.
 
-Five things have to survive: which messages are registered and where on the
+Six things have to survive: which messages are registered and where on the
 sign each one lives, which variables hold which values and where, which icon
 each picture file is holding, whether an alert is currently holding the
-display, and which memory configuration was last applied.
+display, which alerts are waiting their turn behind it, and which memory
+configuration was last applied.
 
 The last of those matters more than it looks. Writing a memory configuration
 erases every file on the sign, so the service must be able to tell "the pool I
@@ -106,6 +107,26 @@ class AlertState(BaseModel):
     mode: str
     started_at: datetime
     expires_at: datetime | None = None
+    # Defaults to None so that a state file written before keys existed still
+    # reads, as every field added to this file since the first version does.
+    key: str | None = None
+
+
+class QueuedAlertState(BaseModel):
+    """An alert waiting for the one holding the sign to end.
+
+    It keeps the ttl it was asked for rather than a deadline, because the clock
+    on how long it shows starts when it takes the sign, not when it was queued.
+    ``wait_until`` is the other clock, how long it may wait at all, and that one
+    does start when it is queued.
+    """
+
+    message: str
+    mode: str
+    queued_at: datetime
+    ttl_seconds: float | None = None
+    wait_until: datetime | None = None
+    key: str | None = None
 
 
 class AppliedLayout(BaseModel):
@@ -224,6 +245,9 @@ class ServiceState(BaseModel):
     variables: dict[str, VariableState] = Field(default_factory=dict)
     pictures: dict[str, PictureState] = Field(default_factory=dict)
     alert: AlertState | None = None
+    # Empty for a state file written before the queue existed, which is exactly
+    # the queue that service had.
+    alert_queue: list[QueuedAlertState] = Field(default_factory=list)
     layout: AppliedLayout | None = None
 
 
@@ -364,10 +388,11 @@ class StateStore:
             return ServiceState()
 
         logger.info(
-            "restored %d slot(s), %d variable(s)%s from %s",
+            "restored %d slot(s), %d variable(s)%s%s from %s",
             len(state.slots),
             len(state.variables),
             " and an active alert" if state.alert else "",
+            ", %d alert(s) waiting" % len(state.alert_queue) if state.alert_queue else "",
             self.path,
         )
         return state

@@ -10,14 +10,14 @@ in the same sense the README is, and it rots the same way.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from readerboard.protocol.markup import VARIABLE_NAME_PATTERN
 from readerboard.protocol.replies import GeneralInformation
 from readerboard.protocol.tokens import COMMAND_BY_NAME, MODE_BY_NAME
-from readerboard.sign.state import AlertState, SlotState, VariableState
+from readerboard.sign.state import AlertState, QueuedAlertState, SlotState, VariableState
 
 SlotKey = Annotated[
     str,
@@ -26,6 +26,23 @@ SlotKey = Annotated[
         max_length=64,
         pattern=r"^[A-Za-z0-9._-]+$",
         description="the name of the slot, chosen by whoever owns it",
+    ),
+]
+
+# An alert's key is the slot key's alphabet, but never dots alone. A key is a
+# path segment as well as a name, and "." and ".." are the two segments an HTTP
+# client rewrites before sending: a cancel for an alert keyed ".." would go out
+# as DELETE /alerts and release the one showing instead. Slot keys keep the
+# looser pattern because a slot stored under "..." by an earlier release has to
+# stay reachable to hide or delete. Written without a lookahead, which the
+# pattern engine does not have.
+AlertKey = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+        description="the name a caller gave an alert, so that it can update or cancel it",
     ),
 ]
 
@@ -41,6 +58,13 @@ VariableName = Annotated[
         ),
     ),
 ]
+
+
+# The longest a deadline may be set from now: a year, leap or not. Unbounded,
+# a large enough number of seconds put the deadline past the last date the
+# service can represent, and the request failed with a 500 rather than a 422.
+# Anything meant to last longer than this wants no deadline at all.
+LONGEST_SECONDS = 366 * 24 * 60 * 60
 
 
 def _normalise_mode(value: str) -> str:
@@ -78,10 +102,11 @@ class SlotRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
             "act on the message this many seconds from now, deleting or hiding it "
-            "according to delete_on_expiry. Omit it for no deadline, which leaves the "
-            "message in place until something replaces or removes it"
+            "according to delete_on_expiry. At most a year. Omit it for no deadline, "
+            "which leaves the message in place until something replaces or removes it"
         ),
     )
     delete_on_expiry: bool = Field(
@@ -180,10 +205,11 @@ class VariableRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
             "show stale_value in its place this many seconds from now unless a fresh "
             "value arrives first. The variable itself stays, since messages call it. "
-            "Omit to keep the value until replaced"
+            "At most a year. Omit to keep the value until replaced"
         ),
     )
     stale_value: str = Field(
@@ -222,7 +248,7 @@ class VariableResponse(BaseModel):
     called_by: list[str] = Field(
         description=(
             "the keys of the slots whose messages call this variable. It cannot be deleted "
-            "while any do, nor while called_by_alert is true"
+            "while any do, nor while called_by_alert or called_by_waiting_alert is true"
         )
     )
     called_by_alert: bool = Field(
@@ -231,10 +257,21 @@ class VariableResponse(BaseModel):
             "deleted until the alert is released or replaced with one that does not"
         )
     )
+    called_by_waiting_alert: bool = Field(
+        description=(
+            "true while an alert waiting its turn calls this variable. It cannot be "
+            "deleted until every such alert has been shown or cancelled"
+        )
+    )
 
     @classmethod
     def of(
-        cls, variable: VariableState, called_by: list[str], *, called_by_alert: bool
+        cls,
+        variable: VariableState,
+        called_by: list[str],
+        *,
+        called_by_alert: bool,
+        called_by_waiting_alert: bool,
     ) -> VariableResponse:
         """Render a stored variable as the API's view of it."""
         return cls(
@@ -248,6 +285,7 @@ class VariableResponse(BaseModel):
             updated_at=variable.updated_at,
             called_by=called_by,
             called_by_alert=called_by_alert,
+            called_by_waiting_alert=called_by_waiting_alert,
         )
 
 
@@ -306,41 +344,126 @@ class AlertRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
-            "release the sign this many seconds from now. Omit and the alert holds the "
-            "sign until something releases it explicitly"
+            "release the sign this many seconds after the alert takes it: from now, or "
+            "for one that queues, from when its turn comes. At most a year. Omit and "
+            "the alert holds the sign until something releases it explicitly"
         ),
     )
-    fail_if_active: bool = Field(
-        default=False,
+    if_active: Literal["replace", "queue", "fail"] = Field(
+        default="replace",
         description=(
-            "refuse with a 409 if an alert is already holding the sign, rather than "
-            "replacing it. For a caller that is one of several raising alerts and has "
-            "no business overwriting somebody else's alert. An alert whose deadline has "
-            "already passed does not count as holding the sign. Release the alert that "
-            "is up, or send the same call without this, to get past a refusal"
+            "what to do if an alert is already holding the sign. replace takes the sign "
+            "from it, and leaves any alerts waiting their turn as they are. queue waits "
+            "for it to end, by its ttl or by being released, and then takes the sign, "
+            "after any alerts already waiting; the service holds it, so the caller can "
+            "send it and forget it. fail refuses with a 409. With queue or fail an alert "
+            "waiting its turn counts as holding the sign too. An alert whose deadline "
+            "has already passed does not"
+        ),
+    )
+    key: AlertKey | None = Field(
+        default=None,
+        description=(
+            "a name for this alert. A queued alert sent again with the key of one still "
+            "waiting updates that one where it stands, rather than joining the back, so "
+            "a caller can send the same alert until it is seen without filling the "
+            "queue with copies; and a waiting alert can be cancelled by its key. A key "
+            "matching the alert holding the sign does not touch that alert"
+        ),
+    )
+    max_wait_seconds: float | None = Field(
+        default=None,
+        gt=0,
+        le=LONGEST_SECONDS,
+        description=(
+            "with if_active queue, drop the alert unseen if it has not taken the sign "
+            "this many seconds from now, for news that stops being true. Separate from "
+            "ttl_seconds, whose clock starts only when the alert takes the sign. At "
+            "most a year. Omit and it waits however long it takes"
         ),
     )
 
     _check_mode = field_validator("display_mode")(_normalise_mode)
 
+    @model_validator(mode="after")
+    def _wait_only_when_queued(self) -> AlertRequest:
+        if self.max_wait_seconds is not None and self.if_active != "queue":
+            raise ValueError(
+                "max_wait_seconds says how long a queued alert may wait, so it needs "
+                "if_active queue; this alert would never wait"
+            )
+        return self
+
 
 class AlertResponse(BaseModel):
-    """The alert currently holding the sign."""
+    """An alert, holding the sign or waiting its turn."""
 
     message: str
     display_mode: str
-    started_at: datetime
-    expires_at: datetime | None
+    key: str | None = Field(description="the name its caller gave it, or null")
+    state: Literal["showing", "waiting"] = Field(
+        description="showing if it holds the sign, waiting if it is queued behind one that does"
+    )
+    started_at: datetime | None = Field(
+        description="when it took the sign, or null while it is waiting"
+    )
+    expires_at: datetime | None = Field(
+        description=(
+            "when it gives the sign back, or null if it holds it until released or is "
+            "still waiting"
+        )
+    )
+    ttl_seconds: float | None = Field(
+        description=(
+            "while waiting, how long it will hold the sign once it takes it, or null if "
+            "until released. Null once it is showing, where expires_at says it"
+        )
+    )
+    queued_at: datetime | None = Field(
+        description="when it joined the queue, or null once it is showing"
+    )
+    wait_until: datetime | None = Field(
+        description=(
+            "while waiting, when it is dropped unseen if it has not taken the sign, or "
+            "null if it waits however long it takes"
+        )
+    )
+    position: int | None = Field(
+        description="while waiting, where it stands: 1 is the next to take the sign"
+    )
 
     @classmethod
     def of(cls, alert: AlertState) -> AlertResponse:
-        """Render a stored alert as the API's view of it."""
+        """Render the alert holding the sign as the API's view of it."""
         return cls(
             message=alert.message,
             display_mode=alert.mode,
+            key=alert.key,
+            state="showing",
             started_at=alert.started_at,
             expires_at=alert.expires_at,
+            ttl_seconds=None,
+            queued_at=None,
+            wait_until=None,
+            position=None,
+        )
+
+    @classmethod
+    def waiting(cls, alert: QueuedAlertState, position: int | None) -> AlertResponse:
+        """Render a waiting alert as the API's view of it."""
+        return cls(
+            message=alert.message,
+            display_mode=alert.mode,
+            key=alert.key,
+            state="waiting",
+            started_at=None,
+            expires_at=None,
+            ttl_seconds=alert.ttl_seconds,
+            queued_at=alert.queued_at,
+            wait_until=alert.wait_until,
+            position=position,
         )
 
 
@@ -384,9 +507,11 @@ class HealthResponse(BaseModel):
 
     status: str = Field(
         description=(
-            "'ok' when the link to the sign is open, otherwise 'degraded'. Through an "
-            "Ethernet adapter that is the adapter's connection, which stays open with "
-            "the sign switched off behind it"
+            "'ok' when the link to the sign is open and sign_in_sync is true, "
+            "otherwise 'degraded'; link.connected and sign_in_sync say which. Through "
+            "an Ethernet adapter the link is the adapter's connection, which stays open "
+            "with the sign switched off behind it, and a sign power cycled there is "
+            "found and repaired by the next check rather than reported here"
         )
     )
     version: str
@@ -411,6 +536,7 @@ class HealthResponse(BaseModel):
         )
     )
     alert_active: bool
+    alerts_waiting: int = Field(description="how many alerts are queued behind the one showing")
     clock_last_synced_at: datetime | None
 
 
