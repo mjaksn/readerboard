@@ -1285,6 +1285,19 @@ class TestUnreachableSign:
 
         assert client.get("/health").json()["link"]["connected"] is False
 
+    def test_health_is_degraded_with_the_link_down_and_the_record_intact(self, client, sign):
+        # A failed alert write takes the link down without marking any slot
+        # stale, so only the link says anything is wrong, and status has to
+        # listen to it.
+        sign.fail_with = "cable unplugged"
+        client.post("/alerts", json={"message": "ALERT"}, headers=HEADERS)
+
+        body = client.get("/health").json()
+
+        assert body["link"]["connected"] is False
+        assert body["sign_in_sync"] is True
+        assert body["status"] == "degraded"
+
     def test_an_alert_is_503(self, client, sign):
         sign.fail_with = "cable unplugged"
 

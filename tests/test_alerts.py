@@ -637,6 +637,47 @@ class TestQueue:
         assert alerts.active.message == "B"
         assert alerts.waiting == []
 
+    async def test_a_promotion_stops_for_an_alert_that_took_the_sign_meanwhile(
+        self, alerts, registry
+    ):
+        # An urgent alert sent while the promotion waited for the locks gets
+        # them first. Writing the waiting one over it would lose it, and its
+        # caller has already been answered 200.
+        alerts.set_rendering(registry.rendering)
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "PARCEL")
+        await alerts.release()
+
+        async with registry.rendering(None):
+            smoke = asyncio.create_task(raise_alert(alerts, "SMOKE"))
+            await asyncio.sleep(0)
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+        await smoke
+
+        assert await promoting is False
+        assert alerts.active.message == "SMOKE"
+        assert [w.message for w in alerts.waiting] == ["PARCEL"]
+
+    async def test_two_queued_alerts_sent_at_once_to_a_free_sign_show_one_and_queue_one(
+        self, alerts, registry
+    ):
+        # Both see a free sign while the registry is busy, so the second finds
+        # it taken only when it goes to show, and has to go round again and
+        # queue rather than fail.
+        alerts.set_rendering(registry.rendering)
+
+        async with registry.rendering(None):
+            one = asyncio.create_task(queue_alert(alerts, "ONE"))
+            two = asyncio.create_task(queue_alert(alerts, "TWO"))
+            await asyncio.sleep(0)
+        first, second = await asyncio.gather(one, two)
+
+        assert isinstance(first, AlertState)
+        assert isinstance(second, QueuedAlertState)
+        assert alerts.active.message == "ONE"
+        assert [w.message for w in alerts.waiting] == ["TWO"]
+
     async def test_the_sweep_releases_only_the_alert_it_found_expired(
         self, alerts, controller, clock
     ):
