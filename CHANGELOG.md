@@ -66,6 +66,12 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   queued alert's `ttl_seconds` it was a 500 on every release once that alert
   reached the head of the queue. Something meant to last longer than a year
   wants no deadline at all.
+- **A slot key or an alert key made only of dots is refused with a 422.** `.`
+  and `..` are the two path segments an HTTP client rewrites before sending, so
+  a slot under either could not be reached to delete, and a cancel for an alert
+  queued under `..` would go out as `DELETE /alerts` and release the alert
+  showing. A key with a dot among other characters, such as `v1.2`, is still
+  allowed.
 - **A stored alert that has outgrown the priority file is released when it is
   re-asserted**, as it already was at startup, rather than left recorded and
   not shown. Kept, it would have held every alert waiting behind it for good.

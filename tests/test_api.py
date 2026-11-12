@@ -281,6 +281,19 @@ class TestMessages:
         assert body["message"] == "<green>18.4<degree>"
         assert body["label"] == "A"
 
+    @pytest.mark.parametrize("key", [".", ".."])
+    def test_a_slot_key_of_dots_alone_is_refused(self, key):
+        # Same rule as an alert's key. A client cannot normally send these as a
+        # path segment at all, but one that does not rewrite them could create
+        # a slot that no ordinary client could then reach to delete.
+        from pydantic import TypeAdapter, ValidationError
+
+        from readerboard.api.models import SlotKey
+
+        with pytest.raises(ValidationError):
+            TypeAdapter(SlotKey).validate_python(key)
+        assert TypeAdapter(SlotKey).validate_python("a.b") == "a.b"
+
     def test_several_messages_share_the_sign(self, client):
         client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
         client.put("/slots/two", json={"message": "TWO"}, headers=HEADERS)
@@ -1400,6 +1413,24 @@ class TestAlertQueue:
         assert client.delete("/alerts/queue/second", headers=HEADERS).status_code == 204
         assert client.get("/alerts/queue").json() == []
         assert client.delete("/alerts/queue/second", headers=HEADERS).status_code == 404
+
+    @pytest.mark.parametrize("key", [".", ".."])
+    def test_a_key_of_dots_alone_is_refused(self, client, key):
+        # A client rewrites these path segments before sending, so a cancel for
+        # an alert keyed ".." would arrive as DELETE /alerts and release the one
+        # showing, and one keyed "." as DELETE /alerts/queue and cancel them all.
+        self.post(client, "FIRST")
+
+        response = self.post(client, "SECOND", if_active="queue", key=key)
+
+        assert response.status_code == 422
+        assert client.get("/alerts/queue").json() == []
+
+    @pytest.mark.parametrize("key", ["..a", "a.b", "v1.2"])
+    def test_a_key_with_dots_in_it_is_still_allowed(self, client, key):
+        self.post(client, "FIRST")
+
+        assert self.post(client, "SECOND", if_active="queue", key=key).status_code == 200
 
     def test_the_queue_can_be_emptied(self, client):
         self.post(client, "FIRST")

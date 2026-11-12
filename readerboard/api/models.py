@@ -19,12 +19,19 @@ from readerboard.protocol.replies import GeneralInformation
 from readerboard.protocol.tokens import COMMAND_BY_NAME, MODE_BY_NAME
 from readerboard.sign.state import AlertState, QueuedAlertState, SlotState, VariableState
 
+# Letters, digits, dots, underscores and hyphens, but never dots alone. A key
+# is a path segment as well as a name, and "." and ".." are the two segments an
+# HTTP client rewrites before sending: a cancel for an alert keyed ".." would go
+# out as DELETE /alerts and release the one showing instead. Written without a
+# lookahead, which the pattern engine does not have.
+KEY_PATTERN = r"^[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*$"
+
 SlotKey = Annotated[
     str,
     Field(
         min_length=1,
         max_length=64,
-        pattern=r"^[A-Za-z0-9._-]+$",
+        pattern=KEY_PATTERN,
         description="the name of the slot, chosen by whoever owns it",
     ),
 ]
@@ -34,7 +41,7 @@ AlertKey = Annotated[
     Field(
         min_length=1,
         max_length=64,
-        pattern=r"^[A-Za-z0-9._-]+$",
+        pattern=KEY_PATTERN,
         description="the name a caller gave an alert, so that it can update or cancel it",
     ),
 ]
