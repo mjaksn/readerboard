@@ -2188,7 +2188,9 @@ class TestQueuedAlertsAndPictures:
                 return rendering(message)
 
             alerts._rendering = watching
-            await looked.wait()
+            # Bounded, so a promotion that stops reaching the rendering fails
+            # this test rather than hanging it.
+            await asyncio.wait_for(looked.wait(), 5)
             assert alerts.waiting[0].wait_until > clock()
             clock.advance(61)
 
