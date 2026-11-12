@@ -557,6 +557,27 @@ class TestQueue:
         assert (waiting.message, waiting.key, waiting.ttl_seconds) == ("SECOND", "second", 30)
         assert waiting.wait_until == clock.now + timedelta(seconds=600)
 
+    async def test_a_restored_queue_longer_than_a_lowered_limit_is_tried_to_the_end(
+        self, alerts, transport, store, clock
+    ):
+        # Restarted with alert_queue_limit lowered below what is waiting, every
+        # alert still gets its turn: one that can be shown behind three that
+        # cannot goes up in the same release rather than being left waiting.
+        await raise_alert(alerts, "FIRST")
+        for broken in ("ONE", "TWO", "THREE"):
+            await queue_alert(alerts, broken)
+        await queue_alert(alerts, "FINE")
+        state = store.load()
+        for waiting in state.alert_queue[:3]:
+            waiting.message = "X" * 126
+
+        controller = SignController(transport, inter_packet_delay=0, settle=False)
+        restored = AlertService(controller, store, state, now=clock, queue_limit=1)
+        await restored.dismiss()
+
+        assert restored.active.message == "FINE"
+        assert restored.waiting == []
+
     async def test_a_release_that_fails_keeps_the_queue_it_was_asked_to_clear(
         self, alerts, transport
     ):

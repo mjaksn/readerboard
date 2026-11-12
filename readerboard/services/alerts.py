@@ -906,8 +906,12 @@ class AlertService:
         """
         # Bounded rather than open, although every round but the last removes
         # an alert or finds a different one at the head: a caller updating the
-        # head by its key on every round would otherwise keep this going.
-        for _ in range(self._queue_limit + 2):
+        # head by its key on every round would otherwise keep this going. The
+        # queue can be longer than the limit, restored from a state file
+        # written before the limit was lowered, and every alert in it gets its
+        # round.
+        rounds = max(self._queue_limit, len(self._state.alert_queue)) + 2
+        for _ in range(rounds):
             outcome = await self._promote_head()
             if outcome != "again":
                 return outcome == "shown"
