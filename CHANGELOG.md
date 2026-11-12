@@ -16,7 +16,9 @@ library, and the names inside it may move without that being a breaking change.
 **An alert can wait its turn, and this is the last breaking release before
 1.0.** One setting is renamed, so a config file or environment still naming
 `refresh_interval_seconds` stops the service starting until it is renamed, and a
-caller still sending `fail_if_active` to `POST /alerts` is answered 422.
+caller still sending `fail_if_active` to `POST /alerts` is answered 422. Every
+config file `scripts/install.sh` has written names that setting, whether or not
+anybody changed it, so every systemd install needs that edit.
 **Read the Changed section below before upgrading a machine that is running.**
 Nothing about the memory configuration changes, so upgrading erases nothing, and
 a state file from 0.8.3 reads as one with no alerts waiting.
@@ -32,7 +34,11 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   `READERBOARD_CHECK_INTERVAL_SECONDS`. Either old name stops the service with
   a message naming the new one. That includes the environment variable, which
   would otherwise have been ignored without a word and the interval quietly
-  gone back to fifteen minutes.
+  gone back to fifteen minutes. The example config set the old key, and
+  `scripts/install.sh` copied it into `/etc/readerboard/config.toml`, so a
+  systemd install has it whether or not it was ever changed. Rename it there
+  before re-running the installer, which keeps that file as it is and reports
+  success while the service fails to start.
 - **`GET /health` says `degraded` while the sign is out of step, not only while
   the link is down.** It said `ok` whenever the link was open, even with
   `sign_in_sync` false, so a monitor reading `status` alone missed a sign the

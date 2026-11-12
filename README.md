@@ -198,8 +198,11 @@ sudo scripts/install.sh --serial-url socket://192.168.2.51:4001
 
 This creates a `readerboard` system user, builds a virtual environment in
 `/opt/readerboard`, writes `/etc/readerboard/config.toml` with a freshly generated API key,
-and enables the `readerboard` service. It prints the key once, and it is safe to run
-again after pulling a new version: your config file and key are left alone.
+and enables the `readerboard` service. It prints the key once, and it can be run again
+after pulling a new version: your config file and key are left alone. Left alone means
+not updated either. When a release renames or removes a setting, `CHANGELOG.md` says so,
+and the file needs that edit before the service will start again; the installer keeps
+the file as it is and reports success either way.
 
 `sudo scripts/uninstall.sh` removes the service and the program but keeps your config and
 your registered messages, so reinstalling puts the sign back as it was. Add `--purge` to

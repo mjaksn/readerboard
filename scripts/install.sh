@@ -32,7 +32,8 @@ Options:
   --no-start         install and enable the service but do not start it
   --help             show this message
 
-Run it again after pulling a new version. Your config file and API key survive.
+Run it again after pulling a new version. Your config file and API key survive,
+so a setting the CHANGELOG says was renamed or removed has to be edited first.
 USAGE
 }
 
