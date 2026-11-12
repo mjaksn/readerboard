@@ -343,9 +343,12 @@ to get wrong:
   share one state file, and the registry claims a message's pictures in it
   before writing them and gives them back only in memory if the write fails, so
   a save made in between puts the claim on disk for a restart to load.
-  `AlertService._save` is the save for a caller holding no lock; everything else
-  saves inside a `rendering(None)` taken with the alert service's own lock.
-  `_put_back` is the exception, and runs inside the registry's own write.
+  An alert just put on the sign is saved inside the rendering it went up in,
+  with no await between the write and the save, so that nothing can cancel the
+  save and leave the file one alert behind; `AlertService._save_holding_both`
+  has the rest. Everything else saves inside a `rendering(None)` taken with the
+  alert service's own lock. `_put_back` is the exception, and runs inside the
+  registry's own write.
 - **A waiting alert counts as holding the sign** for `queue` and `fail`, so
   nothing gets ahead of the queue in the moment between one alert ending and the
   next being promoted. `replace` leaves the queue alone.

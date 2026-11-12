@@ -1,6 +1,7 @@
 """Tests for alerts: takeover, timed release, and surviving a restart."""
 
 import asyncio
+import contextlib
 from datetime import timedelta
 
 import pytest
@@ -776,3 +777,54 @@ class TestQueue:
         assert "could not show the next waiting one yet" in caplog.text
         assert alerts.active is None
         assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+
+class TestAnAlertOnTheSignIsSavedBeforeAnythingCanStopIt:
+    """No await between putting an alert on the sign and saving it.
+
+    The save used to wait for the registry's lock after the write. A task
+    cancelled there, a request whose client went away or the sweep loop at
+    shutdown, left the alert on the sign and the state file one alert behind,
+    and a restart then put back the alert it had replaced, or showed a promoted
+    one again with a fresh deadline.
+    """
+
+    async def _cancel_once_recorded(self, task, registry, state, message):
+        # A refresh queued on the registry's lock is what kept the old save
+        # waiting, so one is queued while the alert is being written.
+        refreshing = asyncio.create_task(registry.refresh())
+        while state.alert is None or state.alert.message != message:
+            await asyncio.sleep(0)
+        task.cancel()
+        refreshing.cancel()
+        for running in (task, refreshing):
+            with contextlib.suppress(asyncio.CancelledError):
+                await running
+
+    async def test_a_raised_alert_is_in_the_file_when_its_request_is_cancelled(
+        self, alerts, registry, state, store
+    ):
+        alerts.set_rendering(registry.rendering)
+        await raise_alert(alerts, "OLD")
+
+        raising = asyncio.create_task(raise_alert(alerts, "NEW"))
+        await asyncio.sleep(0)
+        await self._cancel_once_recorded(raising, registry, state, "NEW")
+
+        assert store.load().alert.message == "NEW"
+
+    async def test_a_promoted_alert_is_in_the_file_when_the_sweep_is_cancelled(
+        self, alerts, registry, state, store
+    ):
+        alerts.set_rendering(registry.rendering)
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "DOOR OPEN")
+        await alerts.release()
+
+        promoting = asyncio.create_task(alerts.promote())
+        await asyncio.sleep(0)
+        await self._cancel_once_recorded(promoting, registry, state, "DOOR OPEN")
+
+        saved = store.load()
+        assert saved.alert.message == "DOOR OPEN"
+        assert saved.alert_queue == []

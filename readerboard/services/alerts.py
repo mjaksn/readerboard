@@ -679,14 +679,8 @@ class AlertService:
         # the alert calls: it reads the recorded alert under the same lock, so
         # it never sees one that is rendered but not yet recorded.
         #
-        # Persisting it does not. The rendering is a transaction: anything that
-        # escapes it takes the alert's newly claimed pictures back, on the
-        # reading that an alert which did not land calls nothing. Once the
-        # priority file is written that reading is wrong, and a save that failed
-        # inside it would hand away the files the alert on the sign is drawing
-        # from. So the save happens after, where a failure costs the record on
-        # disk and nothing on the sign, and under the registry's lock again: see
-        # :meth:`_save`.
+        # Persisting it happens in there too, straight after the write, and
+        # never raises there: see :meth:`_save_holding_both`.
         async with self._rendering(message) as render_message, self._lock:
             # First, so that a refusal renders nothing, writes nothing and takes
             # nothing from the picture pool. The rendering undoes any claim made
@@ -710,8 +704,10 @@ class AlertService:
                 key=key,
             )
             await self._take_the_sign(render_message, alert, body)
+            failed_save = self._save_holding_both()
 
-        await self._save()
+        if failed_save is not None:
+            raise failed_save
 
         logger.info(
             "alert raised%s",
@@ -964,6 +960,7 @@ class AlertService:
                 # removing it by what it is keeps that true of this line even if
                 # something one day does.
                 queue[:] = [waiting for waiting in queue if waiting is not head]
+                failed_save = self._save_holding_both()
         except _SignTaken:
             return "stopped"
         except _HeadMoved:
@@ -1008,7 +1005,8 @@ class AlertService:
             )
             return "again"
 
-        await self._save()
+        if failed_save is not None:
+            raise failed_save
         logger.info(
             "the next waiting alert took the sign%s, %d still waiting",
             " until %s" % alert.expires_at.isoformat() if alert.expires_at else "",
@@ -1082,7 +1080,7 @@ class AlertService:
         on its way to failing.
 
         Both locks, the registry's first, because releasing saves the state
-        file: see :meth:`_save`.
+        file: see :meth:`_save_holding_both`.
         """
         async with self._rendering(None), self._lock:
             was_active = await self._release_locked()
@@ -1158,7 +1156,7 @@ class AlertService:
         while this waited, by an alert queued with nothing left to wait for,
         and the release would then take down the alert that had just been
         shown. The registry's lock is held too, because both the drop and the
-        release save the state file: see :meth:`_save`.
+        release save the state file: see :meth:`_save_holding_both`.
         """
         async with self._rendering(None), self._lock:
             self._drop_waited_too_long()
@@ -1171,20 +1169,38 @@ class AlertService:
         self._log_released()
         return True
 
-    async def _save(self) -> None:
-        """Save the state file, holding the registry's lock while it is written.
+    def _save_holding_both(self) -> Exception | None:
+        """Save the state file for an alert just put on the sign. Returns a failure, not raised.
+
+        Called with both locks held, straight after the write, for two reasons.
 
         The file is shared with the registry, whose picture map is in it, and
         the registry claims pictures in that map before it writes them, giving
         them back only in memory if the write fails or is cancelled. A save made
         while one of those is under way would put the claims on disk, and a
-        restart would then load a picture map the sign does not have. Every
-        save here is made with the registry's lock held for that reason: this
-        one for a caller holding no lock, and the rest inside a
-        ``rendering(None)`` taken with this service's own lock.
+        restart would then load a picture map the sign does not have. So every
+        save here holds the registry's lock: these two inside the rendering the
+        alert went up in, and the rest inside a ``rendering(None)`` taken with
+        this service's own lock.
+
+        And nothing awaits between the write and the save. A save that had to
+        wait for the lock again after the write could be cancelled there, by a
+        client going away or by the sweep loop stopping at shutdown, leaving the
+        alert on the sign and the file one alert behind for a restart to put
+        back.
+
+        Returned rather than raised, because the rendering is a transaction:
+        anything escaping it takes the alert's newly claimed pictures back, on
+        the reading that an alert which did not land calls nothing. Once the
+        priority file is written that reading is wrong, so the caller raises it
+        after the rendering has closed, where a failure costs the record on disk
+        and nothing on the sign.
         """
-        async with self._rendering(None):
+        try:
             self._store.save(self._state)
+        except Exception as err:
+            return err
+        return None
 
     def _has_expired(self, alert: AlertState) -> bool:
         """Whether an alert's deadline has passed, on the service's own clock."""
