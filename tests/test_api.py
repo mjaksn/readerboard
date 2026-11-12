@@ -1346,6 +1346,36 @@ class TestTheErrorTable:
         assert response.status_code == 500
 
 
+class TestNumbersJsonCannotCarry:
+    """A body holding Infinity, NaN or 1e400 is a 422 like any other wrong body.
+
+    FastAPI echoes each rejected value back, and none of these can be encoded,
+    so the 422 itself used to raise and the caller got a 500.
+    """
+
+    @pytest.mark.parametrize("number", ["Infinity", "-Infinity", "NaN", "1e400"])
+    @pytest.mark.parametrize(
+        ("method", "path", "body"),
+        [
+            ("PUT", "/slots/a", '{"message": "HI", "ttl_seconds": %s}'),
+            ("PUT", "/variables/a", '{"value": "1", "ttl_seconds": %s}'),
+            ("POST", "/alerts", '{"message": "HI", "ttl_seconds": %s}'),
+            ("POST", "/alerts", '{"message": "HI", "if_active": "queue", "max_wait_seconds": %s}'),
+            ("PUT", "/slots/a", '{"message": "HI", "order": %s}'),
+        ],
+    )
+    def test_it_is_refused_with_a_422(self, client, method, path, body, number):
+        response = client.request(
+            method,
+            path,
+            content=body % number,
+            headers={**HEADERS, "content-type": "application/json"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+
 class TestNoApiKeyConfigured:
     def test_writes_are_refused_rather_than_left_open(self, tmp_path, sign):
         settings = Settings(

@@ -22,9 +22,13 @@ import asyncio
 import contextlib
 import functools
 import logging
+import math
 from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from readerboard import __version__, logging_setup, names
@@ -384,7 +388,8 @@ def _install_error_handlers(app: FastAPI) -> None:
     """Turn the service's own exceptions into the status codes they mean.
 
     Registered by walking the table in readerboard.api.errors, which is the one
-    place that decides what any of them means.
+    place that decides what any of them means. The 422 for a body pydantic
+    rejects is FastAPI's, replaced only so that it can always be encoded.
     """
 
     def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
@@ -397,6 +402,29 @@ def _install_error_handlers(app: FastAPI) -> None:
 
     for kind, code in errors.STATUS_FOR_ERROR:
         app.add_exception_handler(kind, handler(code))
+
+    async def refused(_: Request, exc: Exception) -> JSONResponse:
+        # FastAPI's own handler for this, with one difference. It echoes each
+        # rejected value back, and a body holding Infinity, NaN or a literal too
+        # big for a float, such as 1e400, has a value JSON cannot carry, so
+        # encoding the 422 raised and the caller got a 500 for a body that was
+        # simply wrong. Those values go back as their text instead.
+        assert isinstance(exc, RequestValidationError)
+        detail = _encodable(jsonable_encoder(exc.errors()))
+        return JSONResponse(status_code=422, content={"detail": detail})
+
+    app.add_exception_handler(RequestValidationError, refused)
+
+
+def _encodable(value: Any) -> Any:
+    """Return ``value`` with every float JSON cannot carry turned into its text."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)
+    if isinstance(value, dict):
+        return {key: _encodable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_encodable(item) for item in value]
+    return value
 
 
 app = create_app()

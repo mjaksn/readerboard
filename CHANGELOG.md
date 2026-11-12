@@ -61,11 +61,13 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   `started_at` null for one that is waiting. The fields a caller read before are
   all still there and mean what they did.
 - **Every `ttl_seconds`, on a message, a variable or an alert, and the new
-  `max_wait_seconds`, is at most a year.** A larger number put the deadline past
-  the last date the service can hold, and was a 500 rather than a 422; for a
-  queued alert's `ttl_seconds` it was a 500 on every release once that alert
-  reached the head of the queue. Something meant to last longer than a year
-  wants no deadline at all.
+  `max_wait_seconds`, is at most a year, and a larger one is a 422.** 0.8.3
+  accepted a deadline of up to several thousand years, so a caller sending two
+  years, say, was answered 200 then and is refused now. Only a number big
+  enough to put the deadline past the last date the service can hold was ever
+  a 500, and a queued alert's `ttl_seconds` would have failed that way once the
+  alert reached the head of the queue. Something meant to last longer than a
+  year wants no deadline at all.
 - **A slot key or an alert key made only of dots is refused with a 422.** `.`
   and `..` are the two path segments an HTTP client rewrites before sending, so
   a slot under either could not be reached to delete, and a cancel for an alert
@@ -119,6 +121,10 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   looks at every setting at once, such as the one for a memory configuration too
   big for any sign, printed all of them as its input, the key among them. Each
   refusal now prints only its own message, which names the setting it is about.
+- **A body holding `Infinity`, `NaN` or a number too big for a float, such as
+  `1e400`, is a 422 rather than a 500.** The refusal echoes the rejected value
+  back, and JSON cannot carry these, so writing the 422 failed. A Python caller
+  passing `math.inf` to mean forever sends `Infinity`.
 - **An alert refused with `fail`, or too long for the priority file, no longer
   marks the sign out of sync** when its icon had to evict an idle one to be
   checked, and nor does a message refused for its length or for a full slot
