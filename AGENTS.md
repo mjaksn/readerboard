@@ -334,8 +334,11 @@ to get wrong:
   regardless. Do not promote from anywhere else an alert is released.
 - **Everything that changes the queue holds the alert service's lock**, the
   drop for an alert that has waited too long included. A promotion writes the
-  head with that lock held and takes it out of the queue afterwards, so anything
-  changing the queue during the write would leave it removing the wrong one.
+  head with that lock held and takes it out of the queue afterwards, by identity,
+  so nothing can make it remove the wrong one. The lock is for what the others
+  would report: a drop or a cancel during the write would say that alert was
+  never shown while it goes up on the sign, and an update by its key would leave
+  a second copy waiting behind the one now showing.
 - **A waiting alert counts as holding the sign** for `queue` and `fail`, so
   nothing gets ahead of the queue in the moment between one alert ending and the
   next being promoted. `replace` leaves the queue alone.

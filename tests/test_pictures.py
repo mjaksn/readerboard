@@ -2130,6 +2130,62 @@ class TestQueuedAlertsAndPictures:
         assert alerts.waiting == []
 
 
+    async def stale_head(self, registry, alerts, *, replacement):
+        """Promote while the head changes under it, between its look and its claim.
+
+        The claim is for the message the head had when the promotion looked,
+        and the pool is full of a slot's icon, so it fails. ``replacement`` is
+        what happens to the head while the promotion waits for the locks.
+        """
+        await add(registry, "weather", "<icon:sun>")
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert(
+            "<icon:moon> DOOR", mode="HOLD", if_active="queue", key="door", max_wait_seconds=60
+        )
+        await alerts.raise_alert("SECOND", mode="HOLD", if_active="queue")
+        await alerts.release()
+
+        async with registry.rendering(None):
+            changing = asyncio.create_task(replacement())
+            await asyncio.sleep(0)
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+        await changing
+        return await promoting
+
+    async def test_a_head_updated_while_it_was_claimed_for_is_not_reported_dropped(
+        self, controller, store, state, clock, alerts, caplog
+    ):
+        # The update lands first and drops the icon, so the alert can be shown
+        # and is, in the next round. Saying it was dropped would be false.
+        registry = await self.wired(controller, store, state, clock, alerts)
+
+        async def update():
+            await alerts.raise_alert("DOOR TEXT ONLY", mode="HOLD", if_active="queue", key="door")
+
+        with caplog.at_level("INFO"):
+            assert await self.stale_head(registry, alerts, replacement=update)
+
+        assert "dropped the waiting alert" not in caplog.text
+        assert alerts.active.message == "DOOR TEXT ONLY"
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_a_head_past_its_wait_limit_is_reported_for_that(
+        self, controller, store, state, clock, alerts, caplog
+    ):
+        registry = await self.wired(controller, store, state, clock, alerts)
+
+        async def age_out():
+            clock.advance(61)
+
+        with caplog.at_level("INFO"):
+            assert await self.stale_head(registry, alerts, replacement=age_out)
+
+        assert "dropped unseen" in caplog.text
+        assert "dropped the waiting alert" not in caplog.text
+        assert alerts.active.message == "SECOND"
+
+
 class TestRefusalsLeaveTheSignInSync:
     """A refused alert or slot drew nothing, so the sign still matches the record."""
 

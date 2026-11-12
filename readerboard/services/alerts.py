@@ -944,11 +944,21 @@ class AlertService:
         except (ValueError, RegistryError) as err:
             # Everything that refuses an alert raised by a caller is one of
             # these, and nothing about the sign or the link is.
+            #
+            # The refusal may have come before the locks were held, from
+            # claiming pictures for the message as it stood when this looked.
+            # By now that alert may have been updated by its key, cancelled,
+            # or have waited past its limit, and none of those is this alert
+            # failing to show: an updated one is tried again in the next round.
+            # So the wait limit goes first, logging its own reason, and only an
+            # alert still waiting is dropped and reported here.
             async with self._lock:
+                self._drop_waited_too_long()
                 queue = self._state.alert_queue
-                if any(waiting is head for waiting in queue):
-                    queue[:] = [waiting for waiting in queue if waiting is not head]
-                    self._store.save(self._state)
+                if not any(waiting is head for waiting in queue):
+                    return "again"
+                queue[:] = [waiting for waiting in queue if waiting is not head]
+                self._store.save(self._state)
             logger.warning(
                 "dropped the waiting alert%s, which could not be shown when its turn came: "
                 "%s. The text was: %r",
@@ -972,8 +982,9 @@ class AlertService:
 
         Under it because :meth:`promote` writes the alert at the head with the
         lock held and only then takes it out of the queue. Run during that
-        write, this could drop the alert going up and leave the promotion to
-        remove the one behind it instead.
+        write, this would log the alert going up as dropped unseen and leave it
+        out of a queue it was about to leave anyway, so the log would say an
+        alert was never shown when it is on the sign.
         """
         now = self._now()
         queue = self._state.alert_queue
