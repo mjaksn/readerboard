@@ -931,14 +931,16 @@ class AlertService:
         head = self._state.alert_queue[0]
         try:
             async with self._rendering(head.message) as render_message, self._lock:
-                # Under the lock, and again here rather than only before it, so
-                # that an alert whose limit on waiting passed while this waited
-                # for the locks is dropped rather than shown.
-                self._drop_waited_too_long()
                 queue = self._state.alert_queue
                 if self.active is not None:
                     raise _SignTaken
-                if not queue or queue[0] is not head:
+                # Checked again here rather than only before the locks, so that
+                # an alert whose limit on waiting passed while this waited for
+                # them is not shown. Not dropped here, though: dropping saves
+                # the state file, and inside the rendering that file would
+                # take with it the pictures just claimed for this alert, which
+                # the rollback on the way out puts back only in memory.
+                if not queue or queue[0] is not head or self._waited_too_long(head):
                     raise _HeadMoved
 
                 body = render_message(head.message)
@@ -964,6 +966,11 @@ class AlertService:
         except _SignTaken:
             return "stopped"
         except _HeadMoved:
+            # The claims have been given back by now. Holding the registry's
+            # lock as well keeps anybody else's claims out of the file this
+            # saves.
+            async with self._rendering(None), self._lock:
+                self._drop_waited_too_long()
             return "again"
         except (ValueError, RegistryError) as err:
             # Everything that refuses an alert raised by a caller is one of
@@ -1001,6 +1008,10 @@ class AlertService:
         )
         return "shown"
 
+    def _waited_too_long(self, waiting: QueuedAlertState) -> bool:
+        """Whether a waiting alert's limit on waiting has passed."""
+        return waiting.wait_until is not None and waiting.wait_until <= self._now()
+
     def _drop_waited_too_long(self) -> None:
         """Drop every waiting alert whose limit on waiting has passed. Under the lock.
 
@@ -1009,6 +1020,10 @@ class AlertService:
         write, this would log the alert going up as dropped unseen and leave it
         out of a queue it was about to leave anyway, so the log would say an
         alert was never shown when it is on the sign.
+
+        Never inside a rendering that claimed pictures. It saves the state file,
+        which holds the picture map too, so it would write claims that a
+        rollback then undoes only in memory.
         """
         now = self._now()
         queue = self._state.alert_queue

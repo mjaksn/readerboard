@@ -2312,3 +2312,38 @@ class TestRefusalsLeaveTheSignInSync:
 
         assert list(state.pictures) == ["sun"]
         assert not registry.in_sync
+
+
+class TestPromotionKeepsThePictureRecordTrue:
+    """A promotion that backs off leaves the state file holding what the sign holds."""
+
+    async def wired(self, controller, store, state, clock, alerts) -> SlotRegistry:
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        return registry
+
+    async def test_a_head_aging_out_under_the_locks_saves_no_claim(
+        self, controller, store, state, clock, alerts
+    ):
+        # Its claim evicted an idle icon before the wait limit was seen to
+        # have passed. Dropping it there saved that claim, the rollback put the
+        # old icon back only in memory, and with nothing behind it nothing
+        # saved again: a restart would load a picture map the sign does not
+        # have.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun> FIRST", mode="HOLD")
+        await alerts.raise_alert(
+            "<icon:moon> LATER", mode="HOLD", if_active="queue", max_wait_seconds=10
+        )
+        await alerts.release()
+
+        async with registry.rendering(None):
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+            clock.advance(11)
+        assert await promoting is False
+
+        assert alerts.waiting == []
+        assert list(state.pictures) == ["sun"]
+        assert list(store.load().pictures) == ["sun"]
