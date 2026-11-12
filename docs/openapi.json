@@ -1497,7 +1497,7 @@
               "description": "the name of the slot, chosen by whoever owns it",
               "maxLength": 64,
               "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+              "pattern": "^[A-Za-z0-9._-]+$",
               "title": "Key",
               "type": "string"
             }
@@ -1540,7 +1540,7 @@
               "description": "the name of the slot, chosen by whoever owns it",
               "maxLength": 64,
               "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+              "pattern": "^[A-Za-z0-9._-]+$",
               "title": "Key",
               "type": "string"
             }
@@ -1585,7 +1585,7 @@
               "description": "the name of the slot, chosen by whoever owns it",
               "maxLength": 64,
               "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+              "pattern": "^[A-Za-z0-9._-]+$",
               "title": "Key",
               "type": "string"
             }
@@ -1647,7 +1647,7 @@
               "description": "the name of the slot, chosen by whoever owns it",
               "maxLength": 64,
               "minLength": 1,
-              "pattern": "^[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*$",
+              "pattern": "^[A-Za-z0-9._-]+$",
               "title": "Key",
               "type": "string"
             }

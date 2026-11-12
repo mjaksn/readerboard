@@ -68,12 +68,6 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   a 500, and a queued alert's `ttl_seconds` would have failed that way once the
   alert reached the head of the queue. Something meant to last longer than a
   year wants no deadline at all.
-- **A slot key or an alert key made only of dots is refused with a 422.** `.`
-  and `..` are the two path segments an HTTP client rewrites before sending, so
-  a slot under either could not be reached to delete, and a cancel for an alert
-  queued under `..` would go out as `DELETE /alerts` and release the alert
-  showing. A key with a dot among other characters, such as `v1.2`, is still
-  allowed.
 - **A stored alert that has outgrown the priority file is released when it is
   re-asserted**, as it already was at startup, rather than left recorded and
   not shown. Kept, it would have held every alert waiting behind it for good.
@@ -98,7 +92,9 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   queueing a second copy, which is what makes resending harmless. A key matching
   the alert already showing does not touch it; the new one joins the back. With
   `max_wait_seconds` an alert that has not taken the sign by then is dropped
-  unseen, for news that stops being true.
+  unseen, for news that stops being true. A key takes the same characters as a
+  slot's, but not dots alone: `.` and `..` are rewritten by an HTTP client, so a
+  cancel for one would reach `DELETE /alerts` or `DELETE /alerts/queue` instead.
 - **`GET /alerts/queue`, `DELETE /alerts/queue` and `DELETE /alerts/queue/{key}`**
   read the waiting alerts in order, cancel them all, or cancel one. `DELETE
   /alerts` releases the alert showing and puts the next one up before it

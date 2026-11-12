@@ -281,18 +281,12 @@ class TestMessages:
         assert body["message"] == "<green>18.4<degree>"
         assert body["label"] == "A"
 
-    @pytest.mark.parametrize("key", [".", ".."])
-    def test_a_slot_key_of_dots_alone_is_refused(self, key):
-        # Same rule as an alert's key. A client cannot normally send these as a
-        # path segment at all, but one that does not rewrite them could create
-        # a slot that no ordinary client could then reach to delete.
-        from pydantic import TypeAdapter, ValidationError
-
-        from readerboard.api.models import SlotKey
-
-        with pytest.raises(ValidationError):
-            TypeAdapter(SlotKey).validate_python(key)
-        assert TypeAdapter(SlotKey).validate_python("a.b") == "a.b"
+    def test_a_slot_keyed_by_dots_alone_stays_reachable(self, client):
+        # An earlier release accepted a key such as "...", and a slot stored
+        # under one has to remain one that can be hidden and deleted. Only "."
+        # and ".." are rewritten by a client, so this one arrives as sent.
+        assert client.put("/slots/...", json={"message": "HI"}, headers=HEADERS).status_code == 200
+        assert client.delete("/slots/...", headers=HEADERS).status_code == 204
 
     def test_several_messages_share_the_sign(self, client):
         client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
