@@ -2173,9 +2173,23 @@ class TestQueuedAlertsAndPictures:
     async def test_a_head_past_its_wait_limit_is_reported_for_that(
         self, controller, store, state, clock, alerts, caplog
     ):
+        # The limit passes after the promotion has read the head and while it
+        # waits for the locks, so the head it claims for was still in date when
+        # it looked. Moving the clock any earlier would have it see an expired
+        # head from the start, which is not the case the refusal branch is for.
         registry = await self.wired(controller, store, state, clock, alerts)
+        looked = asyncio.Event()
 
         async def age_out():
+            rendering = alerts._rendering
+
+            def watching(message):
+                looked.set()
+                return rendering(message)
+
+            alerts._rendering = watching
+            await looked.wait()
+            assert alerts.waiting[0].wait_until > clock()
             clock.advance(61)
 
         with caplog.at_level("INFO"):
