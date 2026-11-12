@@ -133,6 +133,10 @@ a state file from 0.8.3 reads as one with no alerts waiting.
 - **An alert raised just after another's deadline is no longer released by the
   sweep that came for the old one.** The sweep found the old alert expired and
   then released whichever alert was holding the sign by the time it got there.
+- **Releasing or raising an alert while a message's icon was being drawn no
+  longer saves that icon to the state file before the draw has landed.** If the
+  draw then failed, the service took the icon back but the file kept it, and a
+  restart loaded a picture map the sign did not have.
 
 ## [0.8.3] - 2026-11-06
 

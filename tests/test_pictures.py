@@ -2369,3 +2369,60 @@ class TestPromotionKeepsThePictureRecordTrue:
 
         assert alerts.active.message == "NEW"
         assert [w.message for w in alerts.waiting] == ["<icon:moon> LATER"]
+
+
+class TestAlertSavesWaitForTheRegistry:
+    """A save the alert service makes never captures a picture claim still in flight.
+
+    The two services share one state file. The registry claims a message's
+    pictures in it before it writes them and, if the write fails, gives them
+    back only in memory, so a save made in between put the claim on disk for a
+    restart to load.
+    """
+
+    async def _cancel(self, alerts, clock):
+        await alerts.cancel_waiting("k")
+
+    async def _clear(self, alerts, clock):
+        await alerts.clear_waiting()
+
+    async def _release(self, alerts, clock):
+        await alerts.release()
+
+    async def _sweep(self, alerts, clock):
+        clock.advance(11)
+        await alerts.sweep()
+
+    @pytest.mark.parametrize("operation", ["_cancel", "_clear", "_release", "_sweep"])
+    async def test_it_waits_for_a_picture_write_and_saves_what_is_left(
+        self, controller, store, state, clock, alerts, operation
+    ):
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert(
+            "LATER", mode="HOLD", if_active="queue", key="k", max_wait_seconds=10
+        )
+        gate, entered = asyncio.Event(), asyncio.Event()
+
+        async def unplugged_midway(*args, **kwargs):
+            entered.set()
+            await gate.wait()
+            raise TransportError("cable unplugged")
+
+        controller.write_dots_file = unplugged_midway
+        writing = asyncio.create_task(add(registry, "weather", "<icon:sun> SUNNY"))
+        await entered.wait()
+        saving = asyncio.create_task(getattr(self, operation)(alerts, clock))
+        # Long enough for it to finish if nothing holds it back, which is what
+        # it did, saving the claim; it should be waiting for the write instead.
+        await asyncio.wait({saving}, timeout=0.5)
+        assert not saving.done()
+        gate.set()
+        with pytest.raises(TransportError):
+            await writing
+        await saving
+
+        assert state.pictures == {}
+        assert store.load().pictures == {}

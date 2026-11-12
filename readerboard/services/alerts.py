@@ -685,7 +685,8 @@ class AlertService:
         # priority file is written that reading is wrong, and a save that failed
         # inside it would hand away the files the alert on the sign is drawing
         # from. So the save happens after, where a failure costs the record on
-        # disk and nothing on the sign.
+        # disk and nothing on the sign, and under the registry's lock again: see
+        # :meth:`_save`.
         async with self._rendering(message) as render_message, self._lock:
             # First, so that a refusal renders nothing, writes nothing and takes
             # nothing from the picture pool. The rendering undoes any claim made
@@ -710,7 +711,7 @@ class AlertService:
             )
             await self._take_the_sign(render_message, alert, body)
 
-        self._store.save(self._state)
+        await self._save()
 
         logger.info(
             "alert raised%s",
@@ -1007,7 +1008,7 @@ class AlertService:
             )
             return "again"
 
-        self._store.save(self._state)
+        await self._save()
         logger.info(
             "the next waiting alert took the sign%s, %d still waiting",
             " until %s" % alert.expires_at.isoformat() if alert.expires_at else "",
@@ -1050,7 +1051,7 @@ class AlertService:
 
     async def cancel_waiting(self, key: str) -> None:
         """Take one waiting alert out of the queue by its key."""
-        async with self._lock:
+        async with self._rendering(None), self._lock:
             queue = self._state.alert_queue
             for index, waiting in enumerate(queue):
                 if waiting.key == key:
@@ -1062,7 +1063,7 @@ class AlertService:
 
     async def clear_waiting(self) -> int:
         """Empty the queue. Returns how many alerts were waiting."""
-        async with self._lock:
+        async with self._rendering(None), self._lock:
             count = len(self._state.alert_queue)
             if count:
                 self._state.alert_queue.clear()
@@ -1079,8 +1080,11 @@ class AlertService:
         the release has reached the sign: a release that fails leaves the alert
         recorded as holding it, and must not have thrown away the waiting ones
         on its way to failing.
+
+        Both locks, the registry's first, because releasing saves the state
+        file: see :meth:`_save`.
         """
-        async with self._lock:
+        async with self._rendering(None), self._lock:
             was_active = await self._release_locked()
             cleared = len(self._state.alert_queue) if clear_queue else 0
             if cleared:
@@ -1153,9 +1157,10 @@ class AlertService:
         have expired. Read before taking it, an expired alert could be replaced
         while this waited, by an alert queued with nothing left to wait for,
         and the release would then take down the alert that had just been
-        shown.
+        shown. The registry's lock is held too, because both the drop and the
+        release save the state file: see :meth:`_save`.
         """
-        async with self._lock:
+        async with self._rendering(None), self._lock:
             self._drop_waited_too_long()
             alert = self._state.alert
             if alert is None or not self._has_expired(alert):
@@ -1165,6 +1170,21 @@ class AlertService:
 
         self._log_released()
         return True
+
+    async def _save(self) -> None:
+        """Save the state file, holding the registry's lock while it is written.
+
+        The file is shared with the registry, whose picture map is in it, and
+        the registry claims pictures in that map before it writes them, giving
+        them back only in memory if the write fails or is cancelled. A save made
+        while one of those is under way would put the claims on disk, and a
+        restart would then load a picture map the sign does not have. Every
+        save here is made with the registry's lock held for that reason: this
+        one for a caller holding no lock, and the rest inside a
+        ``rendering(None)`` taken with this service's own lock.
+        """
+        async with self._rendering(None):
+            self._store.save(self._state)
 
     def _has_expired(self, alert: AlertState) -> bool:
         """Whether an alert's deadline has passed, on the service's own clock."""
