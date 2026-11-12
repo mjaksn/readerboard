@@ -30,11 +30,12 @@ from readerboard.services.alerts import AlertAlreadyActive, AlertService, AlertT
 from readerboard.services.registry import (
     ASK_AGAIN_AFTER,
     IconsDisabled,
+    MessageTooLong,
     PicturePoolFull,
     SlotRegistry,
 )
 from readerboard.sign.controller import SignController
-from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout
+from readerboard.sign.layout import PICTURE_COLUMNS, PICTURE_ROWS, Layout, LayoutFull
 from readerboard.sign.state import AlertState
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
@@ -2130,7 +2131,7 @@ class TestQueuedAlertsAndPictures:
 
 
 class TestRefusalsLeaveTheSignInSync:
-    """A refused alert drew nothing, so the sign still matches the record."""
+    """A refused alert or slot drew nothing, so the sign still matches the record."""
 
     async def test_an_alert_refused_with_fail_after_an_eviction_leaves_it_in_sync(
         self, controller, store, state, clock, transport, alerts
@@ -2171,6 +2172,64 @@ class TestRefusalsLeaveTheSignInSync:
         controller.write_dots_file = unplugged
         with pytest.raises(TransportError):
             await alerts.raise_alert("<icon:moon>", mode="HOLD")
+
+        assert list(state.pictures) == ["sun"]
+        assert not registry.in_sync
+
+    async def test_a_slot_too_long_after_an_eviction_leaves_it_in_sync(
+        self, controller, store, state, clock, transport
+    ):
+        # The slot write's version of the alert case above: the claim evicts an
+        # idle icon, then the length check refuses the message before any
+        # picture is drawn.
+        registry = SlotRegistry(controller, Layout(3, 32, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:sun>")
+        await add(registry, "a", "<icon:rain>")
+        await add(registry, "a", "plain")
+        assert set(state.pictures) == {"sun", "rain"}
+        assert registry.in_sync
+        transport.clear()
+
+        with pytest.raises(MessageTooLong):
+            await add(registry, "b", "<icon:moon>" + "X" * 100)
+
+        assert transport.packets == []
+        assert registry.in_sync
+        assert set(state.pictures) == {"sun", "rain"}
+
+    async def test_a_slot_refused_for_a_full_layout_after_an_eviction_leaves_it_in_sync(
+        self, controller, store, state, clock, transport
+    ):
+        registry = SlotRegistry(controller, Layout(1, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:sun>")
+        await add(registry, "a", "<icon:rain>")
+        await add(registry, "a", "plain")
+        assert registry.in_sync
+        transport.clear()
+
+        with pytest.raises(LayoutFull):
+            await add(registry, "b", "<icon:moon>")
+
+        assert transport.packets == []
+        assert registry.in_sync
+        assert set(state.pictures) == {"sun", "rain"}
+
+    async def test_a_slot_whose_picture_write_failed_is_out_of_sync(
+        self, controller, store, state, clock
+    ):
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        await add(registry, "a", "<icon:sun>")
+        await add(registry, "a", "plain")
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("cable unplugged")
+
+        controller.write_dots_file = unplugged
+        with pytest.raises(TransportError):
+            await add(registry, "b", "<icon:moon>")
 
         assert list(state.pictures) == ["sun"]
         assert not registry.in_sync

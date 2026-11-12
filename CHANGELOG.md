@@ -109,7 +109,8 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   refusal now prints only its own message, which names the setting it is about.
 - **An alert refused with `fail`, or too long for the priority file, no longer
   marks the sign out of sync** when its icon had to evict an idle one to be
-  checked. Nothing was drawn, yet the next check redrew every picture, blanking
+  checked, and nor does a message refused for its length or for a full slot
+  pool. Nothing was drawn, yet the next check redrew every picture, blanking
   the display once for each.
 - **An alert raised just after another's deadline is no longer released by the
   sweep that came for the old one.** The sweep found the old alert expired and

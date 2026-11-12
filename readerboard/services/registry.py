@@ -1077,6 +1077,13 @@ class SlotRegistry:
             # renders to that variable's label, and a variable deleted between
             # the render and the write would leave the message calling a file
             # somebody else may be handed next.
+            #
+            # Whether a picture write was started, for the same reason as in
+            # :meth:`rendering`: a message refused for its length or for a full
+            # pool wrote nothing, and calling the sign out of sync for that
+            # would report a fault on /health and redraw every picture at the
+            # next check.
+            drawing = False
             try:
                 body = self._render_message(message)
                 if len(body) > self._layout.slot_capacity:
@@ -1100,6 +1107,7 @@ class SlotRegistry:
                 # sign off an alert to write nothing.
                 if claims.claimed:
                     async with self._priority_lifted():
+                        drawing = True
                         await self._write_claims(claims.claimed)
             except BaseException:
                 # The slot file has to go back too, and only here. A new key is
@@ -1117,7 +1125,7 @@ class SlotRegistry:
                 # sign is playing.
                 if key not in self._state.slots:
                     self._layout.slots.release(key)
-                self._undo_claims(claims)
+                self._undo_claims(claims, written=drawing)
                 raise
 
             now = self._now()
