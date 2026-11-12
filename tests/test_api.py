@@ -1354,7 +1354,10 @@ class TestTheErrorTable:
 
 
 class TestValuesTheResponseCannotCarry:
-    """A body holding Infinity, NaN, 1e400 or a lone surrogate is a 422 like any other.
+    """A body JSON cannot echo back is a 422 like any other wrong body.
+
+    That is one holding Infinity, NaN, 1e400 or a lone surrogate, or one sent
+    as something other than JSON whose bytes are not UTF-8.
 
     FastAPI echoes each rejected value back, and none of these can be encoded,
     so the 422 itself used to raise and the caller got a 500.
@@ -1393,6 +1396,42 @@ class TestValuesTheResponseCannotCarry:
 
         assert response.status_code == 422
         assert response.json()["detail"]
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/slots/a", '{"message": {"\\ud800": 1}}'),
+            ("/slots/a", '{"message": "HI", "ttl_seconds": {"\\ud800": 1}}'),
+            ("/variables/a", '{"value": {"\\ud800": 1}}'),
+        ],
+    )
+    def test_an_object_keyed_by_a_lone_surrogate_is_refused_with_a_422(
+        self, client, path, body
+    ):
+        # The object is echoed back whole, so its key has to be escaped as
+        # much as any value.
+        response = client.put(
+            path, content=body, headers={**HEADERS, "content-type": "application/json"}
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+    @pytest.mark.parametrize("content_type", ["application/x-www-form-urlencoded", "text/plain"])
+    def test_a_body_that_is_not_utf8_and_not_json_is_refused_with_a_422(
+        self, client, content_type
+    ):
+        # What Windows PowerShell 5 sends from Invoke-RestMethod with no
+        # -ContentType: a form content type and the body in Latin-1. It is
+        # echoed back as its bytes, which do not decode as UTF-8.
+        response = client.put(
+            "/slots/a",
+            content='{"message": "CAF\xc9"}'.encode("latin-1"),
+            headers={**HEADERS, "content-type": content_type},
+        )
+
+        assert response.status_code == 422
+        assert "\\xc9" in str(response.json()["detail"])
 
 
 class TestNoApiKeyConfigured:

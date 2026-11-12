@@ -425,8 +425,9 @@ declines to write them again.
   before a route body runs are not in it and do not belong there: the 401 and
   the no-key 503 are raised by `require_api_key` in `deps.py`, and the 422 is
   pydantic rejecting the body. That 422 has a handler of its own in `app.py`,
-  which is FastAPI's except that it can write a rejected Infinity, NaN or lone
-  surrogate back to the caller; without it such a body was a 500.
+  which is FastAPI's except that it can write a rejected Infinity, NaN, lone
+  surrogate or body that is not UTF-8 back to the caller; without it such a body
+  was a 500.
 - **`%` formatting throughout, not f-strings.** It matches the lazy `%` that
   logging takes, so one idiom covers a log line and the exception text beside
   it. `UP031` is disabled for this reason.

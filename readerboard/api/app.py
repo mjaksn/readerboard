@@ -393,7 +393,8 @@ def _install_error_handlers(app: FastAPI) -> None:
     Registered by walking the table in readerboard.api.errors, which is the one
     place that decides what any of them means. The 422 for a body pydantic
     rejects is FastAPI's, replaced only so that echoing back a rejected
-    Infinity, NaN or lone surrogate does not turn it into a 500.
+    Infinity, NaN, lone surrogate or body that is not UTF-8 does not turn it
+    into a 500.
     """
 
     def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
@@ -414,10 +415,13 @@ def _install_error_handlers(app: FastAPI) -> None:
         # encoding the 422 raised and the caller got a 500 for a body that was
         # simply wrong. A string holding a lone surrogate, such as the JSON
         # escape for U+D800, is not text UTF-8 can carry and failed the same
-        # way. Those values go back as text instead.
+        # way, as a value or as the key of an object echoed back. Those go back
+        # as text instead. So does a body sent as something other than JSON,
+        # which is echoed back as its bytes and failed when they were not
+        # UTF-8; the bytes undecodable as UTF-8 are written out as escapes.
         assert isinstance(exc, RequestValidationError)
-        detail = _encodable(jsonable_encoder(exc.errors()))
-        return JSONResponse(status_code=422, content={"detail": detail})
+        encoded = jsonable_encoder(exc.errors(), custom_encoder={bytes: _decoded})
+        return JSONResponse(status_code=422, content={"detail": _encodable(encoded)})
 
     app.add_exception_handler(RequestValidationError, refused)
 
@@ -426,7 +430,8 @@ def _encodable(value: Any) -> Any:
     """Return ``value`` with everything a JSON response cannot carry turned into text.
 
     That is a float that is not finite, and a string holding a lone surrogate,
-    which is not valid UTF-8 and has its surrogates written out as escapes.
+    which is not valid UTF-8 and has its surrogates written out as escapes,
+    whether it is a value or an object's key.
     """
     if isinstance(value, float) and not math.isfinite(value):
         return repr(value)
@@ -437,10 +442,15 @@ def _encodable(value: Any) -> Any:
             return value.encode("utf-8", "backslashreplace").decode("utf-8")
         return value
     if isinstance(value, dict):
-        return {key: _encodable(item) for key, item in value.items()}
+        return {_encodable(key): _encodable(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_encodable(item) for item in value]
     return value
+
+
+def _decoded(raw: bytes) -> str:
+    """Return a body echoed back as bytes as text, escaping what is not UTF-8."""
+    return raw.decode("utf-8", "backslashreplace")
 
 
 app = create_app()
