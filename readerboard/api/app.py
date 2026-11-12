@@ -56,7 +56,9 @@ Several sources can share the sign at once. Each registers a named **slot**, and
 the sign rotates through the slots that are showing by itself. A slot can be
 hidden without being given up, so a message can be taken off the display and put
 back without being sent again. An **alert** takes the whole display over until it
-is released, then the rotation resumes.
+is released, then the rotation resumes. An alert that is not urgent can queue
+behind the one showing instead, and takes the sign when that one ends; the
+rotation resumes once no alert is showing or waiting.
 
 A **variable** is a value a slot's message or an alert calls with `<var:name>`.
 Changing it rewrites only the variable, so the sign shows the new value without
@@ -84,7 +86,8 @@ a variable that does not exist, an icon nobody has, a colour asked for on an ico
 drawn in fixed colours, or an icon called while icons are switched off, 401 for a
 missing or wrong `X-API-Key`, 404 for a slot, a variable or a waiting alert that
 does not exist, 409 when every slot, every variable or every picture file is
-already in use, a variable something still calls is deleted, an alert is raised
+already in use, a queued alert calls more different icons than the sign has
+picture files, a variable something still calls is deleted, an alert is raised
 with `if_active` set to `fail` while one is up or waiting, the alert queue is
 full, or a reboot finds the sign has less memory than the configuration needs,
 503 when the sign is unreachable, stops

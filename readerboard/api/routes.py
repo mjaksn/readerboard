@@ -261,8 +261,8 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     """Take the whole sign over until the alert is released, or wait to.
 
     This uses the sign's priority file, which suppresses every other message. If
-    a ttl is given, the sign is released automatically and the rotation resumes
-    by itself.
+    a ttl is given, the sign is released automatically, and the next waiting
+    alert takes it or, with none waiting, the rotation resumes by itself.
 
     An alert can call variables with `<var:name>`, and a change to one shows on
     the alert without restarting it, as it does in a message. A variable the
