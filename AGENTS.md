@@ -321,12 +321,15 @@ An alert can also **wait its turn**, `if_active` `queue` on `POST /alerts`. The
 queue is in the state file beside the alert, and three things about it are easy
 to get wrong:
 
-- **Promotion happens in the sweep loop and nowhere else.** An alert ends in
-  several places, and `AlertService._put_back` is one of them with the
+- **Promotion happens in the sweep loop, and after `DELETE /alerts`.** An alert
+  ends in several places, and `AlertService._put_back` is one of them with the
   registry's lock already held, while rendering the next alert has to take that
   lock first. `AlertService.promote` runs from the sweep, which holds neither, so
   one step covers every way an alert can end. It costs up to a sweep interval of
-  rotation between two alerts. Do not promote from where an alert is released.
+  rotation between two alerts. `AlertService.dismiss`, behind `DELETE /alerts`,
+  holds neither too and promotes before it returns, because a second release
+  sent in that gap found nothing showing and was answered 204 regardless. Do not
+  promote from anywhere else an alert is released.
 - **A waiting alert counts as holding the sign** for `queue` and `fail`, so
   nothing gets ahead of the queue in the moment between one alert ending and the
   next being promoted. `replace` leaves the queue alone.

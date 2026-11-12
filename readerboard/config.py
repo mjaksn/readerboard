@@ -142,7 +142,8 @@ class Settings(BaseSettings):
             "how often to look for messages, alerts and variables whose ttl has passed, "
             "and to put the next waiting alert up once nothing holds the sign. An expiry "
             "lands up to this much after its deadline, and the rotation shows for up to "
-            "this long between two alerts, so it is kept short: a sweep that finds "
+            "this long between an alert reaching its ttl and the next waiting one, so it "
+            "is kept short: a sweep that finds "
             "nothing due writes nothing to the sign"
         ),
     )

@@ -34,6 +34,9 @@ because an alert ends in several places and one of them,
 while rendering the next alert has to take that lock before this service's own.
 The sweep holds neither, so one step there covers every way an alert can end,
 at the cost of up to a sweep interval of the rotation showing in between.
+:meth:`AlertService.dismiss`, a caller releasing the alert by hand, holds no
+lock either and promotes before it returns, so that a second release sent
+straight after reaches the alert that followed rather than that gap.
 
 The sign will not take a picture while a priority message is running. Measured
 on 2026-09-13: a slot's icons, written under an alert and then revealed when the
@@ -60,6 +63,7 @@ from readerboard.protocol.tokens import MODE_BY_NAME
 from readerboard.services.registry import RegistryError
 from readerboard.sign.controller import SignController
 from readerboard.sign.state import AlertState, QueuedAlertState, ServiceState, StateStore
+from readerboard.transport.base import TransportError
 
 logger = logging.getLogger(__name__)
 
@@ -851,9 +855,10 @@ class AlertService:
     async def promote(self) -> bool:
         """Put the next waiting alert on the sign if nothing holds it. Returns whether it did.
 
-        Called from the sweep loop, which holds no lock, so that this can take
-        the registry's lock before its own as rendering always must. See the
-        module docstring for why it is not called where an alert ends.
+        Called from the sweep loop and from :meth:`dismiss`, neither of which
+        holds a lock, so that this can take the registry's lock before its own
+        as rendering always must. See the module docstring for why it is not
+        called from every place an alert ends.
 
         An alert that can never be shown, because it no longer fits or calls
         something that has gone, is dropped with a warning and the next one is
@@ -965,11 +970,12 @@ class AlertService:
     async def release(self, *, clear_queue: bool = False) -> bool:
         """Give the sign back. Returns whether an alert was actually holding it.
 
-        The next waiting alert takes the sign at the following sweep, unless
-        ``clear_queue`` empties the queue in the same step, so that the rotation
-        comes back and stays. Emptied only once the release has reached the
-        sign: a release that fails leaves the alert recorded as holding it, and
-        must not have thrown away the waiting ones on its way to failing.
+        The next waiting alert takes the sign at the following sweep, or before
+        :meth:`dismiss` returns, unless ``clear_queue`` empties the queue in the
+        same step, so that the rotation comes back and stays. Emptied only once
+        the release has reached the sign: a release that fails leaves the alert
+        recorded as holding it, and must not have thrown away the waiting ones
+        on its way to failing.
         """
         async with self._lock:
             was_active = await self._release_locked()
@@ -986,6 +992,27 @@ class AlertService:
                 "the next waiting alert follows" if self._state.alert_queue else "rotation resumes",
             )
 
+        return was_active
+
+    async def dismiss(self, *, clear_queue: bool = False) -> bool:
+        """Release the alert for a caller, and put the next waiting one up at once.
+
+        Returns whether an alert was holding the sign. Left to the sweep, the
+        next alert would follow up to a sweep interval later, and a second
+        release sent in that gap would find nothing showing and dismiss nothing
+        while being answered as though it had.
+
+        A promotion that cannot reach the sign is logged rather than raised. The
+        release the caller asked for has happened by then, and the sweep tries
+        the promotion again.
+        """
+        was_active = await self.release(clear_queue=clear_queue)
+        try:
+            await self.promote()
+        except TransportError as err:
+            logger.warning(
+                "released the alert, and could not show the next waiting one yet: %s", err
+            )
         return was_active
 
     async def _release_locked(self) -> bool:

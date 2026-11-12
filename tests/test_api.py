@@ -1440,23 +1440,37 @@ class TestAlertQueue:
         assert client.delete("/alerts/queue").status_code == 401
         assert client.delete("/alerts/queue/anything").status_code == 401
 
+    def test_releasing_puts_the_next_one_up_before_answering(self, client):
+        # The fixture's sweep never runs, so only the release can have done it,
+        # and a second release straight after must reach the alert that
+        # followed rather than a gap with nothing showing.
+        self.post(client, "FIRST")
+        self.post(client, "SECOND", if_active="queue")
+        self.post(client, "THIRD", if_active="queue")
+
+        assert client.delete("/alerts", headers=HEADERS).status_code == 204
+        assert client.get("/alerts").json()["message"] == "SECOND"
+        assert client.delete("/alerts", headers=HEADERS).status_code == 204
+        assert client.get("/alerts").json()["message"] == "THIRD"
+        assert client.get("/alerts/queue").json() == []
+
     def test_the_sweep_loop_puts_the_next_one_up(self, settings, sign):
-        # Every other test calls promote itself. This is the one that would fail
-        # if the sweep loop stopped calling it.
+        # The one test that would fail if the sweep loop stopped calling
+        # promote. The first alert ends by its ttl, since a release would
+        # promote by itself.
         quick = settings.model_copy(update={"registry_sweep_seconds": 0.05})
         with TestClient(create_app(quick, transport=sign)) as client:
-            self.post(client, "FIRST")
+            self.post(client, "FIRST", ttl_seconds=0.2)
             self.post(client, "SECOND", if_active="queue")
-            client.delete("/alerts", headers=HEADERS)
 
             deadline = time.monotonic() + 5
             shown = None
             while time.monotonic() < deadline:
                 shown = client.get("/alerts").json()
-                if shown is not None:
+                if shown is not None and shown["message"] == "SECOND":
                     break
                 time.sleep(0.05)
 
-        assert shown is not None, "nothing took the sign after the release"
+        assert shown is not None, "nothing took the sign after the first expired"
         assert shown["message"] == "SECOND"
         assert shown["state"] == "showing"

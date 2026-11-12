@@ -77,7 +77,8 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   unseen, for news that stops being true.
 - **`GET /alerts/queue`, `DELETE /alerts/queue` and `DELETE /alerts/queue/{key}`**
   read the waiting alerts in order, cancel them all, or cancel one. `DELETE
-  /alerts` releases the alert showing and lets the next one through, and with
+  /alerts` releases the alert showing and puts the next one up before it
+  answers, so a second release sent straight after dismisses that one, and with
   `?clear_queue=true` cancels the waiting ones in the same step, so the rotation
   comes back and stays.
 - **`alert_queue_limit`, default 10**, is how many alerts may wait. One more is

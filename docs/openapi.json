@@ -908,7 +908,7 @@
   "paths": {
     "/alerts": {
       "delete": {
-        "description": "Release the alert holding the sign.\n\nThe next alert waiting its turn then takes the sign, within a second. Send\n`clear_queue` to cancel the waiting ones as well and have the rotation back.\nTwo calls, emptying the queue and then releasing, would have to be made in\nthat order, or the next alert would be promoted between them.",
+        "description": "Release the alert holding the sign.\n\nThe next alert waiting its turn takes the sign before this returns, so a\nsecond call made straight after releases that one. Send `clear_queue` to\ncancel the waiting ones as well and have the rotation back. Emptying the\nqueue first and releasing after does the same in two calls, but only in\nthat order.",
         "operationId": "delete_alert_alerts_delete",
         "parameters": [
           {

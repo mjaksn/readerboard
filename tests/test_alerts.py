@@ -565,3 +565,43 @@ class TestQueue:
 
         assert alerts.active is None
         assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_dismissing_puts_the_next_one_up_before_it_returns(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await queue_alert(alerts, "THIRD")
+
+        assert await alerts.dismiss() is True
+        assert alerts.active.message == "SECOND"
+        # So a second dismissal straight after reaches the one that followed.
+        assert await alerts.dismiss() is True
+        assert alerts.active.message == "THIRD"
+        assert alerts.waiting == []
+
+    async def test_dismissing_with_clear_queue_brings_the_rotation_back(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        await alerts.dismiss(clear_queue=True)
+
+        assert alerts.active is None
+        assert alerts.waiting == []
+
+    async def test_a_dismissal_whose_promotion_fails_still_released(
+        self, alerts, transport, monkeypatch, caplog
+    ):
+        # The caller asked for a release and got one, so it is not told the
+        # sign is unreachable; the next one stays at the head for the sweep.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        async def unreachable():
+            raise TransportError("cable unplugged")
+
+        monkeypatch.setattr(alerts, "promote", unreachable)
+        with caplog.at_level("WARNING"):
+            assert await alerts.dismiss() is True
+
+        assert "could not show the next waiting one yet" in caplog.text
+        assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["SECOND"]

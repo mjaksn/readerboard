@@ -314,12 +314,13 @@ async def delete_alert(
 ) -> Response:
     """Release the alert holding the sign.
 
-    The next alert waiting its turn then takes the sign, within a second. Send
-    `clear_queue` to cancel the waiting ones as well and have the rotation back.
-    Two calls, emptying the queue and then releasing, would have to be made in
-    that order, or the next alert would be promoted between them.
+    The next alert waiting its turn takes the sign before this returns, so a
+    second call made straight after releases that one. Send `clear_queue` to
+    cancel the waiting ones as well and have the rotation back. Emptying the
+    queue first and releasing after does the same in two calls, but only in
+    that order.
     """
-    await alerts.release(clear_queue=clear_queue)
+    await alerts.dismiss(clear_queue=clear_queue)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
