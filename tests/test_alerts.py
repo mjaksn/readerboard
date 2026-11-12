@@ -399,8 +399,22 @@ class TestQueue:
         await queue_alert(alerts, "SECOND")
         await alerts.release()
 
-        with pytest.raises(AlertAlreadyActive, match="waiting"):
+        with pytest.raises(AlertAlreadyActive, match="waiting") as refused:
             await raise_alert(alerts, "THIRD", if_active="fail")
+
+        # Nothing is showing, so the remedy is the queue, not a release.
+        assert "holding the sign" not in str(refused.value)
+        assert "DELETE /alerts/queue" in str(refused.value)
+
+    async def test_fail_behind_a_queue_is_told_that_a_release_promotes(self, alerts):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        with pytest.raises(AlertAlreadyActive) as refused:
+            await raise_alert(alerts, "THIRD", if_active="fail")
+
+        assert "1 more waiting" in str(refused.value)
+        assert "clear_queue" in str(refused.value)
 
     async def test_fail_is_refused_while_one_is_waiting(self, alerts):
         await raise_alert(alerts, "FIRST")

@@ -694,19 +694,7 @@ class AlertService:
             if if_active != "replace" and self._sign_is_held():
                 if if_active == "queue":
                     raise _SignTaken
-                current = self._state.alert
-                raise AlertAlreadyActive(
-                    (
-                        "an alert has been holding the sign since %s and this call asked "
-                        "to be refused rather than replace one. "
-                        % current.started_at.isoformat()
-                        if current is not None and not self._has_expired(current)
-                        else "%d alert(s) are waiting for the sign and this call asked to "
-                        "be refused rather than wait. " % len(self._state.alert_queue)
-                    )
-                    + "Release the alert holding the sign, send this again with if_active "
-                    "replace to replace it, or with if_active queue to wait for it."
-                )
+                raise AlertAlreadyActive(self._why_fail_was_refused())
 
             body = render_message(message)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
@@ -729,6 +717,38 @@ class AlertService:
             " until %s" % alert.expires_at.isoformat() if alert.expires_at else " with no deadline",
         )
         return alert
+
+    def _why_fail_was_refused(self) -> str:
+        """Say what is in the way of an alert sent with if_active fail, and how to clear it.
+
+        Releasing the alert showing only clears the way when nothing is waiting
+        behind it, since the next waiting one goes straight up; and with nothing
+        showing, only the queue is in the way.
+        """
+        current = self._state.alert
+        waiting = len(self._state.alert_queue)
+        if current is not None and not self._has_expired(current):
+            if not waiting:
+                return (
+                    "an alert has been holding the sign since %s and this call asked to be "
+                    "refused rather than replace one. Release it with DELETE /alerts, send "
+                    "this again with if_active replace to replace it, or with if_active "
+                    "queue to wait for it." % current.started_at.isoformat()
+                )
+            return (
+                "an alert has been holding the sign since %s with %d more waiting behind "
+                "it, and this call asked to be refused rather than replace one. Releasing "
+                "it puts the next one up; DELETE /alerts with clear_queue true releases it "
+                "and cancels the waiting ones. Or send this again with if_active replace "
+                "to replace it, or with if_active queue to wait behind them."
+                % (current.started_at.isoformat(), waiting)
+            )
+        return (
+            "%d alert(s) are waiting for the sign and this call asked to be refused rather "
+            "than wait. DELETE /alerts/queue cancels them. Or send this again with "
+            "if_active replace to go up now, or with if_active queue to wait behind them."
+            % waiting
+        )
 
     async def _take_the_sign(self, render_message: Renderer, alert: AlertState, body: bytes) -> None:
         """Draw an accepted alert's icons, write it and record it. Both locks are held.
