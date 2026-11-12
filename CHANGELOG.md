@@ -100,6 +100,20 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   a service from before the queue. The client can now send a query parameter,
   which `clear_queue` is the first of.
 
+### Fixed
+
+- **A setting refused at startup no longer prints the API key.** A refusal that
+  looks at every setting at once, such as the one for a memory configuration too
+  big for any sign, printed all of them as its input, the key among them. Each
+  refusal now prints only its own message, which names the setting it is about.
+- **An alert refused with `fail`, or too long for the priority file, no longer
+  marks the sign out of sync** when its icon had to evict an idle one to be
+  checked. Nothing was drawn, yet the next check redrew every picture, blanking
+  the display once for each.
+- **An alert raised just after another's deadline is no longer released by the
+  sweep that came for the old one.** The sweep found the old alert expired and
+  then released whichever alert was holding the sign by the time it got there.
+
 ## [0.8.3] - 2026-11-06
 
 **A fix for signs reached through an Ethernet adapter.** Since 0.7.1 the
