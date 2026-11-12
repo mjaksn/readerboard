@@ -1433,6 +1433,24 @@ class TestValuesTheResponseCannotCarry:
         assert response.status_code == 422
         assert "\\xc9" in str(response.json()["detail"])
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            # The key spelled with the escape first, then the lone surrogate,
+            # and the other way round.
+            '{"message": {"\\\\ud800": 1, "\\ud800": 2}}',
+            '{"message": {"\\ud800": 2, "\\\\ud800": 1}}',
+        ],
+    )
+    def test_an_escaped_key_does_not_overwrite_one_spelled_the_same(self, client, body):
+        response = client.put(
+            "/slots/a", content=body, headers={**HEADERS, "content-type": "application/json"}
+        )
+
+        assert response.status_code == 422
+        echoed = response.json()["detail"][0]["input"]
+        assert echoed == {"\\ud800": 1, "\\ud800 (escaped)": 2}
+
 
 class TestNoApiKeyConfigured:
     def test_writes_are_refused_rather_than_left_open(self, tmp_path, sign):

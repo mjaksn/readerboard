@@ -442,7 +442,18 @@ def _encodable(value: Any) -> Any:
             return value.encode("utf-8", "backslashreplace").decode("utf-8")
         return value
     if isinstance(value, dict):
-        return {_encodable(key): _encodable(item) for key, item in value.items()}
+        encoded: dict[Any, Any] = {}
+        for key, item in value.items():
+            safe = _encodable(key)
+            # An escaped key reads exactly like a key that was sent spelled
+            # with the escape, and one would overwrite the other, so the echo
+            # would show an object the caller never sent. The escaped one is
+            # marked until it is unique, against what has been written and
+            # against what is still to come.
+            while safe in encoded or (safe != key and safe in value):
+                safe = "%s (escaped)" % safe
+            encoded[safe] = _encodable(item)
+        return encoded
     if isinstance(value, list):
         return [_encodable(item) for item in value]
     return value
