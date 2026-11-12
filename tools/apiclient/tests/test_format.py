@@ -126,6 +126,66 @@ def test_no_alert_reads_as_a_sentence_rather_than_as_null():
     assert "No alert is holding the sign" in text
 
 
+WAITING_ALERT = {
+    "message": "PARCEL AT THE DOOR",
+    "display_mode": "HOLD",
+    "key": "parcel",
+    "state": "waiting",
+    "position": 1,
+    "queued_at": "2026-11-12T10:00:00Z",
+    "wait_until": None,
+    "ttl_seconds": 30,
+    "started_at": None,
+    "expires_at": None,
+}
+
+
+def test_a_waiting_alert_is_not_described_as_holding_the_sign():
+    # Read as a showing alert, it would claim the sign is suppressed by an
+    # alert that is not on it, and that it never expires.
+    _result, text = rendered_text("post_alert", 200, json.dumps(WAITING_ALERT))
+
+    assert "Waiting." in text
+    assert "position: 1" in text
+    assert "holds the sign for: 30 seconds" in text
+    assert "suppressed" not in text
+    assert "started" not in text
+
+
+def test_an_alert_from_a_service_older_than_the_queue_reads_as_showing():
+    # No state field at all: every alert such a service describes is up.
+    body = {
+        "message": "SMOKE",
+        "display_mode": "HOLD",
+        "started_at": "2026-11-12T10:00:00Z",
+        "expires_at": None,
+    }
+
+    _result, text = rendered_text("get_alert", 200, json.dumps(body))
+
+    assert "every other message on the sign is suppressed" in text
+    assert "expires: never, it holds the sign until released" in text
+    assert "Waiting." not in text
+
+
+def test_the_queue_becomes_a_table_in_order():
+    second = {**WAITING_ALERT, "key": None, "message": "LATER", "position": 2, "ttl_seconds": None}
+
+    result, text = rendered_text("list_alert_queue", 200, json.dumps([WAITING_ALERT, second]))
+
+    assert "2 alerts waiting, the next to show first." in text
+    table = next(block for block in result.blocks if isinstance(block, Table))
+    assert [row[0] for row in table.rows] == ["1", "2"]
+    assert table.rows[0][4] == "30 s"
+    assert table.rows[1][4] == "until released"
+
+
+def test_an_empty_queue_says_so():
+    _result, text = rendered_text("list_alert_queue", 200, "[]")
+
+    assert "No alerts are waiting." in text
+
+
 def test_a_204_reads_as_success_rather_than_as_an_empty_panel():
     result, text = rendered_text("delete_alert", 204, "")
     assert result.ok
