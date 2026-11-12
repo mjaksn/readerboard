@@ -85,6 +85,9 @@ class Input:
     written down here rather than loaded from the service, and only because the
     schema fixes it: ``test_a_closed_list_is_the_enum_the_service_declares`` in
     ``tools/apiclient/tests/test_catalogue.py`` holds it to that enum both ways.
+    Left on its prefill, which is the service's default, the field is not sent:
+    it asks for nothing the service would not assume, and a service older than
+    the field refuses a body that names it.
 
     ``seconds_until`` names the field in that response which this one is a
     duration to. The service takes a deadline as seconds from now and reports
@@ -389,7 +392,9 @@ OPERATIONS: tuple[Operation, ...] = (
             Input(
                 name="ttl_seconds",
                 kind="float",
-                description="release the sign this many seconds from now; empty means hold it",
+                description=(
+                    "release the sign this many seconds after it takes it; empty means hold it"
+                ),
             ),
             Input(
                 name="if_active",

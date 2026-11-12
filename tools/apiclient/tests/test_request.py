@@ -251,3 +251,22 @@ def test_a_query_flag_nobody_chose_is_left_out():
     operation = catalogue.BY_ID["delete_alert"]
 
     assert build(operation, BASE, query_values={"clear_queue": ""}).url == BASE + "/alerts"
+
+
+def test_a_closed_list_left_on_the_default_is_not_sent():
+    # The service assumes it anyway, and a release from before if_active
+    # refuses a body that names it, so leaving it out keeps the client working
+    # against one.
+    operation = catalogue.BY_ID["post_alert"]
+
+    body = build_body(operation, {"message": "HI", "if_active": "replace"})
+
+    assert body == {"message": "HI"}
+
+
+def test_a_closed_list_moved_off_the_default_is_sent():
+    operation = catalogue.BY_ID["post_alert"]
+
+    body = build_body(operation, {"message": "HI", "if_active": "queue"})
+
+    assert body == {"message": "HI", "if_active": "queue"}

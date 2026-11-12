@@ -2094,3 +2094,83 @@ class TestQueuedAlertsAndPictures:
         assert len(picture_writes(transport)) == 1
         assert alerts.active is not None
         assert alerts.active.message == "<icon:moon> LATER"
+
+    async def test_one_calling_more_icons_than_there_are_files_is_refused_when_sent(
+        self, controller, store, state, clock, alerts
+    ):
+        # It could never be drawn, whatever else is on the sign, so the caller
+        # hears it now rather than having it dropped at its turn.
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("FIRST", mode="HOLD")
+
+        with pytest.raises(PicturePoolFull, match="2 different icons"):
+            await alerts.raise_alert("<icon:sun><icon:moon>", mode="HOLD", if_active="queue")
+
+        assert alerts.waiting == []
+
+    async def test_one_whose_turn_finds_the_files_held_is_dropped_and_the_next_shown(
+        self, controller, store, state, clock, alerts, caplog
+    ):
+        # A pool full of the slots' icons is a passing state, so it is not a
+        # reason to refuse at the send; at the turn it is, and the alert behind
+        # goes up in the same call rather than at a later sweep.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        await add(registry, "weather", "<icon:sun>")
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await alerts.raise_alert("PLAIN", mode="HOLD", if_active="queue")
+
+        with caplog.at_level("WARNING"):
+            await alerts.dismiss()
+
+        assert "dropped the waiting alert" in caplog.text
+        assert ".. " not in caplog.text
+        assert alerts.active.message == "PLAIN"
+        assert alerts.waiting == []
+
+
+class TestRefusalsLeaveTheSignInSync:
+    """A refused alert drew nothing, so the sign still matches the record."""
+
+    async def test_an_alert_refused_with_fail_after_an_eviction_leaves_it_in_sync(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # Claiming the new alert's icon evicts an idle one before the refusal.
+        # Undoing that used to mark the sign out of sync, which /health reports
+        # as degraded and the next check answers by redrawing every picture.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        await alerts.raise_alert("<icon:rain>", mode="HOLD")
+        assert registry.in_sync
+        transport.clear()
+
+        with pytest.raises(AlertAlreadyActive):
+            await alerts.raise_alert("<icon:moon>", mode="HOLD", if_active="fail")
+
+        assert transport.packets == []
+        assert registry.in_sync
+        assert set(state.pictures) == {"sun", "rain"}
+
+    async def test_a_failed_draw_still_marks_it_out_of_sync(
+        self, controller, store, state, clock, alerts
+    ):
+        # The other side: once a picture write has started, the evicted icon's
+        # file may hold the new bitmap, so the record going back is not what
+        # the sign has.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 1), store, state, now=clock)
+        await registry.restore()
+        alerts.set_rendering(registry.rendering)
+        await alerts.raise_alert("<icon:sun>", mode="HOLD")
+        await alerts.release()
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("cable unplugged")
+
+        controller.write_dots_file = unplugged
+        with pytest.raises(TransportError):
+            await alerts.raise_alert("<icon:moon>", mode="HOLD")
+
+        assert list(state.pictures) == ["sun"]
+        assert not registry.in_sync

@@ -46,6 +46,11 @@ class Settings(BaseSettings):
         env_prefix="READERBOARD_",
         toml_file=_config_file(),
         extra="forbid",
+        # A refusal from a validator that sees every setting at once would
+        # otherwise print them all as its input, the API key among them, into
+        # a log anyone reading the container's output can see. Each message
+        # names the setting it is about, which is all a reader needs.
+        hide_input_in_errors=True,
     )
 
     # == the link to the sign ==============================================
@@ -141,10 +146,9 @@ class Settings(BaseSettings):
         description=(
             "how often to look for messages, alerts and variables whose ttl has passed, "
             "and to put the next waiting alert up once nothing holds the sign. An expiry "
-            "lands up to this much after its deadline, and the rotation shows for up to "
-            "this long between an alert reaching its ttl and the next waiting one, so it "
-            "is kept short: a sweep that finds "
-            "nothing due writes nothing to the sign"
+            "lands up to this much after its deadline, and an alert's with it: the next "
+            "waiting alert goes up in the same sweep that releases one. So it is kept "
+            "short: a sweep that finds nothing due writes nothing to the sign"
         ),
     )
     check_interval_seconds: float = Field(

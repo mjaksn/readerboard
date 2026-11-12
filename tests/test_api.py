@@ -1091,6 +1091,7 @@ class TestVariables:
         assert body["stale"] is False
         assert body["called_by"] == []
         assert body["called_by_alert"] is False
+        assert body["called_by_waiting_alert"] is False
         assert body["source"] == "thermometer"
 
     def test_it_goes_on_the_sign_as_a_string_write(self, client, sign):
@@ -1166,6 +1167,17 @@ class TestVariables:
         body = client.get("/variables/temp").json()
         assert body["called_by"] == []
         assert body["called_by_alert"] is True
+
+    def test_a_waiting_alert_calling_one_says_so(self, client):
+        # Deleting it is refused while one does, so the variable has to say why.
+        self.put_variable(client)
+        client.post("/alerts", json={"message": "FIRST"}, headers=HEADERS)
+        client.post(
+            "/alerts", json={"message": "<var:temp>", "if_active": "queue"}, headers=HEADERS
+        )
+        body = client.get("/variables/temp").json()
+        assert body["called_by_alert"] is False
+        assert body["called_by_waiting_alert"] is True
 
     def test_an_alert_calling_a_variable_that_does_not_exist_is_400(self, client):
         response = client.post("/alerts", json={"message": "<var:temp>"}, headers=HEADERS)
@@ -1418,6 +1430,18 @@ class TestAlertQueue:
 
         assert response.status_code == 409
         assert "alert_queue_limit" in response.json()["detail"]
+
+    @pytest.mark.parametrize("field", ["ttl_seconds", "max_wait_seconds"])
+    def test_a_deadline_more_than_a_year_off_is_422_not_500(self, client, field):
+        # Unbounded, a big enough number put the deadline past the last date
+        # the service can hold, which was a 500 at the send, or for a queued
+        # alert's ttl a 500 on every release once it reached the head.
+        self.post(client, "FIRST")
+
+        response = self.post(client, "LATER", if_active="queue", **{field: 1e12})
+
+        assert response.status_code == 422
+        assert client.get("/alerts/queue").json() == []
 
     def test_a_wait_limit_without_queue_is_422(self, client):
         response = self.post(client, "ONLY", max_wait_seconds=60)

@@ -230,7 +230,8 @@ sign takes that without blanking or restarting the message calling it, so a
 value that changes every minute costs one short packet and no flicker. Three
 rules hold it together, and each has a reason that is easy to lose:
 
-- **A variable a message or the alert calls cannot be deleted.** The STRING
+- **A variable a message, the alert or a waiting alert calls cannot be
+  deleted.** The STRING
   file's label is written into every caller as raw bytes, so handing that file
   to the next variable would put the wrong value on the sign with nothing to say
   so. `SlotRegistry.remove_variable` refuses with a 409 instead, and slots and
@@ -318,28 +319,36 @@ already holding, because failing to restore the display is worse than a call
 that draws nothing.
 
 An alert can also **wait its turn**, `if_active` `queue` on `POST /alerts`. The
-queue is in the state file beside the alert, and three things about it are easy
+queue is in the state file beside the alert, and four things about it are easy
 to get wrong:
 
 - **Promotion happens in the sweep loop, and after `DELETE /alerts`.** An alert
   ends in several places, and `AlertService._put_back` is one of them with the
   registry's lock already held, while rendering the next alert has to take that
   lock first. `AlertService.promote` runs from the sweep, which holds neither, so
-  one step covers every way an alert can end. It costs up to a sweep interval of
-  rotation between two alerts. `AlertService.dismiss`, behind `DELETE /alerts`,
-  holds neither too and promotes before it returns, because a second release
-  sent in that gap found nothing showing and was answered 204 regardless. Do not
-  promote from anywhere else an alert is released.
+  one step covers every way an alert can end. An alert ending by its ttl is
+  followed in the same sweep that releases it; one ending any other way without
+  a caller asking waits up to a sweep interval. `AlertService.dismiss`, behind
+  `DELETE /alerts`, holds neither too and promotes before it returns, because a
+  second release sent in that gap found nothing showing and was answered 204
+  regardless. Do not promote from anywhere else an alert is released.
+- **Everything that changes the queue holds the alert service's lock**, the
+  drop for an alert that has waited too long included. A promotion writes the
+  head with that lock held and takes it out of the queue afterwards, so anything
+  changing the queue during the write would leave it removing the wrong one.
 - **A waiting alert counts as holding the sign** for `queue` and `fail`, so
   nothing gets ahead of the queue in the moment between one alert ending and the
   next being promoted. `replace` leaves the queue alone.
 - **A waiting alert is checked when it is sent and claims nothing until it
   shows.** `_Rendering.check` renders it as if its icons had files, so a caller
   hears about a bad alert while it is still listening, and the picture pool is
-  not held by alerts nobody can see. It does hold the variables it calls, which
-  cannot be deleted while it waits. One that can no longer be shown when its
-  turn comes is dropped with a warning, because there is nobody left to tell and
-  keeping it would hold everything behind it.
+  not held by alerts nobody can see. That covers everything about the alert
+  itself, including calling more icons than there are picture files, and not
+  the pool being full of the slots' icons, which may have changed by its turn.
+  It does hold the variables it calls, which cannot be deleted while it waits.
+  One that cannot be shown when its turn comes is dropped with a warning and the
+  next one tried, because there is nobody left to tell and keeping it would hold
+  everything behind it.
 
 `SignController` is the only thing allowed to talk to the sign. Every write goes
 through one `asyncio.Lock`, with the blocking pyserial call dispatched to a

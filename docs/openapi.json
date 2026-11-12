@@ -42,13 +42,14 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 31622400.0,
                 "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "with if_active queue, drop the alert unseen if it has not taken the sign this many seconds from now, for news that stops being true. Separate from ttl_seconds, whose clock starts only when the alert takes the sign. Omit and it waits however long it takes",
+            "description": "with if_active queue, drop the alert unseen if it has not taken the sign this many seconds from now, for news that stops being true. Separate from ttl_seconds, whose clock starts only when the alert takes the sign. At most a year. Omit and it waits however long it takes",
             "title": "Max Wait Seconds"
           },
           "message": {
@@ -62,13 +63,14 @@
             "anyOf": [
               {
                 "exclusiveMinimum": 0.0,
+                "maximum": 31622400.0,
                 "type": "number"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "release the sign this many seconds from now. Omit and the alert holds the sign until something releases it explicitly",
+            "description": "release the sign this many seconds after the alert takes it: from now, or for one that queues, from when its turn comes. At most a year. Omit and the alert holds the sign until something releases it explicitly",
             "title": "Ttl Seconds"
           }
         },
@@ -810,7 +812,7 @@
         "description": "A variable.",
         "properties": {
           "called_by": {
-            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do, nor while called_by_alert is true, nor while an alert waiting its turn calls it",
+            "description": "the keys of the slots whose messages call this variable. It cannot be deleted while any do, nor while called_by_alert or called_by_waiting_alert is true",
             "items": {
               "type": "string"
             },
@@ -820,6 +822,11 @@
           "called_by_alert": {
             "description": "true while the alert holding the sign calls this variable. It cannot be deleted until the alert is released or replaced with one that does not",
             "title": "Called By Alert",
+            "type": "boolean"
+          },
+          "called_by_waiting_alert": {
+            "description": "true while an alert waiting its turn calls this variable. It cannot be deleted until every such alert has been shown or cancelled",
+            "title": "Called By Waiting Alert",
             "type": "boolean"
           },
           "expires_at": {
@@ -884,7 +891,8 @@
           "expires_at",
           "updated_at",
           "called_by",
-          "called_by_alert"
+          "called_by_alert",
+          "called_by_waiting_alert"
         ],
         "title": "VariableResponse",
         "type": "object"
@@ -978,7 +986,7 @@
         ]
       },
       "post": {
-        "description": "Take the whole sign over until the alert is released, or wait to.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.\n\nAn alert can call variables with `<var:name>`, and a change to one shows on\nthe alert without restarting it, as it does in a message. A variable the\nalert calls cannot be deleted until the alert is released or replaced, and a\ncall to a variable that does not exist is a 400.\n\n`if_active` says what happens when an alert is already up. `replace`, the\ndefault, takes the sign from it, which is what a caller wants when its alert\nis the more important one. `queue` waits for it to end and then takes the\nsign, after any alerts already waiting, and the service does the waiting, so\nthe caller can send it and forget it. `fail` is a 409, for a caller that is\none of several and has no business overwriting somebody else's alert. An\nalert past its deadline does not count as holding the sign.\n\nThe answer is the alert either way, and `state` says whether it is showing\nor waiting. A queued alert is checked when it is sent, for everything that\nwould refuse it when its turn came, so a caller hears about a bad one while\nit is still there to hear it.",
+        "description": "Take the whole sign over until the alert is released, or wait to.\n\nThis uses the sign's priority file, which suppresses every other message. If\na ttl is given, the sign is released automatically and the rotation resumes\nby itself.\n\nAn alert can call variables with `<var:name>`, and a change to one shows on\nthe alert without restarting it, as it does in a message. A variable the\nalert calls cannot be deleted until the alert is released or replaced, and a\ncall to a variable that does not exist is a 400.\n\n`if_active` says what happens when an alert is already up. `replace`, the\ndefault, takes the sign from it, which is what a caller wants when its alert\nis the more important one. `queue` waits for it to end and then takes the\nsign, after any alerts already waiting, and the service does the waiting, so\nthe caller can send it and forget it. `fail` is a 409, for a caller that is\none of several and has no business overwriting somebody else's alert. An\nalert past its deadline does not count as holding the sign.\n\nThe answer is the alert either way, and `state` says whether it is showing\nor waiting. A queued alert is checked when it is sent for everything about\nthe alert itself that would refuse it when its turn came, including calling\nmore icons than the sign has picture files, so a caller hears about a bad\none while it is still there to hear it. What it cannot be checked for is\nthe picture files being full of icons the messages are calling when its\nturn comes; one refused for that then is dropped, and the next one shown.",
         "operationId": "post_alert_alerts_post",
         "requestBody": {
           "content": {

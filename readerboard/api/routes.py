@@ -240,6 +240,7 @@ def _variable_response(registry: SlotRegistry, variable: VariableState) -> Varia
         variable,
         registry.callers(variable.name),
         called_by_alert=registry.alert_calls(variable.name),
+        called_by_waiting_alert=registry.waiting_alerts_call(variable.name),
     )
 
 
@@ -277,9 +278,12 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     alert past its deadline does not count as holding the sign.
 
     The answer is the alert either way, and `state` says whether it is showing
-    or waiting. A queued alert is checked when it is sent, for everything that
-    would refuse it when its turn came, so a caller hears about a bad one while
-    it is still there to hear it.
+    or waiting. A queued alert is checked when it is sent for everything about
+    the alert itself that would refuse it when its turn came, including calling
+    more icons than the sign has picture files, so a caller hears about a bad
+    one while it is still there to hear it. What it cannot be checked for is
+    the picture files being full of icons the messages are calling when its
+    turn comes; one refused for that then is dropped, and the next one shown.
     """
     alert = await alerts.raise_alert(
         body.message,

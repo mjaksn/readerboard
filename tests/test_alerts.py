@@ -1,5 +1,6 @@
 """Tests for alerts: takeover, timed release, and surviving a restart."""
 
+import asyncio
 from datetime import timedelta
 
 import pytest
@@ -483,10 +484,14 @@ class TestQueue:
         await alerts.release()
 
         with caplog.at_level("WARNING"):
-            assert await alerts.promote() is False
+            # In the same call, so that a release asked for by a caller is not
+            # followed by a gap with nothing showing.
+            assert await alerts.promote() is True
         assert "dropped the waiting alert" in caplog.text
-        assert await alerts.promote() is True
+        # The refusal's own full stop does not run into the sentence after it.
+        assert ".. " not in caplog.text
         assert alerts.active.message == "FINE"
+        assert alerts.waiting == []
 
     async def test_nothing_is_tried_while_the_link_is_down(self, alerts, transport):
         await raise_alert(alerts, "FIRST")
@@ -565,6 +570,96 @@ class TestQueue:
 
         assert alerts.active is None
         assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_a_wait_limit_passing_mid_promotion_loses_nothing(
+        self, alerts, controller, clock
+    ):
+        # The sweep runs as a task of its own, so it can arrive while a release
+        # is writing the next alert up. It used to drop that alert from the
+        # queue mid-write, and the promotion then took out the one behind it.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "A", key="a", max_wait_seconds=10)
+        await queue_alert(alerts, "B", key="b")
+        gate, entered = asyncio.Event(), asyncio.Event()
+        write = controller.write_priority
+
+        async def held(*args, **kwargs):
+            entered.set()
+            await gate.wait()
+            return await write(*args, **kwargs)
+
+        controller.write_priority = held
+        dismissing = asyncio.create_task(alerts.dismiss())
+        await entered.wait()
+        clock.advance(11)
+        sweeping = asyncio.create_task(alerts.sweep())
+        await asyncio.sleep(0)
+        gate.set()
+        await dismissing
+        await sweeping
+
+        # A took the sign before its limit passed, and B is still waiting.
+        assert alerts.active.message == "A"
+        assert [w.key for w in alerts.waiting] == ["b"]
+
+    async def test_a_wait_limit_passing_before_the_locks_drops_it_unshown(
+        self, alerts, registry, clock
+    ):
+        # Checked again once the locks are held, so an alert whose limit ran out
+        # while it waited for them is dropped rather than shown, and the next
+        # one goes up in its place.
+        alerts.set_rendering(registry.rendering)
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "A", key="a", max_wait_seconds=10)
+        await queue_alert(alerts, "B", key="b")
+        await alerts.release()
+
+        async with registry.rendering(None):
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+            clock.advance(11)
+        assert await promoting is True
+
+        assert alerts.active.message == "B"
+        assert alerts.waiting == []
+
+    async def test_the_sweep_releases_only_the_alert_it_found_expired(
+        self, alerts, controller, clock
+    ):
+        # An alert queued after another's deadline, before the sweep, goes
+        # straight up. The sweep found the old one expired, and used to release
+        # whatever was holding the sign by the time it got the lock.
+        await raise_alert(alerts, "OLD", ttl_seconds=5)
+        clock.advance(6)
+        gate, entered = asyncio.Event(), asyncio.Event()
+        write = controller.write_priority
+
+        async def held(*args, **kwargs):
+            entered.set()
+            await gate.wait()
+            return await write(*args, **kwargs)
+
+        controller.write_priority = held
+        raising = asyncio.create_task(queue_alert(alerts, "NEW", ttl_seconds=60))
+        await entered.wait()
+        sweeping = asyncio.create_task(alerts.sweep())
+        await asyncio.sleep(0)
+        gate.set()
+        shown = await raising
+
+        assert await sweeping is False
+        assert shown.message == "NEW"
+        assert alerts.active.message == "NEW"
+
+    async def test_dismissing_goes_past_a_head_that_has_to_be_dropped(self, alerts, state):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "BROKEN")
+        await queue_alert(alerts, "FINE")
+        state.alert_queue[0].message = "X" * 126
+
+        await alerts.dismiss()
+
+        assert alerts.active.message == "FINE"
 
     async def test_dismissing_puts_the_next_one_up_before_it_returns(self, alerts):
         await raise_alert(alerts, "FIRST")

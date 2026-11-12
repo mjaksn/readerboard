@@ -195,7 +195,7 @@ def test_a_plain_detail_error_shows_the_detail():
     result, text = rendered_text("get_slot", 404, json.dumps({"detail": "no slot 'x'"}))
     assert result.ok is False
     assert "no slot 'x'" in text
-    assert "no slot or variable by that name" in result.headline
+    assert "no slot, variable or waiting alert by that name" in result.headline
 
 
 def test_a_404_also_offers_the_reading_that_the_route_is_missing():
@@ -334,7 +334,7 @@ def test_a_real_success_still_says_so():
 
 def test_a_four_hundred_keeps_the_meaning_it_had():
     result, _text = rendered_text("get_slot", 404, json.dumps({"detail": "nope"}))
-    assert "no slot or variable by that name" in result.headline
+    assert "no slot, variable or waiting alert by that name" in result.headline
 
 
 def test_the_rendered_html_takes_its_ink_from_the_theme():
@@ -459,6 +459,7 @@ VARIABLE = {
     "updated_at": "2026-09-10T07:00:00+00:00",
     "called_by": ["weather", "porch"],
     "called_by_alert": False,
+    "called_by_waiting_alert": False,
 }
 
 
@@ -474,6 +475,14 @@ def test_a_variable_the_alert_calls_says_so():
     called = {**VARIABLE, "called_by": [], "called_by_alert": True}
     _result, text = rendered_text("get_variable", 200, json.dumps(called))
     assert "called by: the alert" in text
+
+
+def test_a_variable_a_waiting_alert_calls_says_so():
+    # Deleting it is refused for that too, and the view used to say nothing
+    # called it right before the 409 named a waiting alert.
+    called = {**VARIABLE, "called_by": [], "called_by_waiting_alert": True}
+    _result, text = rendered_text("get_variable", 200, json.dumps(called))
+    assert "called by: a waiting alert" in text
 
 
 def test_a_variable_nothing_calls_says_so_rather_than_leaving_a_blank():

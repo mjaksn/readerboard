@@ -54,6 +54,11 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   fields:** `key`, and `state`, which is `showing` or `waiting`, with
   `started_at` null for one that is waiting. The fields a caller read before are
   all still there and mean what they did.
+- **An alert's `ttl_seconds`, and the new `max_wait_seconds`, are at most a
+  year.** A larger number put the deadline past the last date the service can
+  hold, and was a 500 rather than a 422; for a queued alert's `ttl_seconds` it
+  was a 500 on every release once that alert reached the head of the queue.
+  Something meant to last longer than a year wants no deadline at all.
 - **A stored alert that has outgrown the priority file is released when it is
   re-asserted**, as it already was at startup, rather than left recorded and
   not shown. Kept, it would have held every alert waiting behind it for good.
@@ -66,9 +71,13 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   service does the waiting, so a caller that used to poll `GET /alerts` or
   resend with `fail_if_active` until it got through can send once and forget
   it. Its `ttl_seconds` counts from when it takes the sign. It is checked when it
-  is sent, for everything that would refuse it when its turn came, so a caller
-  still hears about an unknown icon or a message too long; a variable it calls
-  cannot be deleted while it waits. The queue survives a restart.
+  is sent for everything about the alert itself that would refuse it when its
+  turn came, so a caller still hears about an unknown icon, a message too long
+  or more icons than the sign has picture files. A variable it calls cannot be
+  deleted while it waits, and `GET /variables` says so in a new field,
+  `called_by_waiting_alert`. One that cannot be shown when its turn comes, such
+  as one whose icons find every picture file held by the messages, is dropped
+  with a warning and the next one shown. The queue survives a restart.
 - **A queued alert can carry a `key` and a `max_wait_seconds`.** Sent again with
   the key of one still waiting, it updates that one where it stands rather than
   queueing a second copy, which is what makes resending harmless. A key matching
@@ -86,8 +95,10 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   `alerts_waiting`.
 - **The client calls all three new endpoints**, sends `if_active`, `key` and
   `max_wait_seconds`, and shows a waiting alert and the queue as text.
-  `if_active` is picked from a list of its three values rather than typed. The
-  client can now send a query parameter, which `clear_queue` is the first of.
+  `if_active` is picked from a list of its three values rather than typed, and
+  left on `replace` it is not sent at all, so the client still raises an alert on
+  a service from before the queue. The client can now send a query parameter,
+  which `clear_queue` is the first of.
 
 ## [0.8.3] - 2026-11-06
 

@@ -180,6 +180,10 @@ def build_body(operation: Operation, values: dict[str, str]) -> dict[str, object
                 # somebody cleared on purpose to see what would happen.
                 body[item.name] = ""
             continue
+        if item.choices and text == as_text(item.prefill):
+            # The service's own default, so leaving it out asks for the same
+            # thing, and still works against a release from before the field.
+            continue
         body[item.name] = coerce(item.kind, text)
     return body
 

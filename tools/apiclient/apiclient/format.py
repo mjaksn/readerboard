@@ -104,10 +104,10 @@ STATUS_MEANING = {
     400: "the sign cannot render what was sent, or it does not fit",
     401: "the API key was missing or wrong",
     403: "refused",
-    404: "no slot or variable by that name, or no such route on this service",
+    404: "no slot, variable or waiting alert by that name, or no such route on this service",
     409: (
-        "a pool is full, the variable is still called by a message or the alert, or "
-        "an alert is already holding the sign"
+        "a pool or the alert queue is full, the variable is still called by a message, "
+        "the alert or a waiting alert, or an alert is holding or waiting for the sign"
     ),
     422: "the body was not the shape the endpoint declares",
     500: "the service raised something it did not expect",
@@ -442,13 +442,15 @@ _VARIABLE_COLUMNS = ("name", "file", "value", "stale", "called by", "source", "g
 def _called_by(variable: dict[str, object]) -> str:
     """Render what calls a variable as a list, or say that nothing does.
 
-    The alert is named in words, which no slot key can be mistaken for: the
-    service refuses whitespace in a key.
+    The alert and the waiting alerts are named in words, which no slot key can
+    be mistaken for: the service refuses whitespace in a key.
     """
     raw = variable.get("called_by")
     callers = [str(key) for key in raw] if isinstance(raw, list) else []
     if variable.get("called_by_alert"):
         callers.append("the alert")
+    if variable.get("called_by_waiting_alert"):
+        callers.append("a waiting alert")
     return ", ".join(callers) if callers else "nothing"
 
 
@@ -507,7 +509,8 @@ def _variable(payload: object) -> list[Block]:
                 Row(
                     "called by",
                     _called_by(payload),
-                    "it cannot be deleted while any message or the alert calls it",
+                    "it cannot be deleted while any message, the alert or a waiting alert "
+                    "calls it",
                 ),
                 Row("source", str(payload.get("source") or "not recorded")),
                 Row("updated", when(payload.get("updated_at"))),

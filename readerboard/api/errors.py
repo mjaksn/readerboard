@@ -62,16 +62,17 @@ STATUS_FOR_ERROR: tuple[tuple[type[Exception], int], ...] = (
     # erased it. The state of the hardware rather than anything wrong with the
     # request, which is what makes it a conflict, and nothing was written.
     (PoolTooLarge, status.HTTP_409_CONFLICT),
-    # Deleting a variable a message still calls would leave that message
-    # calling a file the next variable could be given. Not the caller's
-    # request being malformed, which is what makes it a conflict.
+    # Deleting a variable a message, the alert or a waiting alert still calls
+    # would leave it calling a file the next variable could be given. Not the
+    # caller's request being malformed, which is what makes it a conflict.
     (VariableInUse, status.HTTP_409_CONFLICT),
-    # Every picture file is holding an icon something still calls. Like a full
-    # slot pool and unlike a bad icon name, this is the state of the sign rather
-    # than anything wrong with the request.
+    # Every picture file is holding an icon something still calls, or an alert
+    # being queued calls more icons than the sign has picture files. Like a full
+    # slot pool and unlike a bad icon name, this is the size or the state of the
+    # sign rather than anything wrong with the shape of the request.
     (PicturePoolFull, status.HTTP_409_CONFLICT),
-    # An alert is already up and the caller asked to be refused rather than
-    # replace it. The same request would have been accepted a moment earlier, so
+    # An alert is already up, or waiting, and the caller asked to be refused
+    # rather than replace it or wait. The same request would have been accepted a moment earlier, so
     # it is the state of the sign that decides this and not the body.
     (AlertAlreadyActive, status.HTTP_409_CONFLICT),
     (AlertQueueFull, status.HTTP_409_CONFLICT),

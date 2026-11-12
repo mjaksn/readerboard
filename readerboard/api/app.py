@@ -225,6 +225,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         registry = SlotRegistry(controller, layout, store, state)
         # An alert calling a variable is rendered by the registry, under its
         # lock, so the variable cannot be deleted while the alert calls it.
+        # One waiting its turn is checked under that lock too.
         alerts.set_rendering(registry.rendering)
         # And the other way: the registry hands the sign back before it writes a
         # picture, because the sign will not take one while a priority message

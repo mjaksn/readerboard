@@ -18,12 +18,14 @@ An alert can call variables and icons, rendered through the registry's
 :meth:`SlotRegistry.rendering`, which holds the registry's lock until the
 priority file is written. Its lock is always taken before this service's own.
 
-Only :meth:`raise_alert` hands that method a message. The three paths that put
-an alert back on the sign, :meth:`restore`, :meth:`reassert` and
-:meth:`lifted`, deliberately do not: an icon they name already has its picture
-file, since the alert calling it is what keeps the file, and claiming is a thing
-that can fail. Failing to put the sign back is a worse outcome than a call that
-draws nothing.
+Two paths hand that method a message, and so claim picture files: showing an
+alert raised by a caller, and :meth:`AlertService.promote` showing one that
+waited its turn. Checking an alert before it joins the queue does not claim:
+it claims when it takes the sign. The three paths that put an alert back on the
+sign, :meth:`restore`, :meth:`reassert` and :meth:`lifted`, deliberately do
+not either: an icon they name already has its picture file, since the alert
+calling it is what keeps the file, and claiming is a thing that can fail.
+Failing to put the sign back is a worse outcome than a call that draws nothing.
 
 An alert can also wait its turn. One raised with ``if_active="queue"`` while
 the sign is held joins a queue, kept in the state file beside the alert, and
@@ -32,11 +34,14 @@ it. Promotion runs from the sweep loop rather than wherever an alert ends,
 because an alert ends in several places and one of them,
 :meth:`AlertService._put_back`, runs with the registry's lock already held,
 while rendering the next alert has to take that lock before this service's own.
-The sweep holds neither, so one step there covers every way an alert can end,
-at the cost of up to a sweep interval of the rotation showing in between.
+The sweep holds neither, so one step there covers every way an alert can end.
+An alert that reaches its ttl is followed in the same sweep that releases it;
+one that ends anywhere else without a caller asking, such as one dropped on its
+way back from a picture write because its deadline passed meanwhile, leaves up
+to a sweep interval of the rotation showing first.
 :meth:`AlertService.dismiss`, a caller releasing the alert by hand, holds no
 lock either and promotes before it returns, so that a second release sent
-straight after reaches the alert that followed rather than that gap.
+straight after reaches the alert that followed rather than a gap.
 
 The sign will not take a picture while a priority message is running. Measured
 on 2026-09-13: a slot's icons, written under an alert and then revealed when the
@@ -160,6 +165,16 @@ class _SignTaken(Exception):
     Raised inside the registry's rendering, so that whatever it claimed for the
     alert is given back on the way out, and caught by the caller, which queues
     the alert instead or leaves the queue for the next sweep.
+    """
+
+
+class _HeadMoved(Exception):
+    """The alert being promoted was no longer at the head once the locks were held.
+
+    Dropped for having waited too long, cancelled, or updated by its key in the
+    meantime. Raised inside the rendering for the same reason as
+    :class:`_SignTaken`, and caught by :meth:`AlertService.promote`, which
+    looks at the queue again.
     """
 
 
@@ -860,26 +875,47 @@ class AlertService:
         as rendering always must. See the module docstring for why it is not
         called from every place an alert ends.
 
-        An alert that can never be shown, because it no longer fits or calls
-        something that has gone, is dropped with a warning and the next one is
-        tried at the next sweep: there is no caller left to tell, and holding it
-        would hold every alert behind it. One that cannot be shown because the
-        sign is unreachable stays at the head, and is not tried while the link
-        is down, so a sign switched off does not log a failure every sweep.
+        A waiting alert that cannot be shown when its turn comes is dropped with
+        a warning, and the one behind it is tried straight away: there is no
+        caller left to tell, and holding it would hold every alert behind it.
+        That is one that no longer fits or calls something that has gone, and
+        one whose icons find every picture file held by icons the slots are
+        calling at that moment. One that cannot be shown because the sign is
+        unreachable stays at the head, and is not tried while the link is down,
+        so a sign switched off does not log a failure every sweep.
         """
-        self._drop_waited_too_long()
+        # Bounded rather than open, although every round but the last removes
+        # an alert or finds a different one at the head: a caller updating the
+        # head by its key on every round would otherwise keep this going.
+        for _ in range(self._queue_limit + 2):
+            outcome = await self._promote_head()
+            if outcome != "again":
+                return outcome == "shown"
+        return False
+
+    async def _promote_head(self) -> Literal["shown", "stopped", "again"]:
+        """Try the alert at the head of the queue once.
+
+        ``again`` means the head was dropped, or was no longer the head by the
+        time the locks were held, and the queue is worth looking at again.
+        """
         if self._state.alert is not None or not self._state.alert_queue:
-            return False
+            return "stopped"
         if not self._controller.is_connected:
-            return False
+            return "stopped"
 
         head = self._state.alert_queue[0]
         try:
             async with self._rendering(head.message) as render_message, self._lock:
+                # Under the lock, and again here rather than only before it, so
+                # that an alert whose limit on waiting passed while this waited
+                # for the locks is dropped rather than shown.
+                self._drop_waited_too_long()
                 queue = self._state.alert_queue
-                if self.active is not None or not queue or queue[0] is not head:
-                    # Something got in while the locks were being taken.
+                if self.active is not None:
                     raise _SignTaken
+                if not queue or queue[0] is not head:
+                    raise _HeadMoved
 
                 body = render_message(head.message)
                 if len(body) > c.PRIORITY_FILE_CAPACITY:
@@ -896,23 +932,32 @@ class AlertService:
                     key=head.key,
                 )
                 await self._take_the_sign(render_message, alert, body)
-                queue.pop(0)
+                # By identity rather than by position. Nothing else changes the
+                # queue while this holds the lock, so the head is still first;
+                # removing it by what it is keeps that true of this line even if
+                # something one day does.
+                queue[:] = [waiting for waiting in queue if waiting is not head]
         except _SignTaken:
-            return False
+            return "stopped"
+        except _HeadMoved:
+            return "again"
         except (ValueError, RegistryError) as err:
             # Everything that refuses an alert raised by a caller is one of
             # these, and nothing about the sign or the link is.
             async with self._lock:
-                if self._state.alert_queue and self._state.alert_queue[0] is head:
-                    self._state.alert_queue.pop(0)
+                queue = self._state.alert_queue
+                if any(waiting is head for waiting in queue):
+                    queue[:] = [waiting for waiting in queue if waiting is not head]
                     self._store.save(self._state)
             logger.warning(
-                "dropped the waiting alert%s, which can no longer be shown: %s. The text was: %r",
+                "dropped the waiting alert%s, which could not be shown when its turn came: "
+                "%s. The text was: %r",
                 " %r" % head.key if head.key is not None else "",
-                err,
+                # The refusal is a sentence of its own, and this one goes on.
+                str(err).rstrip("."),
                 head.message,
             )
-            return False
+            return "again"
 
         self._store.save(self._state)
         logger.info(
@@ -920,14 +965,15 @@ class AlertService:
             " until %s" % alert.expires_at.isoformat() if alert.expires_at else "",
             len(self._state.alert_queue),
         )
-        return True
+        return "shown"
 
     def _drop_waited_too_long(self) -> None:
-        """Drop every waiting alert whose limit on waiting has passed.
+        """Drop every waiting alert whose limit on waiting has passed. Under the lock.
 
-        No lock: nothing here awaits, so nothing can interleave with it, and the
-        queue is only ever changed by code that does not await partway through
-        changing it either.
+        Under it because :meth:`promote` writes the alert at the head with the
+        lock held and only then takes it out of the queue. Run during that
+        write, this could drop the alert going up and leave the promotion to
+        remove the one behind it instead.
         """
         now = self._now()
         queue = self._state.alert_queue
@@ -987,12 +1033,15 @@ class AlertService:
         if cleared:
             logger.info("cancelled %d waiting alert(s)", cleared)
         if was_active:
-            logger.info(
-                "alert released, %s",
-                "the next waiting alert follows" if self._state.alert_queue else "rotation resumes",
-            )
+            self._log_released()
 
         return was_active
+
+    def _log_released(self) -> None:
+        logger.info(
+            "alert released, %s",
+            "the next waiting alert follows" if self._state.alert_queue else "rotation resumes",
+        )
 
     async def dismiss(self, *, clear_queue: bool = False) -> bool:
         """Release the alert for a caller, and put the next waiting one up at once.
@@ -1000,7 +1049,9 @@ class AlertService:
         Returns whether an alert was holding the sign. Left to the sweep, the
         next alert would follow up to a sweep interval later, and a second
         release sent in that gap would find nothing showing and dismiss nothing
-        while being answered as though it had.
+        while being answered as though it had. :meth:`promote` goes past a
+        waiting alert it has to drop, so a bad one at the head does not open
+        that gap either.
 
         A promotion that cannot reach the sign is logged rather than raised. The
         release the caller asked for has happened by then, and the sweep tries
@@ -1040,14 +1091,22 @@ class AlertService:
         Waiting alerts whose limit on waiting has passed are dropped here too,
         so that the queue reads true while an alert holds the sign for a long
         time, rather than only when the next one is promoted.
-        """
-        self._drop_waited_too_long()
-        alert = self._state.alert
-        if alert is None or not self._has_expired(alert):
-            return False
 
-        logger.info("alert reached its deadline")
-        await self.release()
+        Decided under the lock, so that the alert released is the one found to
+        have expired. Read before taking it, an expired alert could be replaced
+        while this waited, by an alert queued with nothing left to wait for,
+        and the release would then take down the alert that had just been
+        shown.
+        """
+        async with self._lock:
+            self._drop_waited_too_long()
+            alert = self._state.alert
+            if alert is None or not self._has_expired(alert):
+                return False
+            logger.info("alert reached its deadline")
+            await self._release_locked()
+
+        self._log_released()
         return True
 
     def _has_expired(self, alert: AlertState) -> bool:

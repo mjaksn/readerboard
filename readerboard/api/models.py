@@ -53,6 +53,13 @@ VariableName = Annotated[
 ]
 
 
+# The longest a deadline may be set from now: a year, leap or not. Unbounded,
+# a large enough number of seconds put the deadline past the last date the
+# service can represent, and the request failed with a 500 rather than a 422.
+# Anything meant to last longer than this wants no deadline at all.
+LONGEST_SECONDS = 366 * 24 * 60 * 60
+
+
 def _normalise_mode(value: str) -> str:
     upper = value.strip().upper()
     if upper not in MODE_BY_NAME:
@@ -232,8 +239,7 @@ class VariableResponse(BaseModel):
     called_by: list[str] = Field(
         description=(
             "the keys of the slots whose messages call this variable. It cannot be deleted "
-            "while any do, nor while called_by_alert is true, nor while an alert waiting "
-            "its turn calls it"
+            "while any do, nor while called_by_alert or called_by_waiting_alert is true"
         )
     )
     called_by_alert: bool = Field(
@@ -242,10 +248,21 @@ class VariableResponse(BaseModel):
             "deleted until the alert is released or replaced with one that does not"
         )
     )
+    called_by_waiting_alert: bool = Field(
+        description=(
+            "true while an alert waiting its turn calls this variable. It cannot be "
+            "deleted until every such alert has been shown or cancelled"
+        )
+    )
 
     @classmethod
     def of(
-        cls, variable: VariableState, called_by: list[str], *, called_by_alert: bool
+        cls,
+        variable: VariableState,
+        called_by: list[str],
+        *,
+        called_by_alert: bool,
+        called_by_waiting_alert: bool,
     ) -> VariableResponse:
         """Render a stored variable as the API's view of it."""
         return cls(
@@ -259,6 +276,7 @@ class VariableResponse(BaseModel):
             updated_at=variable.updated_at,
             called_by=called_by,
             called_by_alert=called_by_alert,
+            called_by_waiting_alert=called_by_waiting_alert,
         )
 
 
@@ -317,9 +335,11 @@ class AlertRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
-            "release the sign this many seconds from now. Omit and the alert holds the "
-            "sign until something releases it explicitly"
+            "release the sign this many seconds after the alert takes it: from now, or "
+            "for one that queues, from when its turn comes. At most a year. Omit and "
+            "the alert holds the sign until something releases it explicitly"
         ),
     )
     if_active: Literal["replace", "queue", "fail"] = Field(
@@ -347,11 +367,12 @@ class AlertRequest(BaseModel):
     max_wait_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
             "with if_active queue, drop the alert unseen if it has not taken the sign "
             "this many seconds from now, for news that stops being true. Separate from "
-            "ttl_seconds, whose clock starts only when the alert takes the sign. Omit "
-            "and it waits however long it takes"
+            "ttl_seconds, whose clock starts only when the alert takes the sign. At "
+            "most a year. Omit and it waits however long it takes"
         ),
     )
 

@@ -126,6 +126,21 @@ def test_the_old_name_in_the_environment_is_refused_rather_than_ignored(
         settings()
 
 
+def test_refusing_the_old_name_does_not_print_the_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The refusal sees every setting at once, and pydantic printed them all as
+    # its input, so an upgrade that kept the old variable put the key in the
+    # container's log.
+    monkeypatch.setenv("READERBOARD_API_KEY", "supersecretkey123")
+    monkeypatch.setenv("READERBOARD_REFRESH_INTERVAL_SECONDS", "60")
+    with pytest.raises(ValidationError) as refused:
+        settings()
+
+    assert "supersecretkey123" not in str(refused.value)
+    assert "READERBOARD_CHECK_INTERVAL_SECONDS" in str(refused.value)
+
+
 def test_the_check_interval_is_read_from_the_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

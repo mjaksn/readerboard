@@ -1,9 +1,10 @@
 """What the service remembers across a restart.
 
-Five things have to survive: which messages are registered and where on the
+Six things have to survive: which messages are registered and where on the
 sign each one lives, which variables hold which values and where, which icon
 each picture file is holding, whether an alert is currently holding the
-display, and which memory configuration was last applied.
+display, which alerts are waiting their turn behind it, and which memory
+configuration was last applied.
 
 The last of those matters more than it looks. Writing a memory configuration
 erases every file on the sign, so the service must be able to tell "the pool I
