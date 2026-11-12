@@ -95,10 +95,11 @@ class SlotRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
             "act on the message this many seconds from now, deleting or hiding it "
-            "according to delete_on_expiry. Omit it for no deadline, which leaves the "
-            "message in place until something replaces or removes it"
+            "according to delete_on_expiry. At most a year. Omit it for no deadline, "
+            "which leaves the message in place until something replaces or removes it"
         ),
     )
     delete_on_expiry: bool = Field(
@@ -197,10 +198,11 @@ class VariableRequest(BaseModel):
     ttl_seconds: float | None = Field(
         default=None,
         gt=0,
+        le=LONGEST_SECONDS,
         description=(
             "show stale_value in its place this many seconds from now unless a fresh "
             "value arrives first. The variable itself stays, since messages call it. "
-            "Omit to keep the value until replaced"
+            "At most a year. Omit to keep the value until replaced"
         ),
     )
     stale_value: str = Field(

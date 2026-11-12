@@ -54,11 +54,12 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   fields:** `key`, and `state`, which is `showing` or `waiting`, with
   `started_at` null for one that is waiting. The fields a caller read before are
   all still there and mean what they did.
-- **An alert's `ttl_seconds`, and the new `max_wait_seconds`, are at most a
-  year.** A larger number put the deadline past the last date the service can
-  hold, and was a 500 rather than a 422; for a queued alert's `ttl_seconds` it
-  was a 500 on every release once that alert reached the head of the queue.
-  Something meant to last longer than a year wants no deadline at all.
+- **Every `ttl_seconds`, on a message, a variable or an alert, and the new
+  `max_wait_seconds`, is at most a year.** A larger number put the deadline past
+  the last date the service can hold, and was a 500 rather than a 422; for a
+  queued alert's `ttl_seconds` it was a 500 on every release once that alert
+  reached the head of the queue. Something meant to last longer than a year
+  wants no deadline at all.
 - **A stored alert that has outgrown the priority file is released when it is
   re-asserted**, as it already was at startup, rather than left recorded and
   not shown. Kept, it would have held every alert waiting behind it for good.

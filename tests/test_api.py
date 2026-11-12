@@ -1431,6 +1431,20 @@ class TestAlertQueue:
         assert response.status_code == 409
         assert "alert_queue_limit" in response.json()["detail"]
 
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [
+            ("/slots/far", {"message": "HI"}),
+            ("/variables/far", {"value": "1"}),
+        ],
+    )
+    def test_a_message_or_variable_deadline_more_than_a_year_off_is_422(
+        self, client, path, body
+    ):
+        response = client.put(path, json={**body, "ttl_seconds": 1e12}, headers=HEADERS)
+
+        assert response.status_code == 422
+
     @pytest.mark.parametrize("field", ["ttl_seconds", "max_wait_seconds"])
     def test_a_deadline_more_than_a_year_off_is_422_not_500(self, client, field):
         # Unbounded, a big enough number put the deadline past the last date
