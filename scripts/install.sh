@@ -2,10 +2,12 @@
 #
 # Install readerboard as a systemd service.
 #
-# Safe to run more than once. Nothing already correct is changed, an existing
+# Can be run more than once. Nothing already correct is changed, an existing
 # config file is left alone, and an API key that already exists is never
-# regenerated, so re-running this to pick up a new version will not break a
-# Home Assistant rest_command that is already working.
+# regenerated, so re-running this to pick up a new version keeps a Home
+# Assistant rest_command's key working. Left alone also means not updated: a
+# setting the CHANGELOG says a release renamed or removed has to be edited in
+# the config file first, or the service will not start.
 #
 set -euo pipefail
 
