@@ -1353,8 +1353,8 @@ class TestTheErrorTable:
         assert response.status_code == 500
 
 
-class TestNumbersJsonCannotCarry:
-    """A body holding Infinity, NaN or 1e400 is a 422 like any other wrong body.
+class TestValuesTheResponseCannotCarry:
+    """A body holding Infinity, NaN, 1e400 or a lone surrogate is a 422 like any other.
 
     FastAPI echoes each rejected value back, and none of these can be encoded,
     so the 422 itself used to raise and the caller got a 500.
@@ -1376,6 +1376,18 @@ class TestNumbersJsonCannotCarry:
             method,
             path,
             content=body % number,
+            headers={**HEADERS, "content-type": "application/json"},
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"]
+
+    def test_a_string_holding_a_lone_surrogate_is_refused_with_a_422(self, client):
+        # Valid JSON, but not text UTF-8 can carry, so echoing it back failed
+        # the same way a number that is not finite did.
+        response = client.post(
+            "/alerts",
+            content='{"message": "HI", "if_active": "queue", "key": "\\ud800"}',
             headers={**HEADERS, "content-type": "application/json"},
         )
 

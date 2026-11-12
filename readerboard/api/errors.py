@@ -10,8 +10,9 @@ Add an exception here and the handler for it is registered with it.
 
 The one other handler is for a body pydantic rejects, which is not the
 service's own exception and so is not here. It is FastAPI's 422, registered
-beside these in ``readerboard.api.app`` only so that a rejected Infinity or
-NaN can be written back to the caller.
+beside these in ``readerboard.api.app`` only so that a rejected value no JSON
+response can carry, such as Infinity, NaN or a lone surrogate, can be written
+back to the caller.
 """
 
 from __future__ import annotations

@@ -392,7 +392,8 @@ def _install_error_handlers(app: FastAPI) -> None:
 
     Registered by walking the table in readerboard.api.errors, which is the one
     place that decides what any of them means. The 422 for a body pydantic
-    rejects is FastAPI's, replaced only so that it can always be encoded.
+    rejects is FastAPI's, replaced only so that echoing back a rejected
+    Infinity, NaN or lone surrogate does not turn it into a 500.
     """
 
     def handler(code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
@@ -411,7 +412,9 @@ def _install_error_handlers(app: FastAPI) -> None:
         # rejected value back, and a body holding Infinity, NaN or a literal too
         # big for a float, such as 1e400, has a value JSON cannot carry, so
         # encoding the 422 raised and the caller got a 500 for a body that was
-        # simply wrong. Those values go back as their text instead.
+        # simply wrong. A string holding a lone surrogate, such as the JSON
+        # escape for U+D800, is not text UTF-8 can carry and failed the same
+        # way. Those values go back as text instead.
         assert isinstance(exc, RequestValidationError)
         detail = _encodable(jsonable_encoder(exc.errors()))
         return JSONResponse(status_code=422, content={"detail": detail})
@@ -420,9 +423,19 @@ def _install_error_handlers(app: FastAPI) -> None:
 
 
 def _encodable(value: Any) -> Any:
-    """Return ``value`` with every float JSON cannot carry turned into its text."""
+    """Return ``value`` with everything a JSON response cannot carry turned into text.
+
+    That is a float that is not finite, and a string holding a lone surrogate,
+    which is not valid UTF-8 and has its surrogates written out as escapes.
+    """
     if isinstance(value, float) and not math.isfinite(value):
         return repr(value)
+    if isinstance(value, str):
+        try:
+            value.encode("utf-8")
+        except UnicodeEncodeError:
+            return value.encode("utf-8", "backslashreplace").decode("utf-8")
+        return value
     if isinstance(value, dict):
         return {key: _encodable(item) for key, item in value.items()}
     if isinstance(value, list):

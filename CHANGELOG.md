@@ -118,9 +118,10 @@ a state file from 0.8.3 reads as one with no alerts waiting.
   big for any sign, printed all of them as its input, the key among them. Each
   refusal now prints only its own message, which names the setting it is about.
 - **A body holding `Infinity`, `NaN` or a number too big for a float, such as
-  `1e400`, is a 422 rather than a 500.** The refusal echoes the rejected value
-  back, and JSON cannot carry these, so writing the 422 failed. A Python caller
-  passing `math.inf` to mean forever sends `Infinity`.
+  `1e400`, is a 422 rather than a 500,** and so is one whose rejected string
+  holds a lone surrogate such as `\ud800`. The refusal echoes the rejected value
+  back, and the response cannot carry these, so writing the 422 failed. A Python
+  caller passing `math.inf` to mean forever sends `Infinity`.
 - **An alert refused with `fail`, or too long for the priority file, no longer
   marks the sign out of sync** when its icon had to evict an idle one to be
   checked, and nor does a message refused for its length or for a full slot
