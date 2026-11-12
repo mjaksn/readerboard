@@ -2347,3 +2347,25 @@ class TestPromotionKeepsThePictureRecordTrue:
         assert alerts.waiting == []
         assert list(state.pictures) == ["sun"]
         assert list(store.load().pictures) == ["sun"]
+
+    async def test_a_refused_claim_while_another_alert_took_the_sign_keeps_the_head(
+        self, controller, store, state, clock, alerts
+    ):
+        # A replacement alert got the registry's lock first, so the head's
+        # turn had not come; the pool being full then is no reason to drop it.
+        registry = await self.wired(controller, store, state, clock, alerts)
+        await add(registry, "weather", "<icon:sun>")
+        await alerts.raise_alert("FIRST", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await alerts.release()
+
+        async with registry.rendering(None):
+            replacing = asyncio.create_task(alerts.raise_alert("NEW", mode="HOLD"))
+            await asyncio.sleep(0)
+            promoting = asyncio.create_task(alerts.promote())
+            await asyncio.sleep(0)
+        await replacing
+        assert await promoting is False
+
+        assert alerts.active.message == "NEW"
+        assert [w.message for w in alerts.waiting] == ["<icon:moon> LATER"]

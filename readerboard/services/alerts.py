@@ -983,8 +983,15 @@ class AlertService:
             # failing to show: an updated one is tried again in the next round.
             # So the wait limit goes first, logging its own reason, and only an
             # alert still waiting is dropped and reported here.
-            async with self._lock:
+            #
+            # Nor is it this alert's turn if another took the sign while this
+            # waited for the registry's lock: the claim is made before the
+            # check that would have stopped here. What filled the picture pool
+            # then may be gone by its turn, so it waits for that.
+            async with self._rendering(None), self._lock:
                 self._drop_waited_too_long()
+                if self.active is not None:
+                    return "stopped"
                 queue = self._state.alert_queue
                 if not any(waiting is head for waiting in queue):
                     return "again"
