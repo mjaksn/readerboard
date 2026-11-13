@@ -884,6 +884,9 @@ class TestTheSignsMemoryPool:
             assert health["sign_in_sync"] is False
             refused = client.put("/variables/humidity", json={"value": "40"}, headers=HEADERS)
             assert refused.status_code == 503
+            # Refused for the pool, not merely failed on the dead link, which
+            # would also be a 503.
+            assert "file pool has not been written" in refused.json()["detail"]
 
             unreachable.replies.append(general_information(A_ROOMY_SIGN))
             unreachable.open_fails_with = None

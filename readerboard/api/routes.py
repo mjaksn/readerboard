@@ -488,6 +488,11 @@ async def reboot_sign(registry: RegistryDep, alerts: AlertsDep) -> Response:
     The sign is asked just before it would be cleared, so nothing has been
     written and it is left exactly as it was. A sign too wedged to answer that
     question is rebooted anyway, which is the case this endpoint exists for.
+
+    One exception to putting everything back: after a start that had to write a
+    changed file pool and could not reach the sign, this writes that pool, and a
+    changed pool empties the record as it always does, so every source sends its
+    messages again.
     """
     # Only when the reboot did not already put it back, which it does when it
     # hands the sign over to write a picture. Writing it twice restarts the

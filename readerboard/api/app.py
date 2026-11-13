@@ -180,8 +180,8 @@ async def _finish_the_startup_restore(registry: SlotRegistry, alerts: AlertServi
         await registry.finish_owed_restore()
     except pool.PoolTooLarge as err:
         logger.error(
-            "the sign is back, but its file pool cannot be written, so nothing will be "
-            "written to it: %s",
+            "the sign is back, but its file pool cannot be written, so nothing that "
+            "needs its files will be written to it: %s",
             err,
         )
         return

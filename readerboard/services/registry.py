@@ -311,6 +311,10 @@ class SlotRegistry:
         self._lock = asyncio.Lock()
         self._dirty = False
         self._restore_owed = False
+        # Why the reconnect could not finish an owed restore, when the sign
+        # answered that it has no room for the pool, so that a refused write
+        # names that rather than a reconnect that has already happened.
+        self._too_small_for_the_pool: str | None = None
         self._priority_hold: PriorityHold | None = None
         # When asking the sign a question is worth doing again, or None while it
         # is worth doing every time. The sign simulator decodes reads and
@@ -430,8 +434,9 @@ class SlotRegistry:
 
         A restore that has to write the pool and cannot, because the sign is not
         reachable at startup, leaves the restore owed: see
-        :attr:`restore_owed`. Calling this again finishes it, and the reconnect
-        hook in ``app.py`` does exactly that once the link comes up.
+        :attr:`restore_owed`. The reconnect hook in ``app.py`` finishes it once
+        the link comes up, through :meth:`finish_owed_restore`, which asks the
+        sign for its room first; calling this again directly would not.
         """
         async with self._lock:
             await self._restore_locked()
@@ -513,7 +518,12 @@ class SlotRegistry:
             budget = await pool.measure(
                 self._controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL
             )
-            pool.check_fits(self._layout, budget)
+            try:
+                pool.check_fits(self._layout, budget)
+            except pool.PoolTooLarge as err:
+                self._too_small_for_the_pool = str(err)
+                raise
+            self._too_small_for_the_pool = None
             await self._restore_locked()
 
     @property
@@ -530,12 +540,20 @@ class SlotRegistry:
         return self._restore_owed
 
     def _refuse_while_restore_owed(self) -> None:
-        if self._restore_owed:
+        if not self._restore_owed:
+            return
+        if self._too_small_for_the_pool is not None:
             raise SignNotRestored(
                 "the sign's file pool has not been written since the service started, "
-                "because the sign was not reachable then; it is written when the link "
-                "to the sign comes back, and until then nothing can be written to it"
+                "and cannot be: %s Until it is, nothing that needs the sign's files can "
+                "be written" % self._too_small_for_the_pool
             )
+        raise SignNotRestored(
+            "the sign's file pool has not been written since the service started, "
+            "because the sign was not reachable then. It is written when the service "
+            "next reaches the sign, and until then nothing that needs the sign's files "
+            "can be written"
+        )
 
     def _reattach_labels(self) -> None:
         """Re-establish which slot and variable owns which file, dropping what cannot come back.
@@ -1006,8 +1024,8 @@ class SlotRegistry:
         """
         async with self._lock:
             # The pool is checked here for the same reason it is checked at
-            # startup, and this is the other half of that: these two are every
-            # path that writes a memory configuration. A sign swapped for a
+            # startup, and with finish_owed_restore these three are every path
+            # that writes a memory configuration. A sign swapped for a
             # smaller one leaves a state file that still matches, so startup
             # asks nothing, and without this the first reboot would clear the
             # sign and write a pool it cannot hold.

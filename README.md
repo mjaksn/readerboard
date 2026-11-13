@@ -47,7 +47,10 @@ end rather than replace it.
   the rotation intact. A message or a variable write that arrives while the sign is
   unreachable is refused with a 503 rather than silently held, so the caller learns it did
   not land. Deleting or hiding a message, or deleting a variable, is accepted and carried
-  out when the link returns.
+  out when the link returns. The one exception is a start that had to write a new file
+  pool and could not reach the sign: until the sign comes back and the pool is written,
+  every change to messages and variables is a 503, since the files they would use may
+  not exist yet.
 - **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
   render is a 400, each with the reason in the body. Nothing here reports a failure
   under a 200.

@@ -135,19 +135,25 @@ A start that is about to reallocate and cannot reach the sign, because the
 adapter is off the network, asks a question nobody answers, passes on the 5482,
 and then fails to send the clear. That leaves the restore owed, which
 `SlotRegistry.restore_owed` says, and three things follow until it is done.
-Everything that would write to the sign or hand out a file is refused with
+Everything in the registry that writes a slot, a variable, a picture or the run
+sequence, and drawing an alert onto the sign, is refused with
 `SignNotRestored`, a `TransportError` and so a 503, before it sends anything:
 in the changed-pool case the records still name the files of the old pool,
 which the layout has not been told about, and handing one of them to a new
-variable is what put two values in one STRING file. `/health` says the sign is
+variable is what put two values in one STRING file. What needs no file goes on
+as before: releasing an alert, its own deadline, queueing one behind it, the
+clock and the sign commands. `/health` says the sign is
 out of step. And the first reconnect does the restore instead of its usual
 refresh, asking the sign for its room first, since the answer the start went on
 was an assumption; a sign without the room is left alone, logged at ERROR, and
 the restore stays owed until a restart with a smaller pool. A reboot while it
 is owed finishes it the same way, rather than recording the new pool over
-records that still name the old one. Expiries wait for it, and a waiting alert
-whose turn comes keeps its place, because the sign not being ready is not the
-alert being unshowable. When the pool has not changed, which is a reboot the
+records that still name the old one. Message and variable expiries wait for it,
+and a waiting alert whose turn comes keeps its place, because the sign not
+being ready is not the alert being unshowable. The reconnect that finishes it
+puts the alert back as well, and reads which alert that is only once it holds
+both locks: requests are being served by then, and an alert raised or
+dismissed while the pool was being written gets in first. When the pool has not changed, which is a reboot the
 state file says may not have written it, the records keep their files the whole
 time; only a changed pool leaves them detached, and those records are emptied
 when the new pool goes out, as they always have been.
