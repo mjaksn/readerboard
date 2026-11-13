@@ -11,7 +11,16 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.9.1] - 2026-11-12
+
+**Two fixes for a sign the service could believe intact when it was not: after
+a `POST /sign/reboot` that stopped partway, and after a start that had to
+rewrite the sign's file pool and could not reach the sign.** Upgrading erases
+nothing: no setting changes, and a state file from 0.9.0 reads as one with
+nothing pending. One thing a reconnect can now do is new. After a start that
+had to write the sign's file pool and could not reach the sign, the first
+reconnect writes it, which erases the sign exactly as that start would have,
+asking the sign for its room first.
 
 ### Fixed
 
@@ -1954,7 +1963,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.1
 [0.9.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.0
 [0.8.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.3
 [0.8.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.2
