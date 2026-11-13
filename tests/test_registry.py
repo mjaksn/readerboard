@@ -1451,7 +1451,7 @@ class TestAnOwedRestore:
         return writes[-1]
 
     async def test_an_alert_raised_during_the_finish_is_not_written_over(
-        self, store, clock, transport, answer_a_pool_reading
+        self, store, clock, transport, answer_a_pool_reading, caplog
     ):
         # The finish puts the recorded alert back once the pool is written. An
         # alert raised while it held the lock got in first, and the old one,
@@ -1459,12 +1459,16 @@ class TestAnOwedRestore:
         async def replace(alerts):
             await alerts.raise_alert("NEW ALERT", mode="HOLD")
 
-        alerts = await self.an_alert_request_during_the_finish(
-            store, clock, transport, answer_a_pool_reading, replace
-        )
+        with caplog.at_level("INFO"):
+            alerts = await self.an_alert_request_during_the_finish(
+                store, clock, transport, answer_a_pool_reading, replace
+            )
 
         assert alerts.active.message == "NEW ALERT"
         assert b"NEW ALERT" in self.last_priority_write(transport)
+        # And the log does not say the old alert was put back after pictures
+        # were written: it was a new alert, and there are no pictures here.
+        assert "put back after the pictures" not in caplog.text
 
     async def test_an_alert_dismissed_during_the_finish_stays_dismissed(
         self, store, clock, transport, answer_a_pool_reading
@@ -1540,6 +1544,49 @@ class TestAnOwedRestore:
         assert not restarted.restore_owed
         assert alerts.active.message == "FIRE"
         assert len([packet for packet in transport.packets if b"FIRE" in packet]) == 1
+
+    async def test_a_reboot_whose_check_passes_drops_the_old_too_small_reason(
+        self, store, clock, transport, answer_a_pool_reading
+    ):
+        # The reconnect found the sign too small, then a bigger one answered a
+        # reboot that failed after its check. A refused write must not go on
+        # telling the caller to shrink a pool that now fits.
+        await self.a_previous_run(store, clock)
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        transport.open_fails_with = None
+        answer_a_pool_reading(b"0100")
+        with pytest.raises(pool.PoolTooLarge):
+            await restarted.finish_owed_restore()
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("link dropped")
+
+        restarted._controller.apply_memory_config = unplugged
+        answer_a_pool_reading()
+        with pytest.raises(TransportError):
+            await restarted.reboot()
+
+        assert restarted.restore_owed
+        with pytest.raises(SignNotRestored, match="next reaches the sign"):
+            await add(restarted, "two", "TWO")
+
+    async def test_a_reboot_that_finds_the_sign_too_small_says_so(
+        self, store, clock, transport, answer_a_pool_reading
+    ):
+        await self.a_previous_run(store, clock)
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        transport.open_fails_with = None
+        answer_a_pool_reading(b"0100")
+
+        with pytest.raises(pool.PoolTooLarge):
+            await restarted.reboot()
+
+        with pytest.raises(SignNotRestored, match="the sign has 256"):
+            await add(restarted, "two", "TWO")
 
     async def test_nothing_owed_means_nothing_is_written(self, registry, transport):
         # The case that matters most: an ordinary reconnect must never reach

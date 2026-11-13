@@ -513,7 +513,10 @@ listening again rather than that the bytes went out.
 
 **`POST /sign/reboot` is the escalation, and it is destructive.** It clears the sign
 outright, waits for it to restart, then re-pushes every message and the run sequence
-from the service's own record, so the display still comes back to what it was.
+from the service's own record, so the display still comes back to what it was. The one
+exception is a reboot after a start that changed the pool settings and could not reach
+the sign: it writes that new pool, which empties the record as changing the pool always
+does, so every source has to send its messages again.
 
 ```
 curl -X POST http://localhost:5001/sign/reboot -H 'X-API-Key: YOUR-KEY'

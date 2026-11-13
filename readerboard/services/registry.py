@@ -91,7 +91,7 @@ class RegistryError(Exception):
 
 
 class SignNotRestored(TransportError):
-    """The startup restore still owes the sign its file pool, so nothing can be written yet.
+    """The startup restore still owes the sign its file pool, so nothing needing its files can be written.
 
     A :class:`TransportError` rather than a :class:`RegistryError`, because it
     says the sign is not ready rather than that the request was wrong: it is a
@@ -518,13 +518,23 @@ class SlotRegistry:
             budget = await pool.measure(
                 self._controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL
             )
-            try:
-                pool.check_fits(self._layout, budget)
-            except pool.PoolTooLarge as err:
-                self._too_small_for_the_pool = str(err)
-                raise
-            self._too_small_for_the_pool = None
+            self._check_the_pool_fits(budget)
             await self._restore_locked()
+
+    def _check_the_pool_fits(self, budget: int) -> None:
+        """Check the pool against the sign's answer, and remember a refusal while owed.
+
+        Both paths that can finish an owed restore ask, the reconnect and a
+        reboot, so both keep the reason a refused write gives current: the
+        sign's latest answer, not whichever of them happened to ask last.
+        """
+        try:
+            pool.check_fits(self._layout, budget)
+        except pool.PoolTooLarge as err:
+            if self._restore_owed:
+                self._too_small_for_the_pool = str(err)
+            raise
+        self._too_small_for_the_pool = None
 
     @property
     def restore_owed(self) -> bool:
@@ -1038,7 +1048,7 @@ class SlotRegistry:
             budget = await pool.measure(
                 self._controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL
             )
-            pool.check_fits(self._layout, budget)
+            self._check_the_pool_fits(budget)
 
             # A startup restore that never wrote the pool is finished instead,
             # the same way the reconnect would have. Going on below would record

@@ -337,18 +337,21 @@ class AlertService:
                 body = render_message(alert.message, strict=False)
                 if len(body) <= c.PRIORITY_FILE_CAPACITY:
                     # What is logged depends on whether anything went out,
-                    # because by here it often has. The registry hands the sign
-                    # back to write a picture and puts the alert straight back
-                    # on, and its restore runs before this one, so on a sign
-                    # with icons the alert is already up and this write is
-                    # suppressed. Saying "restoring" over no packet at all is
-                    # how a log stops being worth reading.
+                    # because by here it often has, for one of two reasons. The
+                    # registry hands the sign back to write a picture and puts
+                    # the alert straight back on, and its restore runs before
+                    # this one. Or, on the reconnect that finishes an owed
+                    # restore, an alert raised while the pool was being written
+                    # got in first and is the one read here. Either way it is
+                    # already up and this write is suppressed. Saying
+                    # "restoring" over no packet at all, or naming a cause that
+                    # did not happen, is how a log stops being worth reading.
                     if await self._write(alert, body):
                         logger.info("restored the alert that was active before the restart")
                     else:
                         logger.info(
-                            "the alert that was active before the restart is already "
-                            "back on the sign, put back after the pictures were written"
+                            "the recorded alert is already on the sign, so it was not "
+                            "written again"
                         )
                 else:
                     # It fitted when it was accepted, and it does not now.
