@@ -17,6 +17,7 @@ from readerboard.protocol import frames
 from readerboard.services import commands
 from readerboard.sign.controller import RESET_SETTLE_SECONDS, SOUND_SETTLE_SECONDS
 from readerboard.sign.pool import PoolTooLarge
+from readerboard.sign.state import StateStore
 from readerboard.transport.fake import FakeTransport
 
 KEY = "test-key-not-a-real-one"
@@ -861,6 +862,30 @@ class TestTheSignsMemoryPool:
         written = [packet for packet in sign.packets if frames.clear_memory() in packet]
         assert written == []
         assert [packet for packet in sign.packets if b"E$A" in packet] == []
+
+    def test_a_start_after_an_interrupted_reboot_asks_then_puts_everything_back(
+        self, tmp_path, sign
+    ):
+        # A reboot stopped after its clear leaves the pool to be written again,
+        # which is a memory configuration like any other and so asks first. The
+        # pool has not changed, so the message stays rather than being dropped.
+        settings = self.settings_for(tmp_path)
+        with TestClient(create_app(settings, transport=sign)) as client:
+            client.put("/slots/one", json={"message": "ONE"}, headers=HEADERS)
+        store = StateStore(settings.state_path)
+        saved = store.load()
+        saved.reallocation_pending = True
+        store.save(saved)
+
+        again = FakeTransport()
+        again.replies.append(general_information(A_ROOMY_SIGN))
+        with TestClient(create_app(settings, transport=again)) as client:
+            assert [slot["key"] for slot in client.get("/slots").json()] == ["one"]
+            assert client.get("/health").json()["status"] == "ok"
+
+        assert again.packets[0] == frames.packet(frames.read_general_information())
+        assert frames.packet(frames.clear_memory()) in again.packets
+        assert store.load().reallocation_pending is False
 
     def test_an_ordinary_restart_asks_the_sign_nothing(self, tmp_path, sign):
         settings = self.settings_for(tmp_path)

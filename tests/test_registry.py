@@ -1,6 +1,7 @@
 """Tests for the registry: upsert, ordering, TTL, capacity, and restart."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -14,7 +15,7 @@ from readerboard.services.registry import (
 from readerboard.sign import pool
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
-from readerboard.sign.state import AlertState
+from readerboard.sign.state import AlertState, ServiceState, StateStore
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -950,6 +951,244 @@ class TestReboot:
         await registry.reboot()
         assert [slot.key for slot in registry.list_slots()] == ["one"]
         assert frames.packet(frames.clear_memory()) in transport.packets
+
+
+async def no_wait(seconds: float) -> None:
+    await asyncio.sleep(0)
+
+
+class TestAnInterruptedReboot:
+    """A reboot stopped after its clear leaves a record that says so.
+
+    The clear erases every file on the sign, and the configuration after it is
+    what gives the sign files to write into. A reboot stopped between the two,
+    by a client going away or the link failing, used to leave the state file
+    saying the pool was applied and /health saying in sync, so a restart wrote
+    every message into files the sign did not have.
+    """
+
+    @staticmethod
+    def stop_after_the_clear(controller, stop: BaseException) -> None:
+        # The settle is the wait between the clear and the configuration, so
+        # failing it stops the reboot exactly there.
+        async def stopped(seconds: float) -> None:
+            raise stop
+
+        controller._sleep = stopped
+
+    @pytest.mark.parametrize(
+        "stop", [TransportError("link dropped"), asyncio.CancelledError()], ids=["failed", "cancelled"]
+    )
+    async def test_a_restart_writes_the_pool_again_and_keeps_every_message(
+        self, registry, controller, layout, store, clock, transport, answer_a_pool_reading, stop
+    ):
+        await add(registry, "one", "ONE")
+        await add(registry, "two", "TWO")
+        transport.clear()
+        answer_a_pool_reading()
+        self.stop_after_the_clear(controller, stop)
+
+        with pytest.raises(type(stop)):
+            await registry.reboot()
+
+        assert frames.packet(frames.clear_memory()) in transport.packets
+        configuration = frames.packet(frames.set_memory_config(layout.allocations()))
+        assert configuration not in transport.packets
+        assert not registry.in_sync
+
+        # What the next start reads. Setting the layout to None instead would
+        # have read as a changed pool, which drops every message from the record.
+        saved = store.load()
+        assert saved.reallocation_pending is True
+        assert saved.layout is not None
+        assert sorted(saved.slots) == ["one", "two"]
+
+        fresh = FakeTransport()
+        restarted = SlotRegistry(
+            SignController(fresh, inter_packet_delay=0, sleep=no_wait),
+            Layout(3, 256),
+            store,
+            saved,
+            now=clock,
+        )
+        await restarted.restore()
+
+        assert frames.packet(frames.clear_memory()) in fresh.packets
+        assert configuration in fresh.packets
+        assert [slot.key for slot in restarted.list_slots()] == ["one", "two"]
+        assert len(payloads_starting(fresh, b"A")) == 2
+        assert restarted.in_sync
+        assert store.load().reallocation_pending is False
+
+    async def test_a_refresh_does_not_call_it_in_sync(
+        self, registry, controller, transport, answer_a_pool_reading
+    ):
+        # A refresh pushes everything into a sign with no pool, which lands
+        # nowhere, and must not then report the sign as matching the record.
+        await add(registry, "one")
+        answer_a_pool_reading()
+        self.stop_after_the_clear(controller, TransportError("link dropped"))
+        with pytest.raises(TransportError):
+            await registry.reboot()
+        controller._sleep = no_wait
+
+        await registry.refresh()
+
+        assert not registry.in_sync
+
+    async def test_a_second_reboot_finishes_it(
+        self, registry, controller, store, answer_a_pool_reading
+    ):
+        await add(registry, "one")
+        answer_a_pool_reading()
+        self.stop_after_the_clear(controller, TransportError("link dropped"))
+        with pytest.raises(TransportError):
+            await registry.reboot()
+        controller._sleep = no_wait
+        answer_a_pool_reading()
+
+        await registry.reboot()
+
+        assert registry.in_sync
+        assert store.load().reallocation_pending is False
+
+    async def test_a_reboot_refused_for_room_marks_nothing(
+        self, registry, store, transport, answer_a_pool_reading
+    ):
+        # Refused before the clear, so the sign is as it was and so is the
+        # record: nothing is pending and nothing is out of step.
+        await add(registry, "one")
+        answer_a_pool_reading(b"0100")
+
+        with pytest.raises(pool.PoolTooLarge):
+            await registry.reboot()
+
+        assert registry.in_sync
+        assert store.load().reallocation_pending is False
+
+    @staticmethod
+    def fail_the_first_save_after_the_pool(controller, store, *, every=False) -> list[str]:
+        """Make the state file fail at the first save after a pool is written.
+
+        That is the save between the memory configuration and the rewrite, the
+        moment the sign is blank. With ``every``, each save after it fails as
+        well, which is a disk that stays full. Returns a list that records each
+        failure.
+        """
+        apply_memory_config = controller.apply_memory_config
+        save = store.save
+        configured = False
+        failed: list[str] = []
+
+        async def applying(*args, **kwargs):
+            nonlocal configured
+            await apply_memory_config(*args, **kwargs)
+            configured = True
+
+        def saving(state):
+            if configured and (every or not failed):
+                failed.append("disk full")
+                raise OSError(28, "No space left on device")
+            save(state)
+
+        controller.apply_memory_config = applying
+        store.save = saving
+        return failed
+
+    @staticmethod
+    def pending_restart(store, saved, clock) -> tuple[SlotRegistry, FakeTransport]:
+        fresh = FakeTransport()
+        restarted = SlotRegistry(
+            SignController(fresh, inter_packet_delay=0, sleep=no_wait),
+            Layout(3, 256),
+            store,
+            saved,
+            now=clock,
+        )
+        return restarted, fresh
+
+    async def test_a_reboot_whose_save_after_the_pool_fails_still_puts_everything_back(
+        self, registry, controller, store, transport, answer_a_pool_reading
+    ):
+        # The sign is blank once the pool has gone out, and the rewrite is what
+        # brings it back, so a full disk there is logged rather than raised.
+        await add(registry, "one", "ONE")
+        await add(registry, "two", "TWO")
+        transport.clear()
+        answer_a_pool_reading()
+        failed = self.fail_the_first_save_after_the_pool(controller, store)
+
+        await registry.reboot()
+
+        assert failed
+        assert len(payloads_starting(transport, b"A")) == 2
+        assert registry.in_sync
+        # The save after the rewrite went through, so the file no longer says
+        # the pool is pending and the next start writes nothing.
+        assert store.load().reallocation_pending is False
+
+    async def test_a_reboot_whose_every_save_after_the_pool_fails_leaves_it_pending(
+        self, registry, controller, store, transport, answer_a_pool_reading
+    ):
+        # A disk that stays full. The display still comes back, and the file
+        # still says the pool is pending, so the next start writes it once more.
+        await add(registry, "one", "ONE")
+        transport.clear()
+        answer_a_pool_reading()
+        failed = self.fail_the_first_save_after_the_pool(controller, store, every=True)
+
+        with pytest.raises(OSError):
+            await registry.reboot()
+
+        assert len(failed) == 2
+        assert len(payloads_starting(transport, b"A")) == 1
+        assert store.load().reallocation_pending is True
+
+    async def test_a_start_whose_save_after_the_pool_fails_still_puts_everything_back(
+        self, registry, store, state, clock
+    ):
+        await add(registry, "one", "ONE")
+        state.reallocation_pending = True
+        store.save(state)
+        restarted, fresh = self.pending_restart(store, store.load(), clock)
+        failed = self.fail_the_first_save_after_the_pool(restarted._controller, store)
+
+        await restarted.restore()
+
+        assert failed
+        assert len(payloads_starting(fresh, b"A")) == 1
+        assert restarted.in_sync
+        assert store.load().reallocation_pending is False
+
+    async def test_a_start_that_stops_after_the_pool_reports_the_sign_out_of_step(
+        self, registry, store, state, clock
+    ):
+        # The pool went out, so the sign is blank, and nothing was put back.
+        # The service starts anyway after a failed restore, and must not then
+        # call that sign in sync.
+        await add(registry, "one", "ONE")
+        state.reallocation_pending = True
+        store.save(state)
+        restarted, fresh = self.pending_restart(store, store.load(), clock)
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("cable unplugged")
+
+        restarted._controller.write_text_file = unplugged
+        with pytest.raises(TransportError):
+            await restarted.restore()
+
+        assert frames.packet(frames.clear_memory()) in fresh.packets
+        assert not restarted.in_sync
+
+    def test_a_state_file_from_before_reads_as_nothing_pending(self, tmp_path):
+        path = tmp_path / "state.json"
+        StateStore(path).save(ServiceState())
+        data = json.loads(path.read_text(encoding="utf-8"))
+        del data["reallocation_pending"]
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        assert StateStore(path).load().reallocation_pending is False
 
 
 class TestAnAlertDoesNotHoldTheRunSequenceBack:

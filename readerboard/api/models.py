@@ -532,7 +532,12 @@ class HealthResponse(BaseModel):
         description=(
             "false when the sign may not match the service's record: a removal, a hide "
             "or an expiry that could not reach the sign yet, or a refused write that "
-            "may have partly landed before it failed. The next refresh repairs it"
+            "may have partly landed before it failed, or a sign reboot that stopped "
+            "while putting everything back. The next refresh repairs those. Also false "
+            "after a sign reboot that stopped before it wrote the sign's file pool, "
+            "which may have cleared the sign, including one that failed before it "
+            "reached it: a refresh cannot repair that, and a restart or another reboot "
+            "does"
         )
     )
     alert_active: bool

@@ -1,16 +1,17 @@
 """What the service remembers across a restart.
 
-Six things have to survive: which messages are registered and where on the
+Seven things have to survive: which messages are registered and where on the
 sign each one lives, which variables hold which values and where, which icon
 each picture file is holding, whether an alert is currently holding the
-display, which alerts are waiting their turn behind it, and which memory
-configuration was last applied.
+display, which alerts are waiting their turn behind it, which memory
+configuration was last applied, and whether a reboot may not have written
+one.
 
-The last of those matters more than it looks. Writing a memory configuration
-erases every file on the sign, so the service must be able to tell "the pool I
-want is the pool that is already there" from "the pool changed", and only
-reconfigure in the second case. Without this record, every restart would wipe
-the sign.
+The last two matter more than they look. Writing a memory configuration erases
+every file on the sign, so the service must be able to tell "the pool I want is
+the pool that is already there" from "the pool changed", and reconfigure only
+in the second case or when a reboot may have cleared the sign without writing
+the pool after it. Without this record, every restart would wipe the sign.
 
 Writes are atomic. A half-written state file after a power cut would strand the
 sign, and a Pi losing power is exactly the event this service is expected to
@@ -249,6 +250,16 @@ class ServiceState(BaseModel):
     # the queue that service had.
     alert_queue: list[QueuedAlertState] = Field(default_factory=list)
     layout: AppliedLayout | None = None
+    # True from just before a reboot sends the memory clear until the
+    # configuration after it has been sent. On disk it can outlast that, when
+    # every save after the configuration failed. Set, the sign may have been
+    # erased with no pool written, so the next start writes the pool again and
+    # keeps every record, rather than trusting ``layout``. It is deliberately
+    # not done by setting ``layout`` to None: a start that finds no layout takes
+    # the pool to have changed and drops every slot, variable and picture from
+    # the record. False for a state file written before this existed, which is
+    # what that service believed.
+    reallocation_pending: bool = False
 
 
 REPLACE_ATTEMPTS = 5

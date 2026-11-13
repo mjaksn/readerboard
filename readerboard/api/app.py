@@ -259,7 +259,10 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # ordinary restart asks the sign nothing, costs the display nothing, and
         # behaves exactly as it did before this check existed. Nothing here can
         # bring on a reallocation either: the only thing it can do is stop one.
-        if layout.needs_reconfiguration(state.layout):
+        # A state file saying a reboot may not have written the pool makes this
+        # the other start that writes a memory configuration, see
+        # SlotRegistry.restore, so it asks too.
+        if layout.needs_reconfiguration(state.layout) or state.reallocation_pending:
             budget = await pool.measure(controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL)
             try:
                 pool.check_fits(layout, budget)
