@@ -1067,11 +1067,13 @@ class TestAnInterruptedReboot:
         assert store.load().reallocation_pending is False
 
     @staticmethod
-    def fail_the_first_save_after_the_pool(controller, store) -> list[str]:
-        """Make the state file fail once, at the first save after a pool is written.
+    def fail_the_first_save_after_the_pool(controller, store, *, every=False) -> list[str]:
+        """Make the state file fail at the first save after a pool is written.
 
         That is the save between the memory configuration and the rewrite, the
-        moment the sign is blank. Returns a list that records the failure.
+        moment the sign is blank. With ``every``, each save after it fails as
+        well, which is a disk that stays full. Returns a list that records each
+        failure.
         """
         apply_memory_config = controller.apply_memory_config
         save = store.save
@@ -1084,7 +1086,7 @@ class TestAnInterruptedReboot:
             configured = True
 
         def saving(state):
-            if configured and not failed:
+            if configured and (every or not failed):
                 failed.append("disk full")
                 raise OSError(28, "No space left on device")
             save(state)
@@ -1121,6 +1123,26 @@ class TestAnInterruptedReboot:
         assert failed
         assert len(payloads_starting(transport, b"A")) == 2
         assert registry.in_sync
+        # The save after the rewrite went through, so the file no longer says
+        # the pool is pending and the next start writes nothing.
+        assert store.load().reallocation_pending is False
+
+    async def test_a_reboot_whose_every_save_after_the_pool_fails_leaves_it_pending(
+        self, registry, controller, store, transport, answer_a_pool_reading
+    ):
+        # A disk that stays full. The display still comes back, and the file
+        # still says the pool is pending, so the next start writes it once more.
+        await add(registry, "one", "ONE")
+        transport.clear()
+        answer_a_pool_reading()
+        failed = self.fail_the_first_save_after_the_pool(controller, store, every=True)
+
+        with pytest.raises(OSError):
+            await registry.reboot()
+
+        assert len(failed) == 2
+        assert len(payloads_starting(transport, b"A")) == 1
+        assert store.load().reallocation_pending is True
 
     async def test_a_start_whose_save_after_the_pool_fails_still_puts_everything_back(
         self, registry, store, state, clock
@@ -1136,6 +1158,7 @@ class TestAnInterruptedReboot:
         assert failed
         assert len(payloads_starting(fresh, b"A")) == 1
         assert restarted.in_sync
+        assert store.load().reallocation_pending is False
 
     async def test_a_start_that_stops_after_the_pool_reports_the_sign_out_of_step(
         self, registry, store, state, clock

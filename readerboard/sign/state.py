@@ -4,7 +4,7 @@ Seven things have to survive: which messages are registered and where on the
 sign each one lives, which variables hold which values and where, which icon
 each picture file is holding, whether an alert is currently holding the
 display, which alerts are waiting their turn behind it, which memory
-configuration was last applied, and whether a reboot stopped before it wrote
+configuration was last applied, and whether a reboot may not have written
 one.
 
 The last two matter more than they look. Writing a memory configuration erases
@@ -251,13 +251,14 @@ class ServiceState(BaseModel):
     alert_queue: list[QueuedAlertState] = Field(default_factory=list)
     layout: AppliedLayout | None = None
     # True from just before a reboot sends the memory clear until the
-    # configuration after it has been sent. Set, the sign may have been erased
-    # with no pool written, so the next start writes the pool again and keeps
-    # every record, rather than trusting ``layout``. It is deliberately not done
-    # by setting ``layout`` to None: a start that finds no layout takes the pool
-    # to have changed and drops every slot, variable and picture from the
-    # record. False for a state file written before this existed, which is what
-    # that service believed.
+    # configuration after it has been sent. On disk it can outlast that, when
+    # every save after the configuration failed. Set, the sign may have been
+    # erased with no pool written, so the next start writes the pool again and
+    # keeps every record, rather than trusting ``layout``. It is deliberately
+    # not done by setting ``layout`` to None: a start that finds no layout takes
+    # the pool to have changed and drops every slot, variable and picture from
+    # the record. False for a state file written before this existed, which is
+    # what that service believed.
     reallocation_pending: bool = False
 
 

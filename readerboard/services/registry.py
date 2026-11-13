@@ -406,13 +406,15 @@ class SlotRegistry:
         it erases the sign. On the ordinary restart, where nothing changed, this
         rewrites the files and the run sequence and nothing is erased.
 
-        The one other reason is a reboot that stopped before it wrote the
-        configuration, which the state file records as ``reallocation_pending``.
-        It may have cleared the sign first, or it may not have reached the sign
-        at all; the record is saved before anything is sent and cannot tell the
-        two apart. Either way the pool is written again, but the pool has not
-        changed and the record is the service's own, so every slot, variable and
-        picture is kept and written back.
+        The one other reason is ``reallocation_pending`` in the state file. A
+        reboot saves it before it sends anything and clears it once the
+        configuration has gone out, so it is set when a reboot stopped before
+        that, having cleared the sign or not having reached it at all. It is
+        also left set when the pool was written, by a reboot or by the start
+        that finishes one, and every save after it failed. The record cannot
+        tell these apart. In each the pool is written again, but the pool has
+        not changed and the record is the service's own, so every slot, variable
+        and picture is kept and written back.
         """
         async with self._lock:
             if self._layout.needs_reconfiguration(self._state.layout):
@@ -426,9 +428,10 @@ class SlotRegistry:
                 self._state.pictures = {}
             elif self._state.reallocation_pending:
                 logger.warning(
-                    "a sign reboot stopped before it wrote the sign's file pool, and may "
-                    "have cleared the sign, so the pool is written again; every message "
-                    "is kept and put back"
+                    "the state file says a sign reboot may not have written the sign's "
+                    "file pool, either because it stopped first or because it could not "
+                    "record that it had, so the pool is written again; every message is "
+                    "kept and put back"
                 )
                 # Out of step from the erase until the rewrite below finishes, so
                 # a restore that stops in between, and a service that starts
@@ -2013,15 +2016,16 @@ class SlotRegistry:
         before every file is put back. The sign is blank there, and the rewrite
         is what brings it back, so a state file that cannot be written is
         logged rather than raised. What the file then still says is that the
-        pool is pending, which is the safe thing for it to say: the next start
-        writes the pool again and puts everything back.
+        pool is pending, which is the safe thing for it to say. The save after
+        the rewrite usually clears it; only if that one fails too does the next
+        start write the pool again and put everything back.
         """
         try:
             self._save()
         except OSError as err:
             logger.warning(
-                "could not record that the sign's file pool was written, so the next "
-                "start will write it again: %s",
+                "could not record that the sign's file pool was written; unless a "
+                "later save succeeds, the next start will write it again: %s",
                 err,
             )
 

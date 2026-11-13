@@ -154,17 +154,19 @@ start that does, and keeps every slot, variable and picture in the record. It
 is deliberately not recorded by setting the applied layout to None: a start
 that finds no layout takes the pool to have changed and drops every message from
 the record along with the sign. While it is set, `/health` says the sign is out
-of step, and a refresh cannot change that, since it has no files to write into.
+of step, and a refresh cannot change that, since the sign may have no files for
+it to write into.
 The flag is set before a byte is sent and the controller cannot say how far a
 failed write got, so a reboot that failed before anything left costs one start
 that writes the pool for nothing. That is the harmless way round.
 
 Once the pool has gone out, the sign is blank until every file is back, so the
 save between the two, in the reboot and in the start that finishes one, logs a
-failure and carries on rather than raising. A state file that could not be
-written then still says the pool is pending, which costs one more start that
-writes it, and the rewrite that brings the display back is not stopped by a
-full disk. The start that finishes a reboot also marks the sign out of step
+failure and carries on rather than raising, and the rewrite that brings the
+display back is not stopped by a full disk. The file then still says the pool
+is pending until the save after the rewrite, which usually clears it. Only when
+that one fails too does the flag outlive a pool that was written, and then the
+next start writes the pool once more. The start that finishes a reboot also marks the sign out of step
 until its rewrite is done, so one that stops in between reports it.
 
 ## What each thing is called
