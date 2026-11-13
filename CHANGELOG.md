@@ -15,6 +15,25 @@ library, and the names inside it may move without that being a breaking change.
 
 ### Fixed
 
+- **A start that has to rewrite the sign's file pool, and cannot reach the sign,
+  now finishes the job when the sign comes back.** It used to start with the
+  restored messages and variables detached from their files and never write
+  the pool, so the next variable or message was handed a file a restored one
+  still held. Two values then shared one file, a new message overwrote an old
+  one's, and a later restart or reboot could keep it that way. Now, until the
+  pool has been written, every change to messages and variables, and raising an
+  alert onto the sign, is a 503, and `GET /health` says the sign is out of
+  step. Releasing an alert, queueing one, the clock and the sign commands go on
+  as before, since none of them needs a file. The first reconnect asks the sign
+  how much room it has, as startup does, then writes the pool and the alert. A
+  pool that changed empties the record when it is written, as it always has, so
+  every source sends its messages again; a reboot that the state file says may
+  not have written the pool keeps them and puts them back. A sign without the
+  room is left alone, logged at ERROR, and those writes stay refused until a
+  restart with a smaller pool. `POST /sign/reboot` while this is owed finishes
+  it the same way. Message and variable expiries wait for it, and an alert
+  queued for the sign keeps its place.
+
 - **A `POST /sign/reboot` that stops partway no longer leaves the service
   believing the sign is intact.** Stopped between the clear and the memory
   configuration, by the client going away or the link failing, it left the sign

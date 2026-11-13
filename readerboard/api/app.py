@@ -91,7 +91,8 @@ picture files, a variable something still calls is deleted, an alert is raised
 with `if_active` set to `fail` while one is up or waiting, the alert queue is
 full, or a reboot finds the sign has less memory than the configuration needs,
 503 when the sign is unreachable, stops
-partway through an answer or answers with something the service cannot read, or
+partway through an answer or answers with something the service cannot read,
+has not had its file pool written since a start that could not reach it, or
 no API key is configured at all, 500 for something the service has no code for,
 and 422 for a body that is not the shape the endpoint declares, which includes a
 display mode the sign does not have.
@@ -149,10 +150,50 @@ async def _after_reconnect(registry: SlotRegistry, alerts: AlertService) -> None
     the other half is for: they read a picture back again, rather than
     re-pushing everything because a read went unanswered while the link was on
     its way down. See ``SlotRegistry.ask_the_sign_again``.
+
+    A start that had to write the sign's file pool and could not reach the sign
+    left that restore owed, and this finishes it instead, see
+    :func:`_finish_the_startup_restore`.
     """
-    await registry.repush_at_next_refresh()
     await registry.ask_the_sign_again()
+    if registry.restore_owed:
+        await _finish_the_startup_restore(registry, alerts)
+        return
+    await registry.repush_at_next_refresh()
     await _refresh_and_reassert(registry, alerts)
+
+
+async def _finish_the_startup_restore(registry: SlotRegistry, alerts: AlertService) -> None:
+    """Do the restore the start could not, now that the sign can be reached.
+
+    The registry's half asks the sign for its pool first and writes it, see
+    ``SlotRegistry.finish_owed_restore``. The alert service's half never ran at
+    startup, because it comes after the registry's, so it runs here too.
+
+    A pool the sign cannot hold leaves the sign exactly as it is, logged at
+    ERROR, and the restore still owed, so writes stay refused and /health stays
+    degraded. At startup the same answer stops the service; here the service is
+    already running, and the fix is the same either way: a smaller pool in the
+    settings, and a restart.
+    """
+    try:
+        await registry.finish_owed_restore()
+    except pool.PoolTooLarge as err:
+        logger.error(
+            "the sign is back, but its file pool cannot be written, so nothing that "
+            "needs its files will be written to it: %s",
+            err,
+        )
+        return
+    except TransportError as err:
+        logger.warning("could not finish restoring the sign's contents yet: %s", err)
+        return
+    try:
+        await alerts.restore()
+    except TransportError as err:
+        logger.warning("could not put the alert back on the sign yet: %s", err)
+        return
+    logger.info("finished restoring the sign's contents now that it can be reached")
 
 
 async def _refresh_loop(app: FastAPI, interval: float) -> None:
@@ -275,7 +316,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
                 raise
 
         # The sign may be unreachable, and that is not a reason to refuse to
-        # start. What is put back below happens again on the next reconnect.
+        # start. What is put back below happens again on the next reconnect. A
+        # restore that had to write the pool and could not is left owed, and
+        # that reconnect does it instead, asking the sign for its room first:
+        # the check above may have passed only on the assumed figure, since an
+        # unreachable sign answers nothing. See SlotRegistry.restore_owed.
         try:
             await registry.restore()
             await alerts.restore()

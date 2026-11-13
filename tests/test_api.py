@@ -863,6 +863,44 @@ class TestTheSignsMemoryPool:
         assert written == []
         assert [packet for packet in sign.packets if b"E$A" in packet] == []
 
+    def test_a_start_that_could_not_reach_the_sign_finishes_on_the_reconnect(
+        self, tmp_path, sign
+    ):
+        # Issue #118, end to end. The pool changed, so the start owes the sign
+        # an erase and a new pool, and the adapter is unreachable. Writes are
+        # refused rather than handed files the old records hold, and the
+        # reconnect loop, once the adapter answers, asks the sign for its room
+        # and finishes the restore by itself.
+        settings = self.settings_for(tmp_path, slot_count=3)
+        with TestClient(create_app(settings, transport=sign)) as client:
+            client.put("/variables/temp", json={"value": "72"}, headers=HEADERS)
+            client.put("/slots/one", json={"message": "<var:temp>"}, headers=HEADERS)
+
+        unreachable = FakeTransport(open_fails_with="no route to host")
+        changed = self.settings_for(tmp_path, slot_count=4)
+        with TestClient(create_app(changed, transport=unreachable)) as client:
+            health = client.get("/health").json()
+            assert health["status"] == "degraded"
+            assert health["sign_in_sync"] is False
+            refused = client.put("/variables/humidity", json={"value": "40"}, headers=HEADERS)
+            assert refused.status_code == 503
+            # Refused for the pool, not merely failed on the dead link, which
+            # would also be a 503.
+            assert "file pool has not been written" in refused.json()["detail"]
+
+            unreachable.replies.append(general_information(A_ROOMY_SIGN))
+            unreachable.open_fails_with = None
+            deadline = time.monotonic() + 10
+            while client.get("/health").json()["sign_in_sync"] is False:
+                assert time.monotonic() < deadline, "the reconnect never finished the restore"
+                time.sleep(0.05)
+
+            assert unreachable.packets[0] == frames.packet(frames.read_general_information())
+            assert frames.packet(frames.clear_memory()) in unreachable.packets
+            assert client.put(
+                "/variables/humidity", json={"value": "40"}, headers=HEADERS
+            ).status_code == 200
+
     def test_a_start_after_an_interrupted_reboot_asks_then_puts_everything_back(
         self, tmp_path, sign
     ):

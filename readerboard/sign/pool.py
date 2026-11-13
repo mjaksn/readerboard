@@ -46,9 +46,11 @@ than the assumption. Two things follow from that:
 The caller is expected to ask only when a reconfiguration is actually due. That
 keeps an ordinary restart free of both the read and its cost on the display, and
 it means nothing here can cause an erase that would not have happened anyway.
-There are two such callers, and between them they are every path that writes a
-memory configuration: the startup in ``readerboard.api.app``, and
-``SlotRegistry.reboot``, which is ``POST /sign/reboot``.
+There are three such callers, and between them they are every path that writes
+a memory configuration: the startup in ``readerboard.api.app``,
+``SlotRegistry.reboot``, which is ``POST /sign/reboot``, and
+``SlotRegistry.finish_owed_restore``, the reconnect after a start that had to
+write the pool and could not reach the sign.
 """
 
 from __future__ import annotations

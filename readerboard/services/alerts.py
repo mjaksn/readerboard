@@ -65,7 +65,7 @@ from typing import Literal, Protocol
 from readerboard.protocol import constants as c
 from readerboard.protocol.markup import render
 from readerboard.protocol.tokens import MODE_BY_NAME
-from readerboard.services.registry import RegistryError
+from readerboard.services.registry import RegistryError, SignNotRestored
 from readerboard.sign.controller import SignController
 from readerboard.sign.state import AlertState, QueuedAlertState, ServiceState, StateStore
 from readerboard.transport.base import TransportError
@@ -299,72 +299,86 @@ class AlertService:
         return None
 
     async def restore(self) -> None:
-        """Re-establish or clean up an alert that was running before a restart."""
-        alert = self._state.alert
-        if alert is None:
-            # The sign may still be holding an alert from before an unclean
-            # stop, and there is no way to ask it. Releasing costs one small
-            # write and guarantees the rotation is visible.
-            await self._controller.clear_priority()
-            return
+        """Re-establish or clean up an alert that was running before a restart.
 
-        if not alert.message:
-            # An earlier version accepted an empty alert, and writing one is the
-            # protocol's own release sequence: the sign hands itself back while
-            # the state file goes on calling the alert active, and every restart
-            # and re-assert repeats it. There is nothing here the sign can hold,
-            # so let it go and record that it is gone.
-            logger.warning(
-                "an alert with no message was recorded before the restart; releasing it"
-            )
-            await self.release()
-            return
+        Both locks, the registry's first, and the alert read only once they are
+        held. This used to run only at startup, before any request was served,
+        and read the alert first. It also runs on the reconnect that finishes a
+        restore the start could not do, while requests are coming in, and an
+        alert raised or dismissed while that restore held the registry's lock
+        got in ahead of it: the alert read beforehand was then written over the
+        new one, or brought back after it was dismissed. Read under the locks,
+        whatever got in first is what this sees.
+        """
+        was_released = False
+        async with self._rendering(None) as render_message, self._lock:
+            alert = self._state.alert
+            if alert is None:
+                # The sign may still be holding an alert from before an unclean
+                # stop, and there is no way to ask it. Releasing costs one small
+                # write and guarantees the rotation is visible.
+                await self._controller.clear_priority()
+                return
 
-        if alert.expires_at is not None and alert.expires_at <= self._now():
-            logger.info("an alert was active before the restart but has since expired")
-            await self.release()
-            return
-
-        async with self._rendering(None) as render_message:
-            body = render_message(alert.message, strict=False)
-            fits = len(body) <= c.PRIORITY_FILE_CAPACITY
-            if fits:
-                # What is logged depends on whether anything went out, because
-                # by here it often has. The registry hands the sign back to
-                # write a picture and puts the alert straight back on, and its
-                # restore runs before this one, so on a sign with icons the
-                # alert is already up and this write is suppressed. Saying
-                # "restoring" over no packet at all is how a log stops being
-                # worth reading.
-                if await self._write(alert, body):
-                    logger.info("restored the alert that was active before the restart")
+            if not alert.message:
+                # An earlier version accepted an empty alert, and writing one is
+                # the protocol's own release sequence: the sign hands itself back
+                # while the state file goes on calling the alert active, and every
+                # restart and re-assert repeats it. There is nothing here the sign
+                # can hold, so let it go and record that it is gone.
+                logger.warning(
+                    "an alert with no message was recorded before the restart; releasing it"
+                )
+                was_released = await self._release_locked()
+            elif alert.expires_at is not None and alert.expires_at <= self._now():
+                logger.info("an alert was active before the restart but has since expired")
+                was_released = await self._release_locked()
+            else:
+                body = render_message(alert.message, strict=False)
+                if len(body) <= c.PRIORITY_FILE_CAPACITY:
+                    # What is logged depends on whether anything went out,
+                    # because by here it often has, for one of two reasons. The
+                    # registry hands the sign back to write a picture and puts
+                    # the alert straight back on, and its restore runs before
+                    # this one. Or, on the reconnect that finishes an owed
+                    # restore, an alert raised while the pool was being written
+                    # got in first and is the one read here. Either way it is
+                    # already up and this write is suppressed. Saying
+                    # "restoring" over no packet at all, or naming a cause that
+                    # did not happen, is how a log stops being worth reading.
+                    if await self._write(alert, body):
+                        logger.info("restored the alert that was active before the restart")
+                    else:
+                        logger.info(
+                            "the recorded alert is already on the sign, so it was not "
+                            "written again"
+                        )
                 else:
-                    logger.info(
-                        "the alert that was active before the restart is already back "
-                        "on the sign, put back after the pictures were written"
+                    # It fitted when it was accepted, and it does not now.
+                    # Re-rendering a stored alert is deliberately lenient, so a
+                    # markup token this version no longer knows comes back as its
+                    # own literal text, which is longer than the two or three
+                    # bytes it used to render to. Enough of those and the alert
+                    # outgrows the priority file.
+                    #
+                    # Letting that raise would be worse than it sounds. The
+                    # exception is a ValueError rather than a TransportError, so
+                    # it would escape the startup path that tolerates an
+                    # unreachable sign, and the service would refuse to start at
+                    # all until somebody edited the state file by hand. The alert
+                    # is not recoverable either way, so say so and give the sign
+                    # back.
+                    logger.warning(
+                        "the stored alert no longer fits the sign's priority file, which "
+                        "holds %d bytes; releasing it. It probably used a markup token "
+                        "this version has removed. The text was: %r",
+                        c.PRIORITY_FILE_CAPACITY,
+                        alert.message,
                     )
+                    was_released = await self._release_locked()
 
-        if not fits:
-            # It fitted when it was accepted, and it does not now. Re-rendering
-            # a stored alert is deliberately lenient, so a markup token this
-            # version no longer knows comes back as its own literal text, which
-            # is longer than the two or three bytes it used to render to. Enough
-            # of those and the alert outgrows the priority file.
-            #
-            # Letting that raise would be worse than it sounds. The exception is
-            # a ValueError rather than a TransportError, so it would escape the
-            # startup path that tolerates an unreachable sign, and the service
-            # would refuse to start at all until somebody edited the state file
-            # by hand. The alert is not recoverable either way, so say so and
-            # give the sign back.
-            logger.warning(
-                "the stored alert no longer fits the sign's priority file, which holds "
-                "%d bytes; releasing it. It probably used a markup token this version "
-                "has removed. The text was: %r",
-                c.PRIORITY_FILE_CAPACITY,
-                alert.message,
-            )
-            await self.release()
+        if was_released:
+            self._log_released()
 
     async def reassert(self) -> bool:
         """Write the active alert to the sign again, if there is one.
@@ -962,6 +976,11 @@ class AlertService:
                 queue[:] = [waiting for waiting in queue if waiting is not head]
                 failed_save = self._save_holding_both()
         except _SignTaken:
+            return "stopped"
+        except SignNotRestored:
+            # The sign has not had its file pool written since the service
+            # started, so nothing can go up yet. The alert keeps its place
+            # and is tried again once the restore is done.
             return "stopped"
         except _HeadMoved:
             # The claims have been given back by now. Holding the registry's
