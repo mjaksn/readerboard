@@ -68,7 +68,7 @@ dev = [
     # the same collection error again, raised as the plugin loads, so no test
     # runs at all. anyio 4.16 copes with the rename, so this ceiling comes off
     # when the anyio one does.
-    "pytest>=9.1.1,<9.2",
+    "pytest>=9.1.1,<9.3",
     # Pinned exactly rather than given a range, because the range let pip take
     # 1.4.1.post1 within a week of its release. Move it by hand once a newer
     # version has been out for seven days.
