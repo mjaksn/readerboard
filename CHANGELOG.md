@@ -11,7 +11,7 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.9.0] - 2026-11-12
 
 **An alert can wait its turn, and this is the last breaking release before
 1.0.** One setting is renamed, so a config file or environment still naming
@@ -1914,7 +1914,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.0
 [0.8.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.3
 [0.8.2]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.2
 [0.8.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.1
