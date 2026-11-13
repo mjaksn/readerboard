@@ -2,20 +2,23 @@
 
 import asyncio
 import json
+from datetime import timedelta
 
 import pytest
 
 from readerboard.protocol import frames
+from readerboard.services.alerts import AlertService
 from readerboard.services.registry import (
     LayoutFull,
     MessageTooLong,
+    SignNotRestored,
     SlotRegistry,
     UnknownSlot,
 )
 from readerboard.sign import pool
 from readerboard.sign.controller import SignController
 from readerboard.sign.layout import Layout
-from readerboard.sign.state import AlertState, ServiceState, StateStore
+from readerboard.sign.state import AlertState, QueuedAlertState, ServiceState, StateStore
 from readerboard.transport.base import TransportError
 from readerboard.transport.fake import FakeTransport
 
@@ -1189,6 +1192,205 @@ class TestAnInterruptedReboot:
         path.write_text(json.dumps(data), encoding="utf-8")
 
         assert StateStore(path).load().reallocation_pending is False
+
+
+class TestAnOwedRestore:
+    """A start that had to write the sign's file pool and could not reach the sign.
+
+    Issue #118. The records were left naming files the layout had not been told
+    about, so the next write was handed a file a restored record still held, and
+    nothing ever wrote the pool. Now the restore stays owed: every write is
+    refused before it touches the sign, /health says the sign is out of step,
+    and the first reconnect finishes it, asking the sign for its room first.
+    """
+
+    @staticmethod
+    async def a_previous_run(store, clock) -> ServiceState:
+        """Leave a state file holding a variable in ``a`` and a slot calling it."""
+        state = ServiceState()
+        registry = SlotRegistry(
+            SignController(FakeTransport(), inter_packet_delay=0, sleep=no_wait),
+            Layout(3, 256, 2, 32),
+            store,
+            state,
+            now=clock,
+        )
+        await registry.restore()
+        await registry.put_variable("temp", "72")
+        await add(registry, "one", "<var:temp>")
+        return state
+
+    @staticmethod
+    async def a_start_with_the_sign_out_of_reach(
+        store, clock, transport, layout
+    ) -> SlotRegistry:
+        transport.open_fails_with = "no route to host"
+        restarted = SlotRegistry(
+            SignController(transport, inter_packet_delay=0, sleep=no_wait),
+            layout,
+            store,
+            store.load(),
+            now=clock,
+        )
+        with pytest.raises(TransportError):
+            await restarted.restore()
+        return restarted
+
+    async def test_a_changed_pool_refuses_every_write_until_it_is_written(
+        self, store, clock, transport, answer_a_pool_reading
+    ):
+        await self.a_previous_run(store, clock)
+        # One more slot, so the pool has changed and the start must write it.
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        assert restarted.restore_owed
+        assert not restarted.in_sync
+
+        # The adapter is back, and writes arrive before the reconnect hook has
+        # run. Each would have been handed a file a restored record holds.
+        transport.open_fails_with = None
+        with pytest.raises(SignNotRestored):
+            await restarted.put_variable("humidity", "40")
+        with pytest.raises(SignNotRestored):
+            await add(restarted, "two", "TWO")
+        with pytest.raises(SignNotRestored):
+            await restarted.set_active("one", False)
+        with pytest.raises(SignNotRestored):
+            await restarted.remove("one")
+        with pytest.raises(SignNotRestored):
+            await restarted.remove_variable("temp")
+        with pytest.raises(SignNotRestored):
+            await restarted.refresh()
+        assert await restarted.sweep() == []
+        assert transport.packets == []
+
+        answer_a_pool_reading()
+        await restarted.finish_owed_restore()
+
+        assert frames.packet(frames.clear_memory()) in transport.packets
+        assert not restarted.restore_owed
+        assert restarted.in_sync
+        # A changed pool empties the record when it is written, as it always
+        # has, and the start is recorded as having applied it.
+        assert restarted.list_slots() == []
+        assert not Layout(4, 256, 2, 32).needs_reconfiguration(store.load().layout)
+        await restarted.put_variable("humidity", "40")
+
+    async def test_a_pending_reallocation_keeps_its_records_on_their_files(
+        self, store, clock, transport, answer_a_pool_reading
+    ):
+        state = await self.a_previous_run(store, clock)
+        state.reallocation_pending = True
+        store.save(state)
+        layout = Layout(3, 256, 2, 32)
+
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, layout
+        )
+
+        # The pool has not changed and the records survive its write, so they
+        # hold their files while the restore is owed.
+        assert restarted.restore_owed
+        assert layout.variables.label_for("temp") == b"a"
+        assert layout.slots.label_for("one") == b"A"
+
+        transport.open_fails_with = None
+        answer_a_pool_reading()
+        await restarted.finish_owed_restore()
+
+        assert frames.packet(frames.clear_memory()) in transport.packets
+        assert [slot.key for slot in restarted.list_slots()] == ["one"]
+        assert [variable.name for variable in restarted.list_variables()] == ["temp"]
+        assert restarted.in_sync
+        assert store.load().reallocation_pending is False
+
+    async def test_a_reboot_while_it_is_owed_finishes_it(
+        self, store, clock, transport, answer_a_pool_reading
+    ):
+        # Issue #118's step 6: a reboot that went its own way recorded the new
+        # pool as applied while the records still named the old one's files.
+        await self.a_previous_run(store, clock)
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        transport.open_fails_with = None
+        answer_a_pool_reading()
+
+        await restarted.reboot()
+
+        assert not restarted.restore_owed
+        assert restarted.list_slots() == []
+        assert store.load().slots == {}
+        assert not Layout(4, 256, 2, 32).needs_reconfiguration(store.load().layout)
+
+    async def test_a_sign_without_room_is_left_alone_and_it_stays_owed(
+        self, store, clock, transport, answer_a_pool_reading
+    ):
+        await self.a_previous_run(store, clock)
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        transport.open_fails_with = None
+        answer_a_pool_reading(b"0100")
+
+        with pytest.raises(pool.PoolTooLarge):
+            await restarted.finish_owed_restore()
+
+        assert transport.packets == [frames.packet(frames.read_general_information())]
+        assert restarted.restore_owed
+
+    async def test_a_waiting_alert_keeps_its_place_while_it_is_owed(
+        self, store, clock, transport
+    ):
+        # Its turn comes and nothing can be drawn yet. That is the sign not
+        # being ready, not the alert being unshowable, so it is not dropped,
+        # and the sweep that tries it every second is not told it failed.
+        await self.a_previous_run(store, clock)
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        transport.open_fails_with = None
+        transport.ensure_open()
+        state = restarted._state
+        state.alert_queue.append(QueuedAlertState(message="NEXT", mode="HOLD", queued_at=clock()))
+        alerts = AlertService(restarted._controller, store, state, now=clock)
+        alerts.set_rendering(restarted.rendering)
+
+        assert await alerts.promote() is False
+
+        assert [waiting.message for waiting in alerts.waiting] == ["NEXT"]
+        assert transport.packets == []
+
+    async def test_an_expiry_waits_for_it(self, store, clock, transport):
+        # Expiring a slot writes the run sequence and frees its file, neither
+        # of which can be done before the pool has been. The sweep runs every
+        # second, so it waits quietly rather than failing each time.
+        state = await self.a_previous_run(store, clock)
+        state.slots["one"] = state.slots["one"].model_copy(
+            update={"expires_at": clock() + timedelta(seconds=10)}
+        )
+        store.save(state)
+        restarted = await self.a_start_with_the_sign_out_of_reach(
+            store, clock, transport, Layout(4, 256, 2, 32)
+        )
+        transport.open_fails_with = None
+        clock.advance(11)
+
+        assert await restarted.sweep() == []
+
+        assert [slot.key for slot in restarted.list_slots()] == ["one"]
+        assert transport.packets == []
+
+    async def test_nothing_owed_means_nothing_is_written(self, registry, transport):
+        # The case that matters most: an ordinary reconnect must never reach
+        # the erase.
+        await add(registry, "one")
+        transport.clear()
+
+        await registry.finish_owed_restore()
+
+        assert transport.packets == []
 
 
 class TestAnAlertDoesNotHoldTheRunSequenceBack:

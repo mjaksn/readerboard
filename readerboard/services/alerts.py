@@ -65,7 +65,7 @@ from typing import Literal, Protocol
 from readerboard.protocol import constants as c
 from readerboard.protocol.markup import render
 from readerboard.protocol.tokens import MODE_BY_NAME
-from readerboard.services.registry import RegistryError
+from readerboard.services.registry import RegistryError, SignNotRestored
 from readerboard.sign.controller import SignController
 from readerboard.sign.state import AlertState, QueuedAlertState, ServiceState, StateStore
 from readerboard.transport.base import TransportError
@@ -962,6 +962,11 @@ class AlertService:
                 queue[:] = [waiting for waiting in queue if waiting is not head]
                 failed_save = self._save_holding_both()
         except _SignTaken:
+            return "stopped"
+        except SignNotRestored:
+            # The sign has not had its file pool written since the service
+            # started, so nothing can go up yet. The alert keeps its place
+            # and is tried again once the restore is done.
             return "stopped"
         except _HeadMoved:
             # The claims have been given back by now. Holding the registry's

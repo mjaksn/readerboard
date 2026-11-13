@@ -90,6 +90,17 @@ class RegistryError(Exception):
     """Something was wrong with a request to change the registry."""
 
 
+class SignNotRestored(TransportError):
+    """The startup restore still owes the sign its file pool, so nothing can be written yet.
+
+    A :class:`TransportError` rather than a :class:`RegistryError`, because it
+    says the sign is not ready rather than that the request was wrong: it is a
+    503 like an unreachable sign, the loops that already treat an unreachable
+    sign as a reason to wait treat this the same way, and the alert queue keeps
+    a waiting alert rather than dropping it as one that could not be shown.
+    """
+
+
 class UnknownSlot(RegistryError):
     """No slot by that name is registered."""
 
@@ -299,6 +310,7 @@ class SlotRegistry:
         self._now = now
         self._lock = asyncio.Lock()
         self._dirty = False
+        self._restore_owed = False
         self._priority_hold: PriorityHold | None = None
         # When asking the sign a question is worth doing again, or None while it
         # is worth doing every time. The sign simulator decodes reads and
@@ -415,38 +427,115 @@ class SlotRegistry:
         tell these apart. In each the pool is written again, but the pool has
         not changed and the record is the service's own, so every slot, variable
         and picture is kept and written back.
+
+        A restore that has to write the pool and cannot, because the sign is not
+        reachable at startup, leaves the restore owed: see
+        :attr:`restore_owed`. Calling this again finishes it, and the reconnect
+        hook in ``app.py`` does exactly that once the link comes up.
         """
         async with self._lock:
-            if self._layout.needs_reconfiguration(self._state.layout):
-                logger.info("the sign's file pool has changed, so it must be reallocated")
-                await self._controller.apply_memory_config(self._layout.allocations())
-                self._state.layout = self._layout.as_applied()
-                self._state.reallocation_pending = False
-                # Every file was just erased, so nothing survives from before.
-                self._state.slots = {}
-                self._state.variables = {}
-                self._state.pictures = {}
-            elif self._state.reallocation_pending:
-                logger.warning(
-                    "the state file says a sign reboot may not have written the sign's "
-                    "file pool, either because it stopped first or because it could not "
-                    "record that it had, so the pool is written again; every message is "
-                    "kept and put back"
-                )
-                # Out of step from the erase until the rewrite below finishes, so
-                # a restore that stops in between, and a service that starts
-                # anyway, reports it rather than a blank sign in sync.
-                self._dirty = True
-                await self._controller.apply_memory_config(self._layout.allocations())
-                self._state.reallocation_pending = False
-                # At once, so that a restore that fails partway does not leave
-                # the next start writing the pool again for no reason.
-                self._save_between_the_pool_and_the_rewrite()
+            await self._restore_locked()
 
+    async def _restore_locked(self) -> bool:
+        """Do the whole of :meth:`restore`, with the lock already held.
+
+        Returns whether an alert was put back as part of the rewrite, on the
+        same terms as :meth:`refresh`, for :meth:`reboot`, which finishes an
+        owed restore this way.
+        """
+        if self._layout.needs_reconfiguration(self._state.layout):
+            logger.info("the sign's file pool has changed, so it must be reallocated")
+            # Owed until the pool has gone out. The records still name the
+            # files of the pool the sign held before, which the layout has
+            # not been told about, so nothing may be handed a file until then:
+            # it could be one a record still holds. They are not reattached
+            # here, because they are emptied the moment the new pool goes out,
+            # and reattaching against the new layout would drop records the
+            # sign is still showing from the old one.
+            self._restore_owed = True
+            await self._controller.apply_memory_config(self._layout.allocations())
+            self._state.layout = self._layout.as_applied()
+            self._state.reallocation_pending = False
+            # Every file was just erased, so nothing survives from before.
+            self._state.slots = {}
+            self._state.variables = {}
+            self._state.pictures = {}
+            self._restore_owed = False
             self._reattach_labels()
-            await self._rewrite_all()
-            self._dirty = False
-            self._save()
+        elif self._state.reallocation_pending:
+            logger.warning(
+                "the state file says a sign reboot may not have written the sign's "
+                "file pool, either because it stopped first or because it could not "
+                "record that it had, so the pool is written again; every message is "
+                "kept and put back"
+            )
+            # The pool has not changed and the records survive the write, so
+            # they are given their files first, whether or not the write below
+            # gets through.
+            self._reattach_labels()
+            # Out of step from the erase until the rewrite below finishes, so
+            # a restore that stops in between, and a service that starts
+            # anyway, reports it rather than a blank sign in sync.
+            self._dirty = True
+            self._restore_owed = True
+            await self._controller.apply_memory_config(self._layout.allocations())
+            self._state.reallocation_pending = False
+            self._restore_owed = False
+            # At once, so that a restore that fails partway does not leave
+            # the next start writing the pool again for no reason.
+            self._save_between_the_pool_and_the_rewrite()
+        else:
+            self._reattach_labels()
+
+        put_the_alert_back = await self._rewrite_all()
+        self._dirty = False
+        self._save()
+        return put_the_alert_back
+
+    async def finish_owed_restore(self) -> None:
+        """Do the restore the start could not, once the sign can be reached.
+
+        That start was going to write a memory configuration, which erases every
+        message on the sign, and was stopped only by the sign being out of reach.
+        This is the same erase, owed rather than new, and it goes the same way:
+        the sign is asked how big its pool is first, because at startup that
+        question went unanswered and the check passed on the figure assumed in
+        its place. With this, the paths that write a memory configuration are
+        three, the startup, :meth:`reboot` and this, and each of them asks.
+
+        Raises :class:`readerboard.sign.pool.PoolTooLarge` when the sign answers
+        that it has no room, before anything is written, and the restore stays
+        owed. Does nothing when no restore is owed.
+        """
+        async with self._lock:
+            if not self._restore_owed:
+                return
+            budget = await pool.measure(
+                self._controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL
+            )
+            pool.check_fits(self._layout, budget)
+            await self._restore_locked()
+
+    @property
+    def restore_owed(self) -> bool:
+        """Whether a startup restore still has to write the sign's file pool.
+
+        True once a restore that had to write a memory configuration could not,
+        until one does. Until then the sign may not have the files the service
+        would hand out, and in the changed-pool case the records still name the
+        files of the old pool, so everything that would hand out a file or
+        write to one is refused with :class:`SignNotRestored`, and
+        :attr:`in_sync` is false.
+        """
+        return self._restore_owed
+
+    def _refuse_while_restore_owed(self) -> None:
+        if self._restore_owed:
+            raise SignNotRestored(
+                "the sign's file pool has not been written since the service started, "
+                "because the sign was not reachable then; it is written when the link "
+                "to the sign comes back, and until then nothing can be written to it"
+            )
 
     def _reattach_labels(self) -> None:
         """Re-establish which slot and variable owns which file, dropping what cannot come back.
@@ -778,6 +867,7 @@ class SlotRegistry:
         once a refresh interval for as long as it was up.
         """
         async with self._lock:
+            self._refuse_while_restore_owed()
             if await self._sign_still_holds_its_pictures():
                 logger.debug(
                     "the sign still holds the picture it was given, so nothing was "
@@ -906,6 +996,10 @@ class SlotRegistry:
         same terms as :meth:`refresh`. How many slots came back is in the log
         line below and in :meth:`list_slots`.
 
+        While a startup restore is owed, see :attr:`restore_owed`, this finishes
+        that restore instead, which empties the record when the pool changed,
+        as the start would have.
+
         Raises :class:`readerboard.sign.pool.PoolTooLarge` if the sign turns out
         not to have room for the configuration, in which case nothing has been
         written and the sign is left exactly as it was.
@@ -927,6 +1021,21 @@ class SlotRegistry:
                 self._controller, fallback=pool.ASSUMED_SIGN_MEMORY_POOL
             )
             pool.check_fits(self._layout, budget)
+
+            # A startup restore that never wrote the pool is finished instead,
+            # the same way the reconnect would have. Going on below would record
+            # the new pool as applied while the records still name the files of
+            # the old one, and nothing would ever fix that: the next start would
+            # find the layout matching and restore them into the wrong files.
+            if self._restore_owed:
+                put_the_alert_back = await self._restore_locked()
+                logger.warning(
+                    "sign rebooted, finishing the restore the service could not do at "
+                    "startup; %d slot(s) and %d variable(s) restored",
+                    len(self._state.slots),
+                    len(self._state.variables),
+                )
+                return put_the_alert_back
 
             # From here the request can stop anywhere, cancelled by a client
             # that went away or failed by the link, and the record has to say
@@ -975,9 +1084,14 @@ class SlotRegistry:
         Never while a reallocation is pending, whatever a refresh has pushed
         since: a sign that may have been cleared with no pool written may have no
         files for the push to land in, and only a restart or another reboot
-        writes the pool.
+        writes the pool. Nor while a startup restore is owed, see
+        :attr:`restore_owed`.
         """
-        return not self._dirty and not self._state.reallocation_pending
+        return (
+            not self._dirty
+            and not self._state.reallocation_pending
+            and not self._restore_owed
+        )
 
     @contextlib.asynccontextmanager
     async def rendering(self, message: str | None = None) -> AsyncIterator[_Rendering]:
@@ -1012,6 +1126,10 @@ class SlotRegistry:
         async with self._lock:
             claims = _Claims()
             if message is not None:
+                # Only an alert being drawn claims files. The renders under
+                # None, which re-assert an alert, release one or save, hand out
+                # nothing and go on as before.
+                self._refuse_while_restore_owed()
                 claims = self._claim_pictures(message, replacing_alert=True)
             # Whether a picture write was started. Until one is, every file
             # still holds the bitmap it held before the claim, so undoing the
@@ -1123,6 +1241,7 @@ class SlotRegistry:
         mode_token = MODE_BY_NAME[mode]
 
         async with self._lock:
+            self._refuse_while_restore_owed()
             # Every icon the message calls gets a picture file before the
             # message is rendered, because the render turns each call into that
             # file's label and cannot invent one. This is also what makes an
@@ -1302,6 +1421,7 @@ class SlotRegistry:
         the price of coming back from a display that is holding nothing.
         """
         async with self._lock:
+            self._refuse_while_restore_owed()
             slot = self._state.slots.get(key)
             if slot is None:
                 raise UnknownSlot("no slot named %r is registered" % key)
@@ -1340,6 +1460,7 @@ class SlotRegistry:
     async def remove(self, key: str) -> None:
         """Take a slot off the sign and forget it."""
         async with self._lock:
+            self._refuse_while_restore_owed()
             slot = self._state.slots.pop(key, None)
             if slot is None:
                 raise UnknownSlot("no slot named %r is registered" % key)
@@ -1358,6 +1479,7 @@ class SlotRegistry:
     async def clear(self) -> int:
         """Take every slot off the sign. Returns how many there were."""
         async with self._lock:
+            self._refuse_while_restore_owed()
             slots = list(self._state.slots.values())
             self._state.slots.clear()
             for slot in slots:
@@ -1388,6 +1510,10 @@ class SlotRegistry:
         """
         now = self._now()
         async with self._lock:
+            if self._restore_owed:
+                # Nothing can be written until the pool has, so expiries wait for
+                # it rather than failing every sweep.
+                return []
             await self._expire_variables(now)
 
             expired = [
@@ -1461,6 +1587,7 @@ class SlotRegistry:
         self._render_value(stale_value, "stale_value")
 
         async with self._lock:
+            self._refuse_while_restore_owed()
             existed = name in self._state.variables
             previous = self._state.variables.get(name)
             label = self._layout.variables.assign(name)  # raises LayoutFull when full
@@ -1503,6 +1630,7 @@ class SlotRegistry:
     async def remove_variable(self, name: str) -> None:
         """Delete a variable, refusing while any message, the alert or a waiting alert calls it."""
         async with self._lock:
+            self._refuse_while_restore_owed()
             variable = self.get_variable(name)
             callers = self.callers(name)
             alert = self.alert_calls(name)

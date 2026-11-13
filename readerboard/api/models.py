@@ -537,7 +537,9 @@ class HealthResponse(BaseModel):
             "after a sign reboot that stopped before it wrote the sign's file pool, "
             "which may have cleared the sign, including one that failed before it "
             "reached it: a refresh cannot repair that, and a restart or another reboot "
-            "does"
+            "does. And false after a start that had to write the sign's file pool and "
+            "could not reach the sign, until the reconnect writes it; writes are "
+            "refused with a 503 until then"
         )
     )
     alert_active: bool

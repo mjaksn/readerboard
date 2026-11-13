@@ -113,13 +113,16 @@ sign would mean letting an unbounded configuration past validation everywhere,
 to be caught only at a reallocation that may be months off. A larger sign means
 raising that constant.
 
-**Every path that writes a memory configuration asks, and there are two.** The
-startup in `readerboard/api/app.py`, on the start that is about to reallocate
+**Every path that writes a memory configuration asks, and there are three.**
+The startup in `readerboard/api/app.py`, on the start that is about to reallocate
 and on no other, so an ordinary restart is untouched and nothing there can bring
-on an erase that was not already coming. And `SlotRegistry.reboot`, which is
+on an erase that was not already coming. `SlotRegistry.reboot`, which is
 `POST /sign/reboot`, because a sign swapped for a smaller one leaves a state file
-that still matches and startup therefore asks nothing. Adding a third path means
-asking there too.
+that still matches and startup therefore asks nothing. And
+`SlotRegistry.finish_owed_restore`, the first reconnect after a start that was
+about to reallocate and could not reach the sign, described below; it is that
+start's erase, owed rather than new, and nothing else can bring it on. Adding a
+fourth path means asking there too.
 
 A sign that says nothing, answers rubbish or is a `loop://` URL falls back to the
 5482 at WARNING and carries on exactly as before, which is what keeps the reboot
@@ -127,6 +130,27 @@ able to recover a sign too wedged to talk. A sign that answers and does not have
 the room stops the service starting, which is the one thing that does, because
 the alternative is erasing every message on it to write a pool that could never
 work; on the reboot path the same answer is a 409 and the sign is left alone.
+
+A start that is about to reallocate and cannot reach the sign, because the
+adapter is off the network, asks a question nobody answers, passes on the 5482,
+and then fails to send the clear. That leaves the restore owed, which
+`SlotRegistry.restore_owed` says, and three things follow until it is done.
+Everything that would write to the sign or hand out a file is refused with
+`SignNotRestored`, a `TransportError` and so a 503, before it sends anything:
+in the changed-pool case the records still name the files of the old pool,
+which the layout has not been told about, and handing one of them to a new
+variable is what put two values in one STRING file. `/health` says the sign is
+out of step. And the first reconnect does the restore instead of its usual
+refresh, asking the sign for its room first, since the answer the start went on
+was an assumption; a sign without the room is left alone, logged at ERROR, and
+the restore stays owed until a restart with a smaller pool. A reboot while it
+is owed finishes it the same way, rather than recording the new pool over
+records that still name the old one. Expiries wait for it, and a waiting alert
+whose turn comes keeps its place, because the sign not being ready is not the
+alert being unshowable. When the pool has not changed, which is a reboot the
+state file says may not have written it, the records keep their files the whole
+time; only a changed pool leaves them detached, and those records are emptied
+when the new pool goes out, as they always have been.
 
 Note that the protocol has a second reset which is nothing to do with this one.
 `E,`, the `SOFT_RESET` control command, restarts the sign and keeps its memory,
