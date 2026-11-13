@@ -25,8 +25,12 @@ library, and the names inside it may move without that being a breaking change.
   same. Stopped after the configuration, partway through putting the messages
   back, it let the next refresh ask about one picture it had already redrawn and
   push nothing; that refresh now pushes everything. `sign_in_sync` on
-  `GET /health` is false in both cases until they are repaired. Upgrading
-  changes nothing: a state file from 0.9.0 reads as one with nothing pending.
+  `GET /health` is false in both cases until they are repaired. A reboot that
+  failed before it reached the sign at all, such as one sent while the adapter
+  is off the network, counts as the first case, since the service cannot tell
+  the two apart: `sign_in_sync` stays false and the next start writes the pool
+  again. Upgrading changes nothing: a state file from 0.9.0 reads as one with
+  nothing pending.
 
 ## [0.9.0] - 2026-11-12
 

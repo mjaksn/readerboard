@@ -1,16 +1,17 @@
 """What the service remembers across a restart.
 
-Six things have to survive: which messages are registered and where on the
+Seven things have to survive: which messages are registered and where on the
 sign each one lives, which variables hold which values and where, which icon
 each picture file is holding, whether an alert is currently holding the
-display, which alerts are waiting their turn behind it, and which memory
-configuration was last applied.
+display, which alerts are waiting their turn behind it, which memory
+configuration was last applied, and whether a reboot stopped before it wrote
+one.
 
-The last of those matters more than it looks. Writing a memory configuration
-erases every file on the sign, so the service must be able to tell "the pool I
-want is the pool that is already there" from "the pool changed", and only
-reconfigure in the second case. Without this record, every restart would wipe
-the sign.
+The last two matter more than they look. Writing a memory configuration erases
+every file on the sign, so the service must be able to tell "the pool I want is
+the pool that is already there" from "the pool changed", and reconfigure only
+in the second case or when a reboot may have cleared the sign without writing
+the pool after it. Without this record, every restart would wipe the sign.
 
 Writes are atomic. A half-written state file after a power cut would strand the
 sign, and a Pi losing power is exactly the event this service is expected to

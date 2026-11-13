@@ -1066,6 +1066,98 @@ class TestAnInterruptedReboot:
         assert registry.in_sync
         assert store.load().reallocation_pending is False
 
+    @staticmethod
+    def fail_the_first_save_after_the_pool(controller, store) -> list[str]:
+        """Make the state file fail once, at the first save after a pool is written.
+
+        That is the save between the memory configuration and the rewrite, the
+        moment the sign is blank. Returns a list that records the failure.
+        """
+        apply_memory_config = controller.apply_memory_config
+        save = store.save
+        configured = False
+        failed: list[str] = []
+
+        async def applying(*args, **kwargs):
+            nonlocal configured
+            await apply_memory_config(*args, **kwargs)
+            configured = True
+
+        def saving(state):
+            if configured and not failed:
+                failed.append("disk full")
+                raise OSError(28, "No space left on device")
+            save(state)
+
+        controller.apply_memory_config = applying
+        store.save = saving
+        return failed
+
+    @staticmethod
+    def pending_restart(store, saved, clock) -> tuple[SlotRegistry, FakeTransport]:
+        fresh = FakeTransport()
+        restarted = SlotRegistry(
+            SignController(fresh, inter_packet_delay=0, sleep=no_wait),
+            Layout(3, 256),
+            store,
+            saved,
+            now=clock,
+        )
+        return restarted, fresh
+
+    async def test_a_reboot_whose_save_after_the_pool_fails_still_puts_everything_back(
+        self, registry, controller, store, transport, answer_a_pool_reading
+    ):
+        # The sign is blank once the pool has gone out, and the rewrite is what
+        # brings it back, so a full disk there is logged rather than raised.
+        await add(registry, "one", "ONE")
+        await add(registry, "two", "TWO")
+        transport.clear()
+        answer_a_pool_reading()
+        failed = self.fail_the_first_save_after_the_pool(controller, store)
+
+        await registry.reboot()
+
+        assert failed
+        assert len(payloads_starting(transport, b"A")) == 2
+        assert registry.in_sync
+
+    async def test_a_start_whose_save_after_the_pool_fails_still_puts_everything_back(
+        self, registry, store, state, clock
+    ):
+        await add(registry, "one", "ONE")
+        state.reallocation_pending = True
+        store.save(state)
+        restarted, fresh = self.pending_restart(store, store.load(), clock)
+        failed = self.fail_the_first_save_after_the_pool(restarted._controller, store)
+
+        await restarted.restore()
+
+        assert failed
+        assert len(payloads_starting(fresh, b"A")) == 1
+        assert restarted.in_sync
+
+    async def test_a_start_that_stops_after_the_pool_reports_the_sign_out_of_step(
+        self, registry, store, state, clock
+    ):
+        # The pool went out, so the sign is blank, and nothing was put back.
+        # The service starts anyway after a failed restore, and must not then
+        # call that sign in sync.
+        await add(registry, "one", "ONE")
+        state.reallocation_pending = True
+        store.save(state)
+        restarted, fresh = self.pending_restart(store, store.load(), clock)
+
+        async def unplugged(*args, **kwargs):
+            raise TransportError("cable unplugged")
+
+        restarted._controller.write_text_file = unplugged
+        with pytest.raises(TransportError):
+            await restarted.restore()
+
+        assert frames.packet(frames.clear_memory()) in fresh.packets
+        assert not restarted.in_sync
+
     def test_a_state_file_from_before_reads_as_nothing_pending(self, tmp_path):
         path = tmp_path / "state.json"
         StateStore(path).save(ServiceState())

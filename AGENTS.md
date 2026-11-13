@@ -159,6 +159,14 @@ The flag is set before a byte is sent and the controller cannot say how far a
 failed write got, so a reboot that failed before anything left costs one start
 that writes the pool for nothing. That is the harmless way round.
 
+Once the pool has gone out, the sign is blank until every file is back, so the
+save between the two, in the reboot and in the start that finishes one, logs a
+failure and carries on rather than raising. A state file that could not be
+written then still says the pool is pending, which costs one more start that
+writes it, and the rewrite that brings the display back is not stopped by a
+full disk. The start that finishes a reboot also marks the sign out of step
+until its rewrite is done, so one that stops in between reports it.
+
 ## What each thing is called
 
 Three things here can be run, and each answers to a name in three tiers. Use the

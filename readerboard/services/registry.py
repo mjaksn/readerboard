@@ -406,12 +406,13 @@ class SlotRegistry:
         it erases the sign. On the ordinary restart, where nothing changed, this
         rewrites the files and the run sequence and nothing is erased.
 
-        The one other reason is a reboot that was interrupted after it cleared
-        the sign and before it wrote the configuration, which the state file
-        records as ``reallocation_pending``. That sign may have no files to write
-        into, so the pool is written again, but the pool has not changed and
-        the record is the service's own, so every slot, variable and picture is
-        kept and written back.
+        The one other reason is a reboot that stopped before it wrote the
+        configuration, which the state file records as ``reallocation_pending``.
+        It may have cleared the sign first, or it may not have reached the sign
+        at all; the record is saved before anything is sent and cannot tell the
+        two apart. Either way the pool is written again, but the pool has not
+        changed and the record is the service's own, so every slot, variable and
+        picture is kept and written back.
         """
         async with self._lock:
             if self._layout.needs_reconfiguration(self._state.layout):
@@ -425,17 +426,23 @@ class SlotRegistry:
                 self._state.pictures = {}
             elif self._state.reallocation_pending:
                 logger.warning(
-                    "a sign reboot was interrupted after the sign was cleared, so its "
-                    "file pool is written again; every message is kept and put back"
+                    "a sign reboot stopped before it wrote the sign's file pool, and may "
+                    "have cleared the sign, so the pool is written again; every message "
+                    "is kept and put back"
                 )
+                # Out of step from the erase until the rewrite below finishes, so
+                # a restore that stops in between, and a service that starts
+                # anyway, reports it rather than a blank sign in sync.
+                self._dirty = True
                 await self._controller.apply_memory_config(self._layout.allocations())
                 self._state.reallocation_pending = False
                 # At once, so that a restore that fails partway does not leave
                 # the next start writing the pool again for no reason.
-                self._save()
+                self._save_between_the_pool_and_the_rewrite()
 
             self._reattach_labels()
             await self._rewrite_all()
+            self._dirty = False
             self._save()
 
     def _reattach_labels(self) -> None:
@@ -939,7 +946,7 @@ class SlotRegistry:
             await self._controller.apply_memory_config(self._layout.allocations())
             self._state.layout = self._layout.as_applied()
             self._state.reallocation_pending = False
-            self._save()
+            self._save_between_the_pool_and_the_rewrite()
             # apply_memory_config already forgot the sign's contents. Doing it
             # again is belt and braces: after a reset the cache is exactly what
             # cannot be trusted, and the rewrite below must not be suppressed.
@@ -963,8 +970,9 @@ class SlotRegistry:
         """Whether everything registered is believed to be on the sign.
 
         Never while a reallocation is pending, whatever a refresh has pushed
-        since: a sign cleared with no pool written has no files for the push to
-        land in, and only a restart or another reboot writes the pool.
+        since: a sign that may have been cleared with no pool written may have no
+        files for the push to land in, and only a restart or another reboot
+        writes the pool.
         """
         return not self._dirty and not self._state.reallocation_pending
 
@@ -1997,6 +2005,25 @@ class SlotRegistry:
 
     def _save(self) -> None:
         self._store.save(self._state)
+
+    def _save_between_the_pool_and_the_rewrite(self) -> None:
+        """Save that the pool went out, without letting a failure stop the rewrite.
+
+        Only for the moment after a memory configuration has been written and
+        before every file is put back. The sign is blank there, and the rewrite
+        is what brings it back, so a state file that cannot be written is
+        logged rather than raised. What the file then still says is that the
+        pool is pending, which is the safe thing for it to say: the next start
+        writes the pool again and puts everything back.
+        """
+        try:
+            self._save()
+        except OSError as err:
+            logger.warning(
+                "could not record that the sign's file pool was written, so the next "
+                "start will write it again: %s",
+                err,
+            )
 
 
 def _resolve_active(asked: bool | None, previous: SlotState | None) -> bool:
