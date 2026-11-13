@@ -1423,6 +1423,34 @@ class TestAskingBeforeRePushing:
         # display, no message restarted, no run sequence moved.
         assert payloads(transport) == [c.COMMAND_READ_DOTS + b"6"]
 
+    async def test_a_reboot_stopped_partway_through_its_rewrite_is_not_asked_about(
+        self, registry, controller, transport, answer_a_pool_reading
+    ):
+        # The pictures go back first, so a reboot cancelled at its first
+        # message has redrawn the one picture a refresh would ask about. The
+        # sign answering that it holds it says nothing about the messages that
+        # never went back, so the refresh has to push everything regardless.
+        await add(registry, "door", "<icon:lock> LOCKED")
+        await add(registry, "other", "PLAIN")
+        answer_a_pool_reading()
+        write_text_file = controller.write_text_file
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        controller.write_text_file = cancelled
+        with pytest.raises(asyncio.CancelledError):
+            await registry.reboot()
+        controller.write_text_file = write_text_file
+        assert not registry.in_sync
+
+        transport.clear()
+        transport.replies.append(picture_reply(b"6", list(icons.resolve("lock", None))))
+        await registry.refresh()
+
+        assert commands(transport).count(c.COMMAND_WRITE_TEXT) == 2
+        assert registry.in_sync
+
     async def test_a_sign_that_lost_its_picture_gets_everything_back(
         self, registry, transport
     ):

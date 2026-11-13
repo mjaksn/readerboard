@@ -361,7 +361,7 @@ def _health(payload: object) -> list[Block]:
                 Row(
                     "sign in sync",
                     yes_no(payload.get("sign_in_sync")),
-                    "no means something was accepted but has not reached the sign",
+                    "no means the sign may not hold everything the service has recorded",
                 ),
             ),
         ),

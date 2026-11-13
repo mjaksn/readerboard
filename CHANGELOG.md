@@ -11,6 +11,23 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Fixed
+
+- **A `POST /sign/reboot` that stops partway no longer leaves the service
+  believing the sign is intact.** Stopped between the clear and the memory
+  configuration, by the client going away or the link failing, it left the sign
+  with no files while the state file said the pool was applied, so a restart
+  wrote every message into files the sign did not have and `/health` said in
+  sync. The state file now records that the pool is still to be written, and
+  the next start writes it and puts every message back; another reboot does the
+  same. Stopped after the configuration, partway through putting the messages
+  back, it let the next refresh ask about one picture it had already redrawn and
+  push nothing; that refresh now pushes everything. `sign_in_sync` on
+  `GET /health` is false in both cases until they are repaired. Upgrading
+  changes nothing: a state file from 0.9.0 reads as one with nothing pending.
+
 ## [0.9.0] - 2026-11-12
 
 **An alert can wait its turn, and this is the last breaking release before

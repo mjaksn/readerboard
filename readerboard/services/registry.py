@@ -405,16 +405,34 @@ class SlotRegistry:
         Reconfiguring memory is avoided unless the pool itself changed, because
         it erases the sign. On the ordinary restart, where nothing changed, this
         rewrites the files and the run sequence and nothing is erased.
+
+        The one other reason is a reboot that was interrupted after it cleared
+        the sign and before it wrote the configuration, which the state file
+        records as ``reallocation_pending``. That sign may have no files to write
+        into, so the pool is written again, but the pool has not changed and
+        the record is the service's own, so every slot, variable and picture is
+        kept and written back.
         """
         async with self._lock:
             if self._layout.needs_reconfiguration(self._state.layout):
                 logger.info("the sign's file pool has changed, so it must be reallocated")
                 await self._controller.apply_memory_config(self._layout.allocations())
                 self._state.layout = self._layout.as_applied()
+                self._state.reallocation_pending = False
                 # Every file was just erased, so nothing survives from before.
                 self._state.slots = {}
                 self._state.variables = {}
                 self._state.pictures = {}
+            elif self._state.reallocation_pending:
+                logger.warning(
+                    "a sign reboot was interrupted after the sign was cleared, so its "
+                    "file pool is written again; every message is kept and put back"
+                )
+                await self._controller.apply_memory_config(self._layout.allocations())
+                self._state.reallocation_pending = False
+                # At once, so that a restore that fails partway does not leave
+                # the next start writing the pool again for no reason.
+                self._save()
 
             self._reattach_labels()
             await self._rewrite_all()
@@ -866,9 +884,13 @@ class SlotRegistry:
         variable, every slot and the run sequence.
 
         The service's own record is left untouched, so the sign comes back
-        showing what it should rather than blank. An alert lives in the priority
-        file, which this touches only when it hands the sign back to write a
-        picture; the caller re-asserts it when this reports that it did not.
+        showing what it should rather than blank. The one thing it adds is a
+        mark, ``reallocation_pending``, saved before the clear and cleared once
+        the configuration has gone out, so that a reboot stopped in between is
+        finished by the next start rather than forgotten. An alert lives in the
+        priority file, which this touches only when it hands the sign back to
+        write a picture; the caller re-asserts it when this reports that it did
+        not.
 
         Returns whether an alert was put back as part of the restore, on the
         same terms as :meth:`refresh`. How many slots came back is in the log
@@ -896,16 +918,35 @@ class SlotRegistry:
             )
             pool.check_fits(self._layout, budget)
 
+            # From here the request can stop anywhere, cancelled by a client
+            # that went away or failed by the link, and the record has to say
+            # what the sign may now be at each point. Both marks go on before
+            # the clear, because a write cancelled in flight can still reach the
+            # sign, and the controller cannot say whether any of it did. A
+            # reboot that failed before a byte left therefore costs a degraded
+            # /health and a start that writes the pool again, both harmless;
+            # the other way round, a cleared sign believed intact, is what this
+            # is here to stop. The pending reallocation is saved, since only a
+            # restart can act on it, and a save that fails stops the clear.
+            self._state.reallocation_pending = True
+            self._dirty = True
+            self._save()
+
             # apply_memory_config holds the sign's lock through the clear, the
             # configuration and the sign's power-up diagnostics, so it returns
             # only once the sign is listening again and the rewrite below cannot
             # land on a deaf sign.
             await self._controller.apply_memory_config(self._layout.allocations())
             self._state.layout = self._layout.as_applied()
+            self._state.reallocation_pending = False
+            self._save()
             # apply_memory_config already forgot the sign's contents. Doing it
             # again is belt and braces: after a reset the cache is exactly what
             # cannot be trusted, and the rewrite below must not be suppressed.
             self._controller.forget_sign_contents()
+            # _dirty stays set until every file is back, so a reboot stopped
+            # partway through this leaves the next refresh pushing everything
+            # rather than asking about one picture it did manage to redraw.
             put_the_alert_back = await self._rewrite_all()
             self._dirty = False
             self._save()
@@ -919,8 +960,13 @@ class SlotRegistry:
 
     @property
     def in_sync(self) -> bool:
-        """Whether everything registered is believed to be on the sign."""
-        return not self._dirty
+        """Whether everything registered is believed to be on the sign.
+
+        Never while a reallocation is pending, whatever a refresh has pushed
+        since: a sign cleared with no pool written has no files for the push to
+        land in, and only a restart or another reboot writes the pool.
+        """
+        return not self._dirty and not self._state.reallocation_pending
 
     @contextlib.asynccontextmanager
     async def rendering(self, message: str | None = None) -> AsyncIterator[_Rendering]:

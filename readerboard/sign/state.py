@@ -249,6 +249,15 @@ class ServiceState(BaseModel):
     # the queue that service had.
     alert_queue: list[QueuedAlertState] = Field(default_factory=list)
     layout: AppliedLayout | None = None
+    # True from just before a reboot sends the memory clear until the
+    # configuration after it has been sent. Set, the sign may have been erased
+    # with no pool written, so the next start writes the pool again and keeps
+    # every record, rather than trusting ``layout``. It is deliberately not done
+    # by setting ``layout`` to None: a start that finds no layout takes the pool
+    # to have changed and drops every slot, variable and picture from the
+    # record. False for a state file written before this existed, which is what
+    # that service believed.
+    reallocation_pending: bool = False
 
 
 REPLACE_ATTEMPTS = 5

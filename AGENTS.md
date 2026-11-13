@@ -145,6 +145,20 @@ warning-coloured confirmation. This is the exception the paragraph above allows
 for, not a hole in it: a message write still cannot reach the clear, only this
 one route asked for by name can.
 
+A reboot can stop between its clear and the configuration after it, cancelled
+by a client that went away or failed by the link, and then the sign may have no
+files at all. So before the clear it saves `reallocation_pending` in the state
+file, and clears it only once the configuration has gone out. A start that finds
+it set writes the pool again, after asking the sign for its room like any other
+start that does, and keeps every slot, variable and picture in the record. It
+is deliberately not recorded by setting the applied layout to None: a start
+that finds no layout takes the pool to have changed and drops every message from
+the record along with the sign. While it is set, `/health` says the sign is out
+of step, and a refresh cannot change that, since it has no files to write into.
+The flag is set before a byte is sent and the controller cannot say how far a
+failed write got, so a reboot that failed before anything left costs one start
+that writes the pool for nothing. That is the harmless way round.
+
 ## What each thing is called
 
 Three things here can be run, and each answers to a name in three tiers. Use the
