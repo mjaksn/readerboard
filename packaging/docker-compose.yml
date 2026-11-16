@@ -63,6 +63,11 @@ services:
       #   and that ERASES every message on it, exactly as the icon count above
       #   does. Not settings to fiddle with.
       #
+      # READERBOARD_EXIT_MESSAGE: "<red>OFFLINE"
+      #   What the sign shows once the container is stopped. Unset, it is left
+      #   blank; READERBOARD_BLANK_ON_EXIT: "false" leaves it showing whatever it
+      #   was. Only a clean stop does this, and the next start puts it all back.
+      #
       # READERBOARD_LOG_LEVEL: INFO
       #   Logs go to stderr, where `docker compose logs` collects them.
 

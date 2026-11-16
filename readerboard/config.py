@@ -34,6 +34,27 @@ DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 # still naming the old one is told what to call it instead.
 _RENAMED_SETTINGS = {"refresh_interval_seconds": "check_interval_seconds"}
 
+def exit_message_body(message: str) -> bytes:
+    """Render ``exit_message`` to the priority file body it is left as.
+
+    Raises ValueError, which is what a settings validator reports, for markup
+    the sign cannot show, a call to a variable or an icon, or a message the
+    priority file cannot hold.
+    """
+    from readerboard.protocol.constants import PRIORITY_FILE_CAPACITY
+    from readerboard.protocol.markup import render
+
+    # No variables and no icons: the files they live in are handed out and
+    # taken back by a service that is about to stop looking after them.
+    body = render(message)
+    if len(body) > PRIORITY_FILE_CAPACITY:
+        raise ValueError(
+            "exit_message renders to %d bytes and the sign's priority file holds %d"
+            % (len(body), PRIORITY_FILE_CAPACITY)
+        )
+    return body
+
+
 def _config_file() -> Path:
     override = os.environ.get("READERBOARD_CONFIG_FILE")
     return Path(override) if override else DEFAULT_CONFIG_FILE
@@ -176,6 +197,26 @@ class Settings(BaseSettings):
             "how long the last of them waits, not the memory configuration"
         ),
     )
+    blank_on_exit: bool = Field(
+        default=True,
+        description=(
+            "take the sign down when the service stops cleanly, so that a sign nothing "
+            "is updating does not look as though something is. It is blanked, or shows "
+            "exit_message if that is set, and the next start puts the messages back. A "
+            "crash or a kill leaves it as it was, and so does an adapter that is "
+            "unreachable at the time"
+        ),
+    )
+    exit_message: str = Field(
+        default="",
+        description=(
+            "what the sign shows once the service has stopped, when blank_on_exit is "
+            "on. Empty leaves the display blank. Takes the same markup as an alert, "
+            "except variables and icons, which the sign cannot be trusted to still hold "
+            "once nothing is looking after them. Held still, and limited to the 125 "
+            "bytes of the priority file it is written to"
+        ),
+    )
     clock_sync_enabled: bool = True
     clock_sync_interval_seconds: float = Field(default=3600.0, gt=0)
     timezone: str | None = Field(
@@ -233,6 +274,14 @@ class Settings(BaseSettings):
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError) as err:
             raise ValueError("unknown timezone %r: %s" % (value, err)) from err
+        return value
+
+    @field_validator("exit_message")
+    @classmethod
+    def _check_exit_message(cls, value: str) -> str:
+        # Checked here rather than at shutdown, where the only one left to tell
+        # would be a log line nobody is reading at the time.
+        exit_message_body(value)
         return value
 
     @model_validator(mode="before")

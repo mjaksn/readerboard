@@ -126,6 +126,24 @@ check_interval_seconds = 900.0
 # rather than the memory configuration.
 alert_queue_limit = 10
 
+# Take the sign down when the service stops cleanly, so that a sign nothing is
+# updating any more does not look as though something is. It is written to the
+# priority file, which holds the display over everything else, so nothing that
+# was on the sign is lost and the next start puts it all back, alerts included.
+# A restart therefore leaves the sign dark for as long as the service is down. A
+# crash or a kill leaves the sign as it was, and so does a sign that cannot be
+# reached at the time.
+blank_on_exit = true
+
+# What the sign shows once the service has stopped, if blank_on_exit is on.
+# Empty leaves it blank. Markup works as it does in an alert, except variables
+# and icons: their files are looked after by a service that is no longer
+# running. It is held still rather than scrolled, and has to fit the priority
+# file's 125 bytes once rendered. Checked at startup, so a message that does not
+# fit stops the service starting rather than failing quietly at the end.
+#exit_message = "<red>OFFLINE"
+exit_message = ""
+
 # == the sign's clock ========================================================
 
 # The service sets the sign's clock at startup, on this interval, and every time

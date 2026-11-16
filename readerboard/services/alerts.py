@@ -277,6 +277,21 @@ class AlertService:
         """
         return self._sign_may_not_match
 
+    def distrust_the_priority_file(self) -> None:
+        """Treat the priority file as unknown until something writes or releases it.
+
+        Called at startup, before anything is restored. A service that stopped
+        cleanly may have left the sign blank or showing its exit message
+        through the priority file, and one that did not may have left an alert
+        it never recorded. Either way :meth:`restore` releases it, but restore
+        does not run when the sign is unreachable at startup, and the refresh
+        that follows the reconnect touches the priority file only when this is
+        set. Without it, a service with no icons started while its adapter was
+        off the network would leave the sign dark behind the exit write for
+        good.
+        """
+        self._sign_may_not_match = True
+
     def set_rendering(self, rendering: Rendering) -> None:
         """Render alerts through the registry, so that they can call variables."""
         self._rendering = rendering
@@ -315,9 +330,12 @@ class AlertService:
             alert = self._state.alert
             if alert is None:
                 # The sign may still be holding an alert from before an unclean
-                # stop, and there is no way to ask it. Releasing costs one small
-                # write and guarantees the rotation is visible.
-                await self._controller.clear_priority()
+                # stop, or the blank or message a clean one leaves, and there is
+                # no way to ask it. Releasing costs one small write and
+                # guarantees the rotation is visible. Forced while in doubt,
+                # for the reason given in :meth:`lifted`.
+                await self._controller.clear_priority(force=self._sign_may_not_match)
+                self._sign_may_not_match = False
                 return
 
             if not alert.message:
@@ -520,6 +538,9 @@ class AlertService:
             # sign over in between, so an alert found here is one to put back.
             alert = self._state.alert
             if alert is None:
+                # The file is free and nothing is recorded, so the two agree,
+                # whatever was in doubt before the release.
+                self._sign_may_not_match = False
                 yield lift
                 return
 

@@ -372,6 +372,20 @@ alert back on the sign after a restart uses the file the alert itself is
 already holding, because failing to restore the display is worse than a call
 that draws nothing.
 
+That blank message is also what a **clean stop** leaves, `blank_on_exit` and
+`exit_message`: the priority file holds the display dark, or holds the exit
+message, over files that keep everything in them. `SignController.stop`
+writes it, after cancelling every task that could write after it, and a link
+reopened under it starts no repair, because a repair re-pushes pictures and a
+picture write hands the sign back. The record of any alert is left alone. Two
+things undo it on the next start, and the second is the one that is easy to
+lose. `AlertService.restore` releases the priority file, but restore never runs
+when the sign is out of reach at startup, so the start calls
+`AlertService.distrust_the_priority_file` first, and the refresh after the
+reconnect releases it because `sign_may_not_match` is set. Without that, a
+service with no icons started with its adapter off the network would leave the
+sign dark for good.
+
 An alert can also **wait its turn**, `if_active` `queue` on `POST /alerts`. The
 queue is in the state file beside the alert, and four things about it are easy
 to get wrong:

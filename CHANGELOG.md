@@ -11,6 +11,33 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+**A clean stop now takes the sign down, so that a sign nothing is driving does not
+look as though something is.** It is on by default, so after upgrading a restart leaves
+the sign dark for as long as the service is down, where it used to carry on showing the
+last messages. Nothing is erased, and the next start puts everything back.
+
+### Added
+
+- **`blank_on_exit`, on by default, and `exit_message`, empty by default.** As its last
+  act on a clean stop, the service writes the sign's priority file, which holds the
+  display over everything else: blank, or showing `exit_message` if that is set. The
+  messages, variables and icons stay in their files and the record of any alert is left
+  as it is, so the next start releases the priority file and puts back the alert that
+  was up. `exit_message` takes the markup an alert does, except variables and icons, and
+  is checked when the settings are read, so one that does not fit the priority file
+  stops the service starting rather than failing at the end. A crash, a kill, or a sign
+  out of reach at the time leaves the sign as it was.
+
+### Fixed
+
+- **A start that cannot reach the sign now releases the priority file once it can.**
+  The release every start sends was lost when the sign was out of reach, and on a
+  service with no icons nothing sent it again, so a takeover left by an unclean stop
+  could stay on the display until an alert was raised or dismissed by hand. That mattered
+  little before, and would have left the sign dark behind the exit write for good.
+
 ## [0.9.1] - 2026-11-12
 
 **Two fixes for a sign the service could believe intact when it was not: after

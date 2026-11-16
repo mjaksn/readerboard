@@ -35,7 +35,7 @@ from readerboard import __version__, logging_setup, names
 from readerboard.api import errors, routes
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
-from readerboard.config import Settings
+from readerboard.config import Settings, exit_message_body
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
 from readerboard.services.registry import SlotRegistry
@@ -321,6 +321,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # that reconnect does it instead, asking the sign for its room first:
         # the check above may have passed only on the assumed figure, since an
         # unreachable sign answers nothing. See SlotRegistry.restore_owed.
+        #
+        # The last stop may have left the sign dark through the priority file,
+        # and nothing restored here reaches it if the sign is out of reach, so
+        # the refresh after the reconnect has to know to release it.
+        alerts.distrust_the_priority_file()
         try:
             await registry.restore()
             await alerts.restore()
@@ -372,7 +377,16 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
                     await task
             if settings.clock_sync_enabled:
                 await clock.stop()
-            await controller.stop()
+            # Last, and through the controller, which stops everything else that
+            # writes before it sends this. The record of any alert is left as
+            # it is, so the next start puts it back along with the messages.
+            await controller.stop(
+                leave_showing=(
+                    exit_message_body(settings.exit_message)
+                    if settings.blank_on_exit
+                    else None
+                )
+            )
             logger.info("readerboard stopped")
 
     app = FastAPI(

@@ -202,16 +202,50 @@ class SignController:
             logger.exception("opening the sign at startup failed unexpectedly")
         self._reconnect_task = asyncio.create_task(self._reconnect_loop())
 
-    async def stop(self) -> None:
-        """Stop watching the link and close it."""
+    async def stop(self, *, leave_showing: bytes | None = None) -> None:
+        """Stop watching the link and close it.
+
+        ``leave_showing`` is a body for the priority file, written last, so that
+        a sign nothing is driving any more does not look as though something
+        is. An empty one holds the display dark, for the reason
+        :meth:`write_priority` gives. The next start puts the display back,
+        because it releases the priority file whatever it finds there.
+
+        Every task that could write to the sign is cancelled before it, and
+        none can start after it, so that the last word is this one. A reconnect
+        hook let run past it would re-push the pictures, and a picture write
+        hands the sign back. Cancelling them all before awaiting any matters for
+        the same reason: awaiting the first lets the second run, and a repair
+        waiting on the registry's lock would get it then.
+
+        Not wrapped in a timeout of its own. The transport's own timeout bounds
+        the write, and abandoning it here would not end it: the worker thread
+        carries on, and closing the link waits for it either way. A link that is
+        already down costs nothing, since a write does not open one.
+        """
         self._stopping.set()
-        for task in (self._reconnect_task, self._repair_task):
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+        tasks = [task for task in (self._reconnect_task, self._repair_task) if task is not None]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
         self._reconnect_task = None
         self._repair_task = None
+        if leave_showing is not None:
+            try:
+                await self.write_priority(leave_showing, force=True)
+            except TransportError as err:
+                logger.warning(
+                    "could not take the sign down on the way out, so it is left "
+                    "showing what it was: %s",
+                    err,
+                )
+            else:
+                if leave_showing:
+                    logger.info("left the sign showing the exit message")
+                else:
+                    logger.info("left the sign blank")
         await asyncio.to_thread(self._transport.close)
 
     # == health =============================================================
@@ -629,6 +663,10 @@ class SignController:
         if reopens == self._seen_reopens:
             return
         self._seen_reopens = reopens
+        if self._stopping.is_set():
+            # The write is the one :meth:`stop` leaves on the sign, and a
+            # repair would re-push the pictures and hand the sign back.
+            return
         self.forget_sign_contents()
         logger.info(
             "the link to %s was opened again under a write; repairing the sign as "
