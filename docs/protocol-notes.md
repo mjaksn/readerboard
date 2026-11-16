@@ -259,6 +259,29 @@ guarantees only one of them is visible.
 The 125 byte capacity is fixed and outside the memory pool. `frames.write_text_file`
 rejects a longer priority write rather than letting the sign truncate it silently.
 
+### What a clean stop leaves, measured on 2026-11-16
+
+The formatted-but-empty write that caused that bug is now used on purpose. A clean stop
+sends it as its last write, `blank_on_exit`, so that a sign nothing is driving does not
+look as though something is, or sends `exit_message` in its place. Four things were
+watched on the sign, driven through the Ethernet adapter, with one message in the
+rotation and no icons:
+
+- **It holds.** The message went dark at the stop and the display stayed dark, with
+  nothing running to write anything else.
+- **It survives a power cut.** The sign was switched off for about thirty seconds with the
+  adapter left powered, and came back dark after its start-up diagnostics. That is the
+  2026-11-05 finding about an alert again, under "Reading state back": the priority file
+  goes with the rest of the sign's memory.
+- **A release sent to a sign that is switched off is lost, and the first refresh repairs
+  it.** The service was started with the sign off and the adapter up, so the release every
+  start sends went nowhere. The sign was switched on after the start, came up dark, and
+  showed its message again once the first refresh had re-pushed and released, a minute
+  after the start with the interval set to sixty seconds. Before this, nothing would have
+  sent that release again on a service with no icons.
+- **An exit message shows held still.** `<red>OFFLINE` was written in HOLD at the stop, and
+  showed in red, still and readable.
+
 ## Set Run Sequence
 
 Special function label `.` (0x2E), so the payload begins `E.` and continues `KPF`:
