@@ -132,7 +132,9 @@ async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) ->
     that would put the alert on a sign that came back blank. It also runs when
     the alert service says a change it made to the priority file did not
     finish, such as an alert lifted for a picture write and never put back,
-    which no answer from the sign can speak for.
+    which no answer from the sign can speak for, and until something has
+    written or released the priority file since startup, since the last stop
+    may have left the sign dark through it.
     """
     if not await registry.refresh() or alerts.sign_may_not_match:
         await alerts.reassert()

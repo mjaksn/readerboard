@@ -258,7 +258,8 @@ class AlertService:
         # Set before anything that changes the priority file, and cleared only
         # once the sign and the record agree again. So any way of stopping short
         # leaves it set: a failure, a failure swallowed on a rollback, or a
-        # cancellation. See :attr:`sign_may_not_match`.
+        # cancellation. The service sets it at startup as well, see
+        # :meth:`distrust_the_priority_file`. See :attr:`sign_may_not_match`.
         self._sign_may_not_match = False
 
     @property
@@ -272,8 +273,10 @@ class AlertService:
         lifted for a picture and not put back, whether the put-back failed, was
         swallowed by :meth:`_put_back_quietly` or was cancelled, or a write or
         release cancelled after it reached the sign and before the record caught
-        up. So the refresh's caller re-asserts when this is set, whatever the
-        sign answered, and the re-assert makes the sign match the record.
+        up. Nor about what the last process left there, which is why every
+        start sets it, see :meth:`distrust_the_priority_file`. So the refresh's
+        caller re-asserts when this is set, whatever the sign answered, and the
+        re-assert makes the sign match the record.
         """
         return self._sign_may_not_match
 

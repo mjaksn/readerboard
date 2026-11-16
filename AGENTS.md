@@ -469,10 +469,12 @@ declines to write them again.
   `AlertService.sign_may_not_match` is set before every priority write, release
   and lift, and cleared only once the sign and the record agree, so a failure
   or a cancellation leaves it set and the next refresh puts the record back on
-  the sign. What this gives up is an alert raised while the sign is switched
-  off and back on within a refresh interval: the write is lost, the read then
-  finds the sign intact, and nothing writes it again. A message written in that
-  window has always had the same gap.
+  the sign. Every start sets it too, before anything is restored, since the
+  last stop may have left the sign dark through the priority file. What this
+  gives up is an alert raised while the sign is switched off and back on within
+  a refresh interval: the write is lost, the read then finds the sign intact,
+  and nothing writes it again. A message written in that window has always had
+  the same gap.
 - **An idle link to the sign is not probed.** TCP keepalive would notice an
   adapter that went off the network while nothing was being sent, and 0.7.1
   turned it on. The adapter it runs against acknowledges every byte of data and
