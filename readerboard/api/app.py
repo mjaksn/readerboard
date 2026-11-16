@@ -35,7 +35,7 @@ from readerboard import __version__, logging_setup, names
 from readerboard.api import errors, routes
 from readerboard.api.deps import get_alerts, get_clock, get_controller, get_registry
 from readerboard.api.models import HealthResponse, LinkHealth
-from readerboard.config import Settings
+from readerboard.config import Settings, exit_message_body
 from readerboard.services.alerts import AlertService
 from readerboard.services.clock import ClockService
 from readerboard.services.registry import SlotRegistry
@@ -132,7 +132,10 @@ async def _refresh_and_reassert(registry: SlotRegistry, alerts: AlertService) ->
     that would put the alert on a sign that came back blank. It also runs when
     the alert service says a change it made to the priority file did not
     finish, such as an alert lifted for a picture write and never put back,
-    which no answer from the sign can speak for.
+    which no answer from the sign can speak for, and at the first refresh after
+    a start, since the last stop may have left the sign dark through it and the
+    start's own release may have reached a sign that was not listening. With
+    no alert recorded, the re-assert is a release.
     """
     if not await registry.refresh() or alerts.sign_may_not_match:
         await alerts.reassert()
@@ -184,6 +187,14 @@ async def _finish_the_startup_restore(registry: SlotRegistry, alerts: AlertServi
             "needs its files will be written to it: %s",
             err,
         )
+        # Every refresh is refused from here until a restart, so the re-assert
+        # that would release what the last stop left on the priority file never
+        # runs. A release needs no file, and without it the sign stays dark
+        # behind the exit write while the service runs.
+        try:
+            await alerts.release_an_unrecorded_takeover()
+        except TransportError as release_err:
+            logger.warning("could not release the sign's priority file: %s", release_err)
         return
     except TransportError as err:
         logger.warning("could not finish restoring the sign's contents yet: %s", err)
@@ -253,6 +264,10 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logging_setup.configure(settings.log_level, settings.log_file)
         logger.info("readerboard %s starting; sign at %s", __version__, settings.serial_url)
+        # Rendered now rather than at the stop, where a failure would skip
+        # closing the link. Settings check it when they are read, but a Settings
+        # changed after it was made is not checked again.
+        farewell = exit_message_body(settings.exit_message) if settings.blank_on_exit else None
 
         link = transport if transport is not None else build_transport(settings)
         controller = SignController(
@@ -321,6 +336,11 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # that reconnect does it instead, asking the sign for its room first:
         # the check above may have passed only on the assumed figure, since an
         # unreachable sign answers nothing. See SlotRegistry.restore_owed.
+        #
+        # The last stop may have left the sign dark through the priority file,
+        # and nothing restored here reaches it if the sign is out of reach, so
+        # the refresh after the reconnect has to know to release it.
+        alerts.distrust_the_priority_file(until_first_refresh=settings.blank_on_exit)
         try:
             await registry.restore()
             await alerts.restore()
@@ -366,13 +386,21 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         try:
             yield
         finally:
+            # Both cancelled before either is awaited, for the reason
+            # SignController.stop gives: awaiting the first lets the second run,
+            # and a refresh it started would be cut short just before the exit
+            # write, with whatever its rollback writes landing first.
             for task in (sweeper, refresher):
                 task.cancel()
+            for task in (sweeper, refresher):
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
             if settings.clock_sync_enabled:
                 await clock.stop()
-            await controller.stop()
+            # Last, and through the controller, which stops everything else that
+            # writes before it sends this. The record of any alert is left as
+            # it is, so the next start puts it back along with the messages.
+            await controller.stop(leave_showing=farewell)
             logger.info("readerboard stopped")
 
     app = FastAPI(

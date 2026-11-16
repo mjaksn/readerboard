@@ -372,6 +372,38 @@ alert back on the sign after a restart uses the file the alert itself is
 already holding, because failing to restore the display is worse than a call
 that draws nothing.
 
+That blank message is also what a **clean stop** leaves, `blank_on_exit` and
+`exit_message`: the priority file holds the display dark, or holds the exit
+message, over files that keep everything in them. `SignController.stop`
+writes it, after cancelling every task that could write after it, and a link
+reopened under it starts no repair, because a repair re-pushes pictures and a
+picture write hands the sign back. A write a cancelled task left running lands
+before it, because every write goes through the controller's one writer
+thread; with a pool the exit write could overtake a release. The record of any
+alert is left alone.
+
+Undoing it is the part that is easy to get wrong, because the release that
+undoes it can be lost with nothing to say so. `AlertService.restore` releases
+the priority file at startup, but restore never runs when the sign is out of
+reach, and when the adapter is up and the sign behind it is switched off or
+still booting, the release goes nowhere and the sign comes up still holding the
+exit write. So three things back it up:
+
+- **The start calls `AlertService.distrust_the_priority_file`** before anything
+  is restored. With `blank_on_exit` on, the doubt lasts until the first refresh
+  has re-asserted, not merely until a release has been sent, so that first
+  refresh re-asserts even when the sign answers that its pictures are intact,
+  which costs one release, or one restart of the alert. With it off, a write or
+  a release ends the doubt, and nothing extra is paid.
+- **A re-assert with no alert recorded is a release, every time.** It runs
+  after every re-push, and a re-push forgot what the controller believed, so
+  the release is not suppressed. A service with no icons re-pushes on every
+  refresh, so it releases on every refresh too.
+- **An owed restore that finds the sign too small** releases the priority file
+  if no alert is recorded, through
+  `AlertService.release_an_unrecorded_takeover`. Every refresh is refused from
+  then until a restart, so nothing else would.
+
 An alert can also **wait its turn**, `if_active` `queue` on `POST /alerts`. The
 queue is in the state file beside the alert, and four things about it are easy
 to get wrong:
@@ -448,17 +480,20 @@ declines to write them again.
   its priority file exactly as long as its other files: unplugged for half a
   minute mid-alert on 2026-11-05, it came back showing the alert. The case that
   still needs the re-assert is a service with no icons, which never hands the
-  sign back and never asks it anything; without it a sign power cycled
-  mid-alert would stay blank. So does a change the service made to the
-  priority file and did not finish, such as an alert lifted for a picture and
-  not put back, which no answer from the sign can speak for:
-  `AlertService.sign_may_not_match` is set before every priority write, release
-  and lift, and cleared only once the sign and the record agree, so a failure
-  or a cancellation leaves it set and the next refresh puts the record back on
-  the sign. What this gives up is an alert raised while the sign is switched
-  off and back on within a refresh interval: the write is lost, the read then
-  finds the sign intact, and nothing writes it again. A message written in that
-  window has always had the same gap.
+  sign back and never asks it anything; without it a sign power cycled mid-alert
+  would stay blank. So does a change the service made to the priority file and
+  did not finish, such as an alert lifted for a picture and not put back, which
+  no answer from the sign can speak for: `AlertService.sign_may_not_match` is
+  set before every priority write, release and lift, and cleared only once the
+  sign and the record agree, so a failure or a cancellation leaves it set and
+  the next refresh puts the record back on the sign. Every start sets it too,
+  before anything is restored, since the last stop may have left the sign dark
+  through the priority file, and with `blank_on_exit` on it stays set until the
+  first refresh, since the start's release may not have landed. What this gives
+  up is an alert raised while the sign is switched off and back on within a
+  refresh interval: the write is lost, the read then finds the sign intact, and
+  nothing writes it again. A message written in that window has always had the
+  same gap.
 - **An idle link to the sign is not probed.** TCP keepalive would notice an
   adapter that went off the network while nothing was being sent, and 0.7.1
   turned it on. The adapter it runs against acknowledges every byte of data and

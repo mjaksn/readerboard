@@ -283,11 +283,15 @@ class TestReassert:
             frames.write_text_file(c.FILE_PRIORITY, c.TEXT_COLOR_RED + b"ALERT")
         )
 
-    async def test_it_does_nothing_when_no_alert_is_holding_the_sign(self, alerts, transport):
+    async def test_with_no_alert_it_releases_the_priority_file(self, alerts, transport):
+        # It used to do nothing. The caller runs it after a re-push, which
+        # forgot what the controller believed, and a release is what repairs a
+        # sign that missed one, such as the release a start sends to undo the
+        # last stop's exit write.
         transport.clear()
 
         assert await alerts.reassert() is False
-        assert transport.packets == []
+        assert transport.packets == [frames.packet(frames.clear_priority_file())]
 
     async def test_a_released_alert_is_not_put_back(self, alerts, transport):
         await raise_alert(alerts)

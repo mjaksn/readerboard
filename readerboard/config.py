@@ -26,13 +26,31 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from readerboard.protocol.constants import PICTURE_FILE_LABELS
+from readerboard.protocol.constants import FILE_PRIORITY, PICTURE_FILE_LABELS
+from readerboard.protocol.frames import write_text_file
+from readerboard.protocol.markup import render
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
 
 # Settings renamed rather than removed, old name to new. Kept so that a config
 # still naming the old one is told what to call it instead.
 _RENAMED_SETTINGS = {"refresh_interval_seconds": "check_interval_seconds"}
+
+def exit_message_body(message: str) -> bytes:
+    """Render ``exit_message`` to the priority file body it is left as.
+
+    Raises ValueError, which is what a settings validator reports, for markup
+    the sign cannot show, a call to a variable or an icon, or a message the
+    priority file cannot hold.
+    """
+    # No variables and no icons: the files they live in are handed out and
+    # taken back by a service that is about to stop looking after them.
+    body = render(message)
+    # Built and thrown away, for the size check the frame builder makes of
+    # every priority write, so that there is one rule and one wording for it.
+    write_text_file(FILE_PRIORITY, body)
+    return body
+
 
 def _config_file() -> Path:
     override = os.environ.get("READERBOARD_CONFIG_FILE")
@@ -176,6 +194,26 @@ class Settings(BaseSettings):
             "how long the last of them waits, not the memory configuration"
         ),
     )
+    blank_on_exit: bool = Field(
+        default=True,
+        description=(
+            "take the sign down when the service stops cleanly, so that a sign nothing "
+            "is updating does not look as though something is. It is blanked, or shows "
+            "exit_message if that is set, and the next start puts the messages back. A "
+            "crash or a kill leaves it as it was, and so does an adapter that is "
+            "unreachable at the time"
+        ),
+    )
+    exit_message: str = Field(
+        default="",
+        description=(
+            "what the sign shows once the service has stopped, when blank_on_exit is "
+            "on. Empty leaves the display blank. Takes the same markup as an alert, "
+            "except variables and icons, which the sign cannot be trusted to still hold "
+            "once nothing is looking after them. Held still, and limited to the 125 "
+            "bytes of the priority file it is written to"
+        ),
+    )
     clock_sync_enabled: bool = True
     clock_sync_interval_seconds: float = Field(default=3600.0, gt=0)
     timezone: str | None = Field(
@@ -312,6 +350,22 @@ class Settings(BaseSettings):
             )
         if self.backoff_max < self.backoff_initial:
             raise ValueError("backoff_max must not be smaller than backoff_initial")
+        return self
+
+    @model_validator(mode="after")
+    def _check_exit_message(self) -> Settings:
+        """Refuse an exit message the sign could not be left showing.
+
+        Checked here rather than at the stop, where the only one left to tell
+        would be a log line nobody is reading at the time. Only when it will be
+        used, so that a message left in the file with blanking turned off
+        cannot stop the service starting.
+        """
+        if self.blank_on_exit:
+            try:
+                exit_message_body(self.exit_message)
+            except ValueError as err:
+                raise ValueError("exit_message cannot be used: %s" % err) from err
         return self
 
     @classmethod

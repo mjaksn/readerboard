@@ -42,15 +42,17 @@ end rather than replace it.
 - **It does not redraw the sign for nothing.** A write of bytes the sign already holds is
   suppressed, so a source re-sending an unchanged temperature does not make the display
   flicker.
-- **It survives restarts and outages.** The registered messages are persisted and
-  pushed to the sign again whenever the link returns, so a restart or a power cut leaves
-  the rotation intact. A message or a variable write that arrives while the sign is
-  unreachable is refused with a 503 rather than silently held, so the caller learns it did
-  not land. Deleting or hiding a message, or deleting a variable, is accepted and carried
-  out when the link returns. The one exception is a start that had to write a new file
-  pool and could not reach the sign: until the sign comes back and the pool is written,
-  every change to messages and variables is a 503, since the files they would use may
-  not exist yet.
+- **It survives restarts and outages.** The registered messages are persisted and pushed
+  to the sign again whenever the link returns, so a restart or a power cut leaves the
+  rotation intact. A clean stop leaves the sign blank, or showing a message of your
+  choosing, so that a sign nothing is driving does not look as though something is; the
+  next start puts everything back. A message or a variable write that arrives while the
+  sign is unreachable is refused with a 503 rather than silently held, so the caller
+  learns it did not land. Deleting or hiding a message, or deleting a variable, is
+  accepted and carried out when the link returns. The one exception is a start that had
+  to write a new file pool and could not reach the sign: until the sign comes back and
+  the pool is written, every change to messages and variables is a 503, since the files
+  they would use may not exist yet.
 - **Errors are errors.** A dead serial link is a 503 and a message the sign cannot
   render is a 400, each with the reason in the body. Nothing here reports a failure
   under a 200.
@@ -570,6 +572,25 @@ does stop it, because the alternative is erasing every message on the sign to wr
 that could never work. A sign that says nothing does not stop anything. `POST /sign/reboot`
 asks the same question before it clears the sign, and answers 409 rather than erasing it,
 except when the sign is too wedged to answer, which is the case that endpoint exists for.
+
+### What the sign shows once the service stops
+
+A clean stop, which is `systemctl stop`, `docker stop` or Ctrl+C, takes the sign down
+as its last act: blank by default, or showing `exit_message` if that is set, such as
+`<red>OFFLINE`. `blank_on_exit = false` leaves the sign showing whatever it was. The
+messages are not erased. The stop writes the sign's priority file, which holds the
+display over everything else, and the next start releases it and puts back any alert
+that was up, so a restart leaves the sign dark only while the service is down.
+
+Only a clean stop can do this. A crash, a kill, or a sign out of reach at the time
+leaves the sign as it was, and so does anything that ends the process rather than
+asking it to stop. On Windows that includes the launchers in `scripts/` when they
+stop the service because the simulator has gone: they give it five seconds and then
+end it outright, which on Windows is a kill. Whether an editor's stop button asks or
+kills depends on the editor; Ctrl+C in a terminal always asks.
+
+The next start puts the display back, and so does the first refresh after it if the
+start's own release went to a sign that was switched off or still starting up.
 
 ## Security
 
