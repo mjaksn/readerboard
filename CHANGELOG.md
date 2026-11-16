@@ -11,12 +11,14 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.10.0] - 2026-11-16
 
 **A clean stop now takes the sign down, so that a sign nothing is driving does not
 look as though something is.** It is on by default, so after upgrading a restart leaves
 the sign dark for as long as the service is down, where it used to carry on showing the
-last messages. Nothing is erased, and the next start puts everything back.
+last messages. Nothing is erased, and the next start puts everything back. Upgrading
+erases nothing either: no setting is renamed or removed, and a state file from 0.9.1
+reads as it did. `blank_on_exit = false` keeps the old behaviour.
 
 ### Added
 
@@ -1994,7 +1996,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.10.0
 [0.9.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.1
 [0.9.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.0
 [0.8.3]: https://github.com/mjaksn/readerboard/releases/tag/v0.8.3
