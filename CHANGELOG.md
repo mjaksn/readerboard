@@ -37,10 +37,10 @@ last messages. Nothing is erased, and the next start puts everything back.
   or still starting up behind a connected adapter. Nothing sent it again, so a
   takeover left by an unclean stop could stay on the display until an alert was
   raised or dismissed by hand. That mattered little before, and would now leave the
-  sign dark behind the exit write. The first refresh after a start now releases the
-  priority file again, or writes the recorded alert again, whatever the sign
-  answers; and every refresh that pushes everything again releases it when no alert
-  is recorded.
+  sign dark behind the exit write. With `blank_on_exit` on, the first refresh after
+  a start now releases the priority file again, or writes the recorded alert again,
+  whatever the sign answers; and every refresh that pushes everything again releases
+  it when no alert is recorded.
 
 ## [0.9.1] - 2026-11-12
 

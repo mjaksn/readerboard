@@ -194,7 +194,7 @@ class TestTheFirstRefresh:
         alerts.set_rendering(registry.rendering)
         registry.set_priority_hold(alerts.lifted)
         # What the lifespan does, in its order.
-        alerts.distrust_the_priority_file()
+        alerts.distrust_the_priority_file(until_first_refresh=True)
         await registry.restore()
         await alerts.restore()
         return registry, alerts
@@ -233,6 +233,29 @@ class TestTheFirstRefresh:
         assert not alerts.sign_may_not_match
 
 
+    async def test_a_service_that_does_not_blank_pays_nothing_at_the_first_refresh(
+        self, controller, store, state, clock, transport
+    ):
+        # Nothing it left on the sign needs undoing, so an alert it put back at
+        # the start is not restarted by the first refresh of an intact sign.
+        registry = SlotRegistry(controller, Layout(3, 256, 0, 32, 2), store, state, now=clock)
+        alerts = AlertService(controller, store, state, now=clock)
+        alerts.set_rendering(registry.rendering)
+        registry.set_priority_hold(alerts.lifted)
+        alerts.distrust_the_priority_file(until_first_refresh=False)
+        await registry.restore()
+        await alerts.restore()
+        await registry.upsert("door", "<icon:lock> LOCKED", mode="HOLD")
+        await alerts.raise_alert("FIRE", mode="HOLD")
+        label = state.pictures["lock"].label.encode("ascii")
+
+        transport.clear()
+        transport.replies.append(picture_reply(label, list(icons.resolve("lock", None))))
+        await _refresh_and_reassert(registry, alerts)
+
+        assert [packet for packet in transport.packets if b"FIRE" in packet] == []
+
+
 class TestEveryRePush:
     async def test_a_service_with_no_icons_releases_on_every_refresh(
         self, controller, store, state, clock, transport
@@ -246,7 +269,7 @@ class TestEveryRePush:
         alerts = AlertService(controller, store, state, now=clock)
         alerts.set_rendering(registry.rendering)
         registry.set_priority_hold(alerts.lifted)
-        alerts.distrust_the_priority_file()
+        alerts.distrust_the_priority_file(until_first_refresh=True)
         await registry.restore()
         await alerts.restore()
         await _refresh_and_reassert(registry, alerts)
@@ -263,13 +286,17 @@ class TestAnOwedRestoreThatCannotFinish:
     ):
         # Every refresh is refused while the restore is owed, so nothing else
         # would release what the last stop left.
-        alerts.distrust_the_priority_file()
+        alerts.distrust_the_priority_file(until_first_refresh=True)
+        await alerts.release_an_unrecorded_takeover()
+        assert transport.packets == [RELEASE]
+
+        # And once: a second reconnect in the same state sends nothing more.
         await alerts.release_an_unrecorded_takeover()
         assert transport.packets == [RELEASE]
 
     async def test_a_recorded_alert_is_left_for_the_restore(self, alerts, transport, state):
         await alerts.raise_alert("FIRE", mode="HOLD")
-        alerts.distrust_the_priority_file()
+        alerts.distrust_the_priority_file(until_first_refresh=True)
         transport.clear()
         await alerts.release_an_unrecorded_takeover()
         assert transport.packets == []

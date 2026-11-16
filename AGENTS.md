@@ -390,10 +390,11 @@ still booting, the release goes nowhere and the sign comes up still holding the
 exit write. So three things back it up:
 
 - **The start calls `AlertService.distrust_the_priority_file`** before anything
-  is restored, and the doubt lasts until the first refresh has re-asserted, not
-  merely until a release has been sent. That first refresh re-asserts even when
-  the sign answers that its pictures are intact, which costs one release, or
-  one restart of the alert.
+  is restored. With `blank_on_exit` on, the doubt lasts until the first refresh
+  has re-asserted, not merely until a release has been sent, so that first
+  refresh re-asserts even when the sign answers that its pictures are intact,
+  which costs one release, or one restart of the alert. With it off, a write or
+  a release ends the doubt, and nothing extra is paid.
 - **A re-assert with no alert recorded is a release, every time.** It runs
   after every re-push, and a re-push forgot what the controller believed, so
   the release is not suppressed. A service with no icons re-pushes on every
@@ -486,12 +487,13 @@ declines to write them again.
   set before every priority write, release and lift, and cleared only once the
   sign and the record agree, so a failure or a cancellation leaves it set and
   the next refresh puts the record back on the sign. Every start sets it too,
-  before anything is restored, and it stays set until the first refresh, since
-  the last stop may have left the sign dark through the priority file and the
-  start's release may not have landed. What this gives up is an alert raised
-  while the sign is switched off and back on within a refresh interval: the
-  write is lost, the read then finds the sign intact, and nothing writes it
-  again. A message written in that window has always had the same gap.
+  before anything is restored, since the last stop may have left the sign dark
+  through the priority file, and with `blank_on_exit` on it stays set until the
+  first refresh, since the start's release may not have landed. What this gives
+  up is an alert raised while the sign is switched off and back on within a
+  refresh interval: the write is lost, the read then finds the sign intact, and
+  nothing writes it again. A message written in that window has always had the
+  same gap.
 - **An idle link to the sign is not probed.** TCP keepalive would notice an
   adapter that went off the network while nothing was being sent, and 0.7.1
   turned it on. The adapter it runs against acknowledges every byte of data and

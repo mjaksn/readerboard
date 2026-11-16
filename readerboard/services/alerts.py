@@ -286,8 +286,8 @@ class AlertService:
         """
         return self._sign_may_not_match or self._unconfirmed_since_start
 
-    def distrust_the_priority_file(self) -> None:
-        """Treat the priority file as unknown until the first refresh has re-asserted it.
+    def distrust_the_priority_file(self, *, until_first_refresh: bool) -> None:
+        """Treat the priority file as unknown until it is written, or until the first refresh.
 
         Called at startup, before anything is restored. A service that stopped
         cleanly may have left the sign blank or showing its exit message
@@ -299,18 +299,20 @@ class AlertService:
         off the network would leave the sign dark behind the exit write for
         good.
 
-        It lasts until the first refresh has re-asserted, not merely until
-        restore has released. The adapter can be up while the sign behind it
-        is switched off or still running its power-up diagnostics, and a
-        release sent then is lost with nothing to say so. A sign keeps its
-        memory through that, so it comes up still holding the exit write, and
-        a refresh that finds its pictures intact would otherwise leave it
-        there. The cost is one forced write at the first refresh: a release
-        with no alert recorded, or the alert written again, which restarts it
-        once.
+        With ``until_first_refresh``, which the service passes when
+        ``blank_on_exit`` is on, it lasts until the first refresh has
+        re-asserted, not merely until restore has released. The adapter can be
+        up while the sign behind it is switched off or still running its
+        power-up diagnostics, and a release sent then is lost with nothing to
+        say so. A sign keeps its memory through that, so it comes up still
+        holding the exit write, and a refresh that finds its pictures intact
+        would otherwise leave it there. The cost is one forced write at the
+        first refresh: a release with no alert recorded, or the alert written
+        again, which restarts it once. A service that does not blank the sign
+        on its way out does not pay it.
         """
         self._sign_may_not_match = True
-        self._unconfirmed_since_start = True
+        self._unconfirmed_since_start = until_first_refresh
 
     async def release_an_unrecorded_takeover(self) -> None:
         """Release the priority file if it is in doubt and no alert is recorded.
@@ -327,7 +329,11 @@ class AlertService:
             if self._state.alert is not None or not self.sign_may_not_match:
                 return
             await self._controller.clear_priority(force=True)
+            # Both, so that a second reconnect in the same state does not send
+            # it again. The first refresh this was standing in for cannot come
+            # before a restart, which starts a process with doubts of its own.
             self._sign_may_not_match = False
+            self._unconfirmed_since_start = False
 
     def set_rendering(self, rendering: Rendering) -> None:
         """Render alerts through the registry, so that they can call variables."""

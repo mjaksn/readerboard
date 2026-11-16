@@ -226,10 +226,14 @@ class SignController:
         the same reason: awaiting the first lets the second run, and a repair
         waiting on the registry's lock would get it then.
 
-        Not wrapped in a timeout of its own. The transport's own timeout bounds
-        the write, and abandoning it here would not end it: the worker thread
-        carries on, and closing the link waits for it either way. A link that is
-        already down costs nothing, since a write does not open one.
+        Not wrapped in a timeout, and nothing in the transport times a write
+        out either. Abandoning it here would not end it: the worker thread
+        carries on, and closing the link waits for it. It is a few bytes, which
+        a network link takes into its send buffer without waiting, so the one
+        wait it can have is the reopen after a write fails on a link that was
+        up, as long as the connect timeout, five seconds for a network link. A
+        link that is already down costs nothing, since a write does not open
+        one.
         """
         self._stopping.set()
         tasks = [task for task in (self._reconnect_task, self._repair_task) if task is not None]

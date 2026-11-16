@@ -26,7 +26,8 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from readerboard.protocol.constants import PICTURE_FILE_LABELS, PRIORITY_FILE_CAPACITY
+from readerboard.protocol.constants import FILE_PRIORITY, PICTURE_FILE_LABELS
+from readerboard.protocol.frames import write_text_file
 from readerboard.protocol.markup import render
 
 DEFAULT_CONFIG_FILE = Path("/etc/readerboard/config.toml")
@@ -45,11 +46,9 @@ def exit_message_body(message: str) -> bytes:
     # No variables and no icons: the files they live in are handed out and
     # taken back by a service that is about to stop looking after them.
     body = render(message)
-    if len(body) > PRIORITY_FILE_CAPACITY:
-        raise ValueError(
-            "it renders to %d bytes and the sign's priority file holds %d"
-            % (len(body), PRIORITY_FILE_CAPACITY)
-        )
+    # Built and thrown away, for the size check the frame builder makes of
+    # every priority write, so that there is one rule and one wording for it.
+    write_text_file(FILE_PRIORITY, body)
     return body
 
 

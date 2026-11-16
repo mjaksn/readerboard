@@ -340,7 +340,7 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         # The last stop may have left the sign dark through the priority file,
         # and nothing restored here reaches it if the sign is out of reach, so
         # the refresh after the reconnect has to know to release it.
-        alerts.distrust_the_priority_file()
+        alerts.distrust_the_priority_file(until_first_refresh=settings.blank_on_exit)
         try:
             await registry.restore()
             await alerts.restore()
@@ -386,8 +386,13 @@ def create_app(settings: Settings | None = None, transport: Transport | None = N
         try:
             yield
         finally:
+            # Both cancelled before either is awaited, for the reason
+            # SignController.stop gives: awaiting the first lets the second run,
+            # and a refresh it started would be cut short just before the exit
+            # write, with whatever its rollback writes landing first.
             for task in (sweeper, refresher):
                 task.cancel()
+            for task in (sweeper, refresher):
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
             if settings.clock_sync_enabled:
