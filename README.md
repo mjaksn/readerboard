@@ -253,6 +253,13 @@ Every setting is available as an environment variable, so no config file is need
 one at `/etc/readerboard/config.toml` if you would rather have it, in the format
 `packaging/config.example.toml` documents; the environment still wins over the file.
 
+Some container managers clean their form fields before saving them, and Unraid's template
+editor is one: it strips `<` and `>`, so `READERBOARD_EXIT_MESSAGE=<red>OFFLINE` reaches
+the service as `redOFFLINE`, with nothing to say so. Put a setting that needs markup in
+the file instead, and remove its variable from the form entirely rather than emptying it,
+because a variable left there still wins over the file. The container runs as uid 10001,
+so the file has to be readable by it; a file holding no API key can be mode 0644.
+
 For a sign on a cable rather than on the network, the container needs the device passed
 in and needs to be in the group that owns it. The group has to be given as a number,
 because the container has no `/etc/group` entry for the host's `dialout`:
