@@ -261,6 +261,12 @@ class AlertService:
         # cancellation. The service sets it at startup as well, see
         # :meth:`distrust_the_priority_file`. See :attr:`sign_may_not_match`.
         self._sign_may_not_match = False
+        # Set at startup with the flag above, and cleared only by a re-assert,
+        # which is to say by the first refresh. A write clears the flag, and a
+        # write can be lost to a sign that is switched off or still booting
+        # behind a connected adapter with nothing to say so. See
+        # :meth:`distrust_the_priority_file`.
+        self._unconfirmed_since_start = False
 
     @property
     def sign_may_not_match(self) -> bool:
@@ -278,10 +284,10 @@ class AlertService:
         caller re-asserts when this is set, whatever the sign answered, and the
         re-assert makes the sign match the record.
         """
-        return self._sign_may_not_match
+        return self._sign_may_not_match or self._unconfirmed_since_start
 
     def distrust_the_priority_file(self) -> None:
-        """Treat the priority file as unknown until something writes or releases it.
+        """Treat the priority file as unknown until the first refresh has re-asserted it.
 
         Called at startup, before anything is restored. A service that stopped
         cleanly may have left the sign blank or showing its exit message
@@ -292,8 +298,36 @@ class AlertService:
         set. Without it, a service with no icons started while its adapter was
         off the network would leave the sign dark behind the exit write for
         good.
+
+        It lasts until the first refresh has re-asserted, not merely until
+        restore has released. The adapter can be up while the sign behind it
+        is switched off or still running its power-up diagnostics, and a
+        release sent then is lost with nothing to say so. A sign keeps its
+        memory through that, so it comes up still holding the exit write, and
+        a refresh that finds its pictures intact would otherwise leave it
+        there. The cost is one forced write at the first refresh: a release
+        with no alert recorded, or the alert written again, which restarts it
+        once.
         """
         self._sign_may_not_match = True
+        self._unconfirmed_since_start = True
+
+    async def release_an_unrecorded_takeover(self) -> None:
+        """Release the priority file if it is in doubt and no alert is recorded.
+
+        For a running service that cannot refresh, which is the one whose
+        startup restore is owed and whose sign has turned out too small for the
+        pool: every refresh is refused until a restart, so the re-assert that
+        would release what the last stop left never runs. A release needs no
+        file, so it is allowed while the restore is owed. With an alert
+        recorded this does nothing, since showing it needs the files the owed
+        restore has not written.
+        """
+        async with self._rendering(None), self._lock:
+            if self._state.alert is not None or not self.sign_may_not_match:
+                return
+            await self._controller.clear_priority(force=True)
+            self._sign_may_not_match = False
 
     def set_rendering(self, rendering: Rendering) -> None:
         """Render alerts through the registry, so that they can call variables."""
@@ -402,7 +436,7 @@ class AlertService:
             self._log_released()
 
     async def reassert(self) -> bool:
-        """Write the active alert to the sign again, if there is one.
+        """Write the active alert to the sign again, or release the priority file if there is none.
 
         The registry's periodic refresh exists because the sign can be power
         cycled behind a still-connected adapter, leaving it blank with nothing
@@ -420,18 +454,26 @@ class AlertService:
         change to the priority file was not finished. Calling it anyway is not
         harmless: the write is forced, so it would restart an alert the sign
         already holds, once per refresh interval for as long as the alert is up.
+        With no alert recorded it costs one short release, the same one every
+        start sends.
 
         Returns whether there was an alert to re-assert.
         """
         async with self._rendering(None) as render_message, self._lock:
             alert = self._state.alert
             if alert is None:
-                if self._sign_may_not_match:
-                    # Nothing is recorded, and something may be on the file: a
-                    # write or a release stopped short. Forced, because the
-                    # controller's record of the file is in doubt too.
-                    await self._controller.clear_priority(force=True)
-                    self._sign_may_not_match = False
+                # Released every time, not only when in doubt. The caller runs
+                # this after a re-push, which forgot what the controller
+                # believed, so an unforced release goes out unless the re-push
+                # already sent one handing the sign back for a picture. That
+                # is what repairs a sign that missed a release, such as the
+                # one every start sends to undo the last stop's exit write,
+                # and was switched off behind a connected adapter at the time.
+                # Forced when in doubt, because the controller's record of the
+                # file is in doubt too.
+                await self._controller.clear_priority(force=self.sign_may_not_match)
+                self._sign_may_not_match = False
+                self._unconfirmed_since_start = False
                 return False
             if not alert.message:
                 # The same rule :meth:`restore` applies, and here because an
@@ -445,6 +487,7 @@ class AlertService:
                     "an alert with no message is recorded as active; releasing it"
                 )
                 await self._release_locked()
+                self._unconfirmed_since_start = False
                 return False
             body = render_message(alert.message, strict=False)
             if len(body) > c.PRIORITY_FILE_CAPACITY:
@@ -460,11 +503,13 @@ class AlertService:
                     alert.message,
                 )
                 await self._release_locked()
+                self._unconfirmed_since_start = False
                 return False
             # Forced, because what is in doubt here is precisely whether the
             # sign still holds what the controller believes it does. Left to
             # suppression this would write nothing at all.
             await self._write(alert, body, force=True)
+            self._unconfirmed_since_start = False
 
         return True
 

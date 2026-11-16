@@ -583,10 +583,14 @@ display over everything else, and the next start releases it and puts back any a
 that was up, so a restart leaves the sign dark only while the service is down.
 
 Only a clean stop can do this. A crash, a kill, or a sign out of reach at the time
-leaves the sign as it was. On Windows that includes closing the simulator's window
-under `scripts/run_with_simulator.py`: the launcher gives the service five seconds to
-finish and then ends it outright, which on Windows is a kill. The simulator has gone by
-then anyway, so there is nothing to blank.
+leaves the sign as it was, and so does anything that ends the process rather than
+asking it to stop. On Windows that includes the launchers in `scripts/` when they
+stop the service because the simulator has gone: they give it five seconds and then
+end it outright, which on Windows is a kill. Whether an editor's stop button asks or
+kills depends on the editor; Ctrl+C in a terminal always asks.
+
+The next start puts the display back, and so does the first refresh after it if the
+start's own release went to a sign that was switched off or still starting up.
 
 ## Security
 

@@ -11,8 +11,10 @@ declines to write them again. Sources tend to re-send on a schedule whether or
 not anything changed, and every such write makes the sign visibly redraw.
 Suppressing them is what stops the display flickering for no reason.
 
-pyserial blocks, so the actual write happens on a worker thread. The lock is
-held across the thread hop, so ordering is preserved.
+pyserial blocks, so the actual write happens on a worker thread, and always the
+same one. The lock is held across the thread hop, so ordering is preserved, and
+the one thread keeps it for a caller that was cancelled: its write carries on
+regardless, and with a pool of threads the next write could overtake it.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from readerboard.protocol import constants as c
@@ -161,6 +164,8 @@ class SignController:
         # the link came back after they finished. See _repair_after_reopen.
         self._repair_finished: list[ReconnectHook] = []
         self._repair_repeat: list[ReconnectHook] = []
+        # Made on the first write, see _send_locked.
+        self._writer: ThreadPoolExecutor | None = None
 
         self.writes = 0
         self.suppressed = 0
@@ -212,7 +217,10 @@ class SignController:
         because it releases the priority file whatever it finds there.
 
         Every task that could write to the sign is cancelled before it, and
-        none can start after it, so that the last word is this one. A reconnect
+        none can start after it, so that the last word is this one. A write
+        already on its way from a caller cancelled before the stop, the sweep or
+        the refresh say, is ahead of it on the controller's one writer thread
+        and lands first. A reconnect
         hook let run past it would re-push the pictures, and a picture write
         hands the sign back. Cancelling them all before awaiting any matters for
         the same reason: awaiting the first lets the second run, and a repair
@@ -247,6 +255,9 @@ class SignController:
                 else:
                     logger.info("left the sign blank")
         await asyncio.to_thread(self._transport.close)
+        if self._writer is not None:
+            self._writer.shutdown(wait=False)
+            self._writer = None
 
     # == health =============================================================
 
@@ -569,8 +580,18 @@ class SignController:
         :meth:`_send` again.
         """
         packet = frames.packet(payload)
+        if self._writer is None:
+            # One thread, so that writes reach the transport in the order they
+            # were sent. A cancelled caller leaves its write running on the
+            # thread, and the transport's own lock is not first come first
+            # served, so with a pool of threads the next write could get there
+            # first. At the stop that next write is the exit write, and the one
+            # it overtook could be a release that hands the sign back.
+            self._writer = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sign-writer")
         try:
-            await asyncio.to_thread(self._transport.write, packet)
+            await asyncio.get_running_loop().run_in_executor(
+                self._writer, self._transport.write, packet
+            )
         except TransportError as err:
             self.last_error = str(err)
             # What we believed about the sign's contents may not have
