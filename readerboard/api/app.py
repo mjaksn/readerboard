@@ -231,25 +231,35 @@ async def _refresh_loop(app: FastAPI, interval: float) -> None:
 async def _sweep_loop(app: FastAPI, interval: float) -> None:
     """Expire slots and alerts, and turn variables stale, once their deadlines pass.
 
-    And put the next waiting alert on the sign once nothing holds it, which is
-    here rather than wherever an alert ends because this loop holds no lock.
-    See ``AlertService.promote``.
+    And put the next waiting alert on the sign once nothing holds it. An alert
+    ending by its ttl or by a dismissal hands on by itself; this is for one
+    that ends anywhere else, such as under a lock that rendering the next alert
+    would need. See ``AlertService.promote``.
     """
     registry: SlotRegistry = app.state.registry
     alerts: AlertService = app.state.alerts
 
+    # Each step on its own, so that one failing does not hold the others back
+    # for the tick. The alert sweep can raise after the next alert has gone
+    # up, from a save that failed, and the message and variable expiries due
+    # at the same moment have nothing to do with that. Each is named in what
+    # it logs, since one tick can now report more than one failure.
     while True:
         await asyncio.sleep(interval)
-        try:
-            await alerts.sweep()
-            await registry.sweep()
-            await alerts.promote()
-        except TransportError as err:
-            logger.warning("could not apply expiries or show the next waiting alert: %s", err)
-        except Exception:
-            # A sweep that raises must not take the loop down with it, or
-            # nothing would ever expire again.
-            logger.exception("the expiry sweep failed")
+        steps = (
+            ("ending an alert past its deadline", alerts.sweep),
+            ("expiring messages and variables", registry.sweep),
+            ("showing the next waiting alert", alerts.promote),
+        )
+        for doing, step in steps:
+            try:
+                await step()
+            except TransportError as err:
+                logger.warning("the sign could not be reached while %s: %s", doing, err)
+            except Exception:
+                # A sweep that raises must not take the loop down with it, or
+                # nothing would ever expire again.
+                logger.exception("the expiry sweep failed while %s", doing)
 
 
 def create_app(settings: Settings | None = None, transport: Transport | None = None) -> FastAPI:

@@ -30,18 +30,30 @@ Failing to put the sign back is a worse outcome than a call that draws nothing.
 An alert can also wait its turn. One raised with ``if_active="queue"`` while
 the sign is held joins a queue, kept in the state file beside the alert, and
 :meth:`AlertService.promote` puts the head of it on the sign once nothing holds
-it. Promotion runs from the sweep loop rather than wherever an alert ends,
-because an alert ends in several places and one of them,
-:meth:`AlertService._put_back`, runs with the registry's lock already held,
-while rendering the next alert has to take that lock before this service's own.
-The sweep holds neither, so one step there covers every way an alert can end.
-An alert that reaches its ttl is followed in the same sweep that releases it;
-one that ends anywhere else without a caller asking, such as one dropped on its
-way back from a picture write because its deadline passed meanwhile, leaves up
-to a sweep interval of the rotation showing first.
-:meth:`AlertService.dismiss`, a caller releasing the alert by hand, holds no
-lock either and promotes before it returns, so that a second release sent
-straight after reaches the alert that followed rather than a gap.
+it. Promotion runs only from places that hold no lock: the sweep loop,
+:meth:`AlertService.sweep` and :meth:`AlertService.dismiss`. An alert ends in
+several places and one of them, :meth:`AlertService._put_back`, runs with the
+registry's lock already held, while rendering the next alert has to take that
+lock before this service's own. The sweep loop holds neither, so one step there
+covers every way an alert can end.
+
+The two common ways an alert ends do not release it at all when an alert is
+waiting. An alert that reaches its ttl, and one a caller dismisses, have the
+next waiting alert written straight over them by
+:meth:`AlertService._hand_on`, and are released only if nothing waiting can
+take the sign. A release followed by a write showed the rotation for as long as
+the two frames and anything between them took, which was long enough to see; a
+write over a running priority message shows nothing in between, measured on
+2026-11-17 and recorded in ``docs/protocol-notes.md``. One that ends anywhere
+else without a caller asking, such as one dropped on its way back from a
+picture write because its deadline passed meanwhile, leaves up to a sweep
+interval of the rotation showing first. A dismissal promotes before it returns
+either way, so that a second one sent straight after reaches the alert that
+followed rather than a gap.
+
+An alert that draws a new picture still shows the rotation as it goes up,
+whatever it replaces, because the sign has to be handed back for the picture
+write: see below.
 
 The sign will not take a picture while a priority message is running. Measured
 on 2026-09-13: a slot's icons, written under an alert and then revealed when the
@@ -721,7 +733,7 @@ class AlertService:
         ``replace`` the waiting alerts are left as they are.
 
         An alert whose deadline has passed does not hold the sign: the sweep
-        that releases one runs on a timer, so an alert that expired a moment ago
+        that ends one runs on a timer, so an alert that expired a moment ago
         is still recorded, and treating it as holding the sign would make the
         answer depend on where in that second the call arrived.
 
@@ -870,8 +882,10 @@ class AlertService:
                 self._sign_may_not_match = True
             await self._controller.clear_priority(force=force)
 
+        writing = False
         try:
             await render_message.draw_icons()
+            writing = True
             await self._write(alert, body)
         except BaseException:
             if replaced is not None:
@@ -902,6 +916,15 @@ class AlertService:
                 # Quietly, because the failure being handled is the one the
                 # caller asked about and this one is not.
                 await self._put_back_quietly(replaced, render_message)
+
+                # The alert being replaced had expired, so it was dropped
+                # rather than put back, and nothing touched the priority file
+                # after the release above: the sign shows the rotation and
+                # nothing is recorded, which agree. A failure during the
+                # priority write itself is not covered, because that write may
+                # have reached the sign.
+                if not writing and self._state.alert is None:
+                    self._sign_may_not_match = False
             raise
 
         self._state.alert = alert
@@ -973,13 +996,18 @@ class AlertService:
         )
         return waiting
 
-    async def promote(self) -> bool:
+    async def promote(self, *, over: AlertState | None = None) -> bool:
         """Put the next waiting alert on the sign if nothing holds it. Returns whether it did.
 
-        Called from the sweep loop and from :meth:`dismiss`, neither of which
-        holds a lock, so that this can take the registry's lock before its own
-        as rendering always must. See the module docstring for why it is not
-        called from every place an alert ends.
+        Called from the sweep loop, from :meth:`sweep` and from :meth:`dismiss`,
+        none of which holds a lock, so that this can take the registry's lock
+        before its own as rendering always must. See the module docstring for
+        why it is not called from every place an alert ends.
+
+        ``over`` is an alert that is ending and does not count as holding the
+        sign: the next one is written straight over it rather than after a
+        release, so the rotation does not show between the two. Any other alert
+        holding the sign stops this, ``over`` having been replaced included.
 
         A waiting alert that cannot be shown when its turn comes is dropped with
         a warning, and the one behind it is tried straight away: there is no
@@ -998,18 +1026,23 @@ class AlertService:
         # round.
         rounds = max(self._queue_limit, len(self._state.alert_queue)) + 2
         for _ in range(rounds):
-            outcome = await self._promote_head()
+            outcome = await self._promote_head(over)
             if outcome != "again":
                 return outcome == "shown"
         return False
 
-    async def _promote_head(self) -> Literal["shown", "stopped", "again"]:
-        """Try the alert at the head of the queue once.
+    def _held_by_another(self, over: AlertState | None) -> bool:
+        """Whether an alert other than ``over`` is holding the sign."""
+        current = self._state.alert
+        return current is not None and current is not over
+
+    async def _promote_head(self, over: AlertState | None) -> Literal["shown", "stopped", "again"]:
+        """Try the alert at the head of the queue once, over ``over`` if that is still up.
 
         ``again`` means the head was dropped, or was no longer the head by the
         time the locks were held, and the queue is worth looking at again.
         """
-        if self._state.alert is not None or not self._state.alert_queue:
+        if self._held_by_another(over) or not self._state.alert_queue:
             return "stopped"
         if not self._controller.is_connected:
             return "stopped"
@@ -1018,7 +1051,7 @@ class AlertService:
         try:
             async with self._rendering(head.message) as render_message, self._lock:
                 queue = self._state.alert_queue
-                if self.active is not None:
+                if self._held_by_another(over):
                     raise _SignTaken
                 # Checked again here rather than only before the locks, so that
                 # an alert whose limit on waiting passed while this waited for
@@ -1082,7 +1115,7 @@ class AlertService:
             # then may be gone by its turn, so it waits for that.
             async with self._rendering(None), self._lock:
                 self._drop_waited_too_long()
-                if self.active is not None:
+                if self._held_by_another(over):
                     return "stopped"
                 queue = self._state.alert_queue
                 if not any(waiting is head for waiting in queue):
@@ -1197,7 +1230,7 @@ class AlertService:
         )
 
     async def dismiss(self, *, clear_queue: bool = False) -> bool:
-        """Release the alert for a caller, and put the next waiting one up at once.
+        """Take the alert off for a caller, and put the next waiting one up at once.
 
         Returns whether an alert was holding the sign. Left to the sweep, the
         next alert would follow up to a sweep interval later, and a second
@@ -1206,10 +1239,28 @@ class AlertService:
         waiting alert it has to drop, so a bad one at the head does not open
         that gap either.
 
-        A promotion that cannot reach the sign is logged rather than raised. The
-        release the caller asked for has happened by then, and the sweep tries
-        the promotion again.
+        With an alert showing and one waiting, the waiting one is written
+        straight over it, with no release between the two. See
+        :meth:`_hand_on`. What is ended is the alert found up once the locks
+        are held, which is where a release always took effect: an alert raised
+        after that, with ``replace``, is somebody else's and stays up, with the
+        waiting ones behind it. Otherwise the alert is released and the queue
+        then tried, as the sweep loop would.
+
+        A promotion that cannot reach the sign is logged rather than raised, and
+        the sweep tries it again. Over an alert, that is followed by the release
+        the caller asked for, which is raised if it fails too; after a release,
+        that release has already happened.
         """
+        if not clear_queue:
+            async with self._rendering(None), self._lock:
+                current = self._state.alert
+                waiting = bool(self._state.alert_queue)
+            if current is not None and waiting:
+                logger.info("alert dismissed")
+                await self._hand_on(current)
+                return True
+
         was_active = await self.release(clear_queue=clear_queue)
         try:
             await self.promote()
@@ -1239,7 +1290,11 @@ class AlertService:
         return was_active
 
     async def sweep(self) -> bool:
-        """Release the alert if its deadline has passed. Returns whether it did.
+        """End the alert if its deadline has passed. Returns whether it did.
+
+        Ended by putting the next waiting alert straight over it when one is
+        waiting, and by releasing it otherwise or if none of them can go up.
+        See :meth:`_hand_on`.
 
         Waiting alerts whose limit on waiting has passed are dropped here too,
         so that the queue reads true while an alert holds the sign for a long
@@ -1258,10 +1313,71 @@ class AlertService:
             if alert is None or not self._has_expired(alert):
                 return False
             logger.info("alert reached its deadline")
-            await self._release_locked()
+            waiting = bool(self._state.alert_queue)
+            if not waiting:
+                await self._release_locked()
 
-        self._log_released()
+        if waiting:
+            await self._hand_on(alert)
+        else:
+            self._log_released()
         return True
+
+    async def _hand_on(self, ending: AlertState) -> None:
+        """Put the next waiting alert up in place of ``ending``, or release ``ending``.
+
+        The next alert is written straight over the one ending, with no release
+        sent between them. Releasing first and writing after showed the
+        rotation for as long as the two frames took, and in the sweep loop for
+        as long as the registry's sweep between them took as well, which was
+        long enough to see. A write over a running priority message shows
+        nothing of the rotation, measured on 2026-11-17 for both callers of
+        this. A next alert that draws a new picture still hands the sign back
+        for that write, as one replacing an alert always has.
+
+        ``ending`` is released whenever nothing waiting went up: every one of
+        them dropped, the sign's pool not written yet, the write failing, or
+        this being cancelled. Before this, a release went out first and the
+        alert was gone whatever became of the promotion, and it still has to
+        be. A failed write is logged rather than raised, because ending the
+        alert is what was asked for and a release may still get through. A
+        release that fails is raised, except while another failure or a
+        cancellation is already on its way out, when it is logged instead.
+        Nothing is released if ``ending`` is no longer up, which covers the
+        next alert having gone up before a failure and an alert raised after
+        this began: either is somebody else's to end.
+
+        Called with no lock held, so that :meth:`promote` can take the
+        registry's lock before this service's own.
+        """
+        try:
+            if await self.promote(over=ending):
+                return
+        except TransportError as err:
+            logger.warning(
+                "could not put the next waiting alert up in place of the one ending, "
+                "so that one is released instead if it is still up: %s",
+                err,
+            )
+        except BaseException:
+            # Cancelled, or failed in some way that is not the sign. The alert
+            # still has to end. Quietly, so that what is raised is the reason
+            # this stopped rather than the release that followed it.
+            try:
+                await self._release_ending(ending)
+            except Exception:
+                logger.exception("could not release the alert that was ending")
+            raise
+
+        await self._release_ending(ending)
+
+    async def _release_ending(self, ending: AlertState) -> None:
+        """Release the alert a hand-on was ending, if it is still the one up."""
+        async with self._rendering(None), self._lock:
+            if self._state.alert is not ending:
+                return
+            await self._release_locked()
+        self._log_released()
 
     def _save_holding_both(self) -> Exception | None:
         """Save the state file for an alert just put on the sign. Returns a failure, not raised.
