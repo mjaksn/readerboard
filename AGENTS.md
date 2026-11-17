@@ -417,17 +417,23 @@ to get wrong:
   reaching its ttl in `AlertService.sweep` and `AlertService.dismiss` behind
   `DELETE /alerts`, hold neither either, and go through
   `AlertService._hand_on`: the next waiting alert is written straight over the
-  one ending, which is released only if none can go up. A release followed by
+  one ending, which is released whenever none went up, a failure or a
+  cancellation included, because before this the release went out first and
+  the alert was gone whatever became of the promotion. A release followed by
   the next write showed the rotation between the two, long enough to be seen,
   and in the sweep loop for as long as the registry's sweep in between took as
   well. A write over a running priority message shows none of the rotation,
-  measured on 2026-11-17 and recorded in `docs/protocol-notes.md`. The dismissal promotes before it returns either way, because a second
-  release sent in a gap found nothing showing and was answered 204 regardless.
-  One ending any other way without a caller asking waits up to a sweep
-  interval. Do not promote from anywhere else an alert is released, and do not
-  release in `_hand_on` an alert that is no longer the one ending: whatever
-  replaced it in the meantime is somebody else's. A next alert that draws a
-  new picture still hands the sign back for that write, as a replacement always
+  measured on 2026-11-17 and recorded in `docs/protocol-notes.md`. The
+  dismissal promotes before it returns either way, because a second release
+  sent in a gap found nothing showing and was answered 204 regardless. One
+  ending any other way without a caller asking waits up to a sweep interval.
+  Do not promote from anywhere else an alert is released. `_hand_on` ends
+  only the alert its caller found up under the locks, the expired one for the
+  sweep and the one showing for a dismissal, because that is where a release
+  used to take effect: an alert raised after it with `replace` is somebody
+  else's and stays up, with the waiting ones behind it, and so does the next
+  alert once a promotion has put it there. A next alert that draws a new
+  picture still hands the sign back for that write, as a replacement always
   has, so the rotation shows as it goes up.
 - **Everything that changes the queue holds the alert service's lock**, the
   drop for an alert that has waited too long included. A promotion writes the

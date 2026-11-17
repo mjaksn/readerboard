@@ -858,6 +858,83 @@ class TestQueue:
         assert alerts.active is None
         assert [w.message for w in alerts.waiting] == ["SECOND"]
 
+    async def test_a_dismissal_cancelled_mid_write_still_releases(
+        self, alerts, controller, transport
+    ):
+        # The release used to go out first, so a request that went away during
+        # the promotion had already dismissed its alert. It still has to.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        gate, entered = asyncio.Event(), asyncio.Event()
+        write = controller.write_priority
+
+        async def held(*args, **kwargs):
+            entered.set()
+            await gate.wait()
+            return await write(*args, **kwargs)
+
+        controller.write_priority = held
+        dismissing = asyncio.create_task(alerts.dismiss())
+        await entered.wait()
+        dismissing.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await dismissing
+
+        assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+        assert transport.last_packet == frames.packet(frames.clear_priority_file())
+
+    async def test_a_dismissal_whose_promotion_fails_otherwise_still_releases(
+        self, alerts, monkeypatch
+    ):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+
+        async def broken(**kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(alerts, "promote", broken)
+        with pytest.raises(OSError, match="disk full"):
+            await alerts.dismiss()
+
+        assert alerts.active is None
+
+    async def test_a_dismissal_whose_promotion_showed_the_next_keeps_it_up(
+        self, alerts, monkeypatch
+    ):
+        # The next alert is on the sign and only its save failed. Releasing it
+        # on the way out would lose it.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        monkeypatch.setattr(alerts, "_save_holding_both", lambda: OSError("disk full"))
+
+        with pytest.raises(OSError, match="disk full"):
+            await alerts.dismiss()
+
+        assert alerts.active.message == "SECOND"
+
+    async def test_a_dismissal_leaves_an_alert_raised_after_it_alone(
+        self, alerts, registry, transport
+    ):
+        # The dismissal took effect when it got the locks, as a release always
+        # did. A replace raised after that is somebody else's, urgent by its
+        # own account, and must not be written over by the waiting alert.
+        alerts.set_rendering(registry.rendering)
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "PARCEL")
+
+        async with registry.rendering(None):
+            dismissing = asyncio.create_task(alerts.dismiss())
+            await asyncio.sleep(0)
+            smoke = asyncio.create_task(raise_alert(alerts, "SMOKE"))
+            await asyncio.sleep(0)
+        await smoke
+
+        assert await dismissing is True
+        assert alerts.active.message == "SMOKE"
+        assert [w.message for w in alerts.waiting] == ["PARCEL"]
+        assert transport.last_packet == priority_packet(b"SMOKE")
+
     async def test_dismissing_in_the_gap_whose_promotion_fails_is_logged(
         self, alerts, transport, monkeypatch, caplog
     ):

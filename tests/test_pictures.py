@@ -2214,7 +2214,9 @@ class TestQueuedAlertsAndPictures:
         assert [w.message for w in alerts.waiting] == ["<icon:moon> LATER"]
         assert store.load().alert is None
         assert is_release(priority_writes(transport)[-1])
-        assert alerts.sign_may_not_match
+        # The sign shows the rotation and nothing is recorded, which agree, so
+        # /health must not report the sign out of step.
+        assert not alerts.sign_may_not_match
 
         assert await alerts.promote() is True
         assert alerts.active.message == "<icon:moon> LATER"

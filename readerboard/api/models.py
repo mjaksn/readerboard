@@ -346,9 +346,11 @@ class AlertRequest(BaseModel):
         gt=0,
         le=LONGEST_SECONDS,
         description=(
-            "release the sign this many seconds after the alert takes it: from now, or "
-            "for one that queues, from when its turn comes. At most a year. Omit and "
-            "the alert holds the sign until something releases it explicitly"
+            "end the alert this many seconds after it takes the sign: from now, or for "
+            "one that queues, from when its turn comes. The next waiting alert is then "
+            "written over it, or with none waiting the sign is released. At most a "
+            "year. Omit and the alert holds the sign until something releases it "
+            "explicitly"
         ),
     )
     if_active: Literal["replace", "queue", "fail"] = Field(

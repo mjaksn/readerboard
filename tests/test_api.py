@@ -1694,12 +1694,14 @@ class TestAlertQueue:
 
     def test_the_sweep_loop_puts_the_next_one_up(self, settings, sign):
         # The one test that would fail if the sweep loop stopped calling
-        # promote. The first alert ends by its ttl, since a release would
-        # promote by itself.
+        # promote. The alert is released without promoting, which is what one
+        # dropped on its way back from a picture write leaves behind: an
+        # alert ending by its ttl or by DELETE /alerts hands on by itself.
         quick = settings.model_copy(update={"registry_sweep_seconds": 0.05})
         with TestClient(create_app(quick, transport=sign)) as client:
-            self.post(client, "FIRST", ttl_seconds=0.2)
+            self.post(client, "FIRST")
             self.post(client, "SECOND", if_active="queue")
+            client.portal.call(client.app.state.alerts.release)
 
             deadline = time.monotonic() + 5
             shown = None
@@ -1709,6 +1711,28 @@ class TestAlertQueue:
                     break
                 time.sleep(0.05)
 
-        assert shown is not None, "nothing took the sign after the first expired"
+        assert shown is not None, "nothing took the sign after the first was released"
         assert shown["message"] == "SECOND"
         assert shown["state"] == "showing"
+
+    def test_an_alert_sweep_that_fails_holds_back_no_expiry(self, settings, sign, monkeypatch):
+        # The alert sweep can raise after the next alert has gone up, from a
+        # save that failed, and used to take the message expiries due on the
+        # same tick down with it.
+        quick = settings.model_copy(update={"registry_sweep_seconds": 0.05})
+        app = create_app(quick, transport=sign)
+        with TestClient(app) as client:
+
+            async def broken():
+                raise OSError("disk full")
+
+            monkeypatch.setattr(app.state.alerts, "sweep", broken)
+            client.put(
+                "/slots/doorbell", json={"message": "DOOR", "ttl_seconds": 0.2}, headers=HEADERS
+            )
+            deadline = time.monotonic() + 5
+            while client.get("/slots").json() and time.monotonic() < deadline:
+                time.sleep(0.05)
+            remaining = client.get("/slots").json()
+
+        assert remaining == []

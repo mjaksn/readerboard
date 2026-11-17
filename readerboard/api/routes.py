@@ -261,9 +261,11 @@ async def post_alert(body: AlertRequest, alerts: AlertsDep) -> AlertResponse:
     """Take the whole sign over until the alert is released, or wait to.
 
     This uses the sign's priority file, which suppresses every other message. If
-    a ttl is given, the alert ends automatically: the next waiting alert takes
-    the sign straight from it, or with none waiting the sign is released and the
-    rotation resumes by itself.
+    a ttl is given, the alert ends automatically: the next waiting alert is
+    written straight over it, or with none waiting the sign is released and the
+    rotation resumes by itself. A next alert that calls an icon whose picture
+    has to be drawn first shows the rotation as it goes up, because the sign
+    has to be handed back for that.
 
     An alert can call variables with `<var:name>`, and a change to one shows on
     the alert without restarting it, as it does in a message. A variable the
@@ -319,11 +321,16 @@ async def delete_alert(
 ) -> Response:
     """Release the alert holding the sign.
 
-    The next alert waiting its turn takes the sign straight from it before this
-    returns, so a second call made straight after releases that one. Send
-    `clear_queue` to cancel the waiting ones as well and have the rotation back.
-    Emptying the queue first and releasing after does the same in two calls,
-    but only in that order.
+    The next alert waiting its turn takes the sign from it before this returns,
+    so a second call made straight after releases that one. It is written
+    straight over the one released, with nothing of the rotation showing in
+    between, unless it calls an icon whose picture has to be drawn first: the
+    sign has to be handed back for that, and the rotation shows while it is. If
+    the next alert cannot be written, the alert that was holding the sign is
+    released anyway, and the next follows within a sweep. Send `clear_queue` to
+    cancel the waiting ones as well and have the rotation back. Emptying the
+    queue first and releasing after does the same in two calls, but only in
+    that order.
     """
     await alerts.dismiss(clear_queue=clear_queue)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
