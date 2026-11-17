@@ -11,7 +11,11 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
-## [Unreleased]
+## [0.10.1] - 2026-11-17
+
+**One queued alert now follows another without the rotation flashing up between
+them.** Nothing else about the HTTP surface changes. Upgrading erases nothing: no
+setting is renamed or removed, and a state file from 0.10.0 reads as it did.
 
 ### Changed
 
@@ -23,6 +27,14 @@ library, and the names inside it may move without that being a breaking change.
   waiting alert that calls an icon whose picture is not already on the sign still
   shows the rotation as it goes up, because the sign has to be handed back to draw
   the picture, as it always has been for an alert replacing another.
+
+### Fixed
+
+- **A failure while ending an alert no longer holds back other expiries.** The timer
+  that ends alerts, expires messages and variables, and shows the next waiting alert
+  ran all three as one step, so a failure in the first, such as the state file failing
+  to save, left the messages and variables due on that tick until the next one. Each
+  now runs on its own, and its log line says which one failed.
 
 ## [0.10.0] - 2026-11-16
 
@@ -2009,7 +2021,8 @@ live defect:
   request, so concurrent callers contended for the device. One writer now owns
   the link and holds it open.
 
-[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/mjaksn/readerboard/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.10.1
 [0.10.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.10.0
 [0.9.1]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.1
 [0.9.0]: https://github.com/mjaksn/readerboard/releases/tag/v0.9.0
