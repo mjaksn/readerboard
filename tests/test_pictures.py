@@ -2157,6 +2157,84 @@ class TestQueuedAlertsAndPictures:
         assert alerts.active.message == "PLAIN"
         assert alerts.waiting == []
 
+    async def test_an_expiry_hands_on_to_one_needing_the_file_the_ending_one_held(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # The ending alert is still recorded when the next one claims, and the
+        # pool has one file. Counting it as a holder would drop the next alert
+        # as unshowable where releasing first used to show it.
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun> NOW", mode="HOLD", ttl_seconds=30)
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        clock.advance(31)
+        transport.clear()
+
+        assert await alerts.sweep() is True
+
+        assert alerts.active.message == "<icon:moon> LATER"
+        assert list(state.pictures) == ["moon"]
+        # The picture still needs the sign to itself, so this one is handed
+        # back first, drawn, and then written.
+        assert commands(transport) == [
+            c.COMMAND_WRITE_TEXT,
+            c.COMMAND_WRITE_DOTS,
+            c.COMMAND_WRITE_TEXT,
+        ]
+        first, last = priority_writes(transport)
+        assert is_release(first)
+        assert not is_release(last)
+
+    async def fail_the_next_picture(self, controller):
+        real = controller.write_dots_file
+        calls = 0
+
+        async def fail_once(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise TransportError("cable unplugged")
+            return await real(*args, **kwargs)
+
+        controller.write_dots_file = fail_once
+
+    async def test_a_hand_on_whose_picture_fails_over_an_expired_alert_leaves_the_rotation(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # Handed back for the picture, and the ending alert is not put back
+        # because its time is up. The next one waits for the sweep loop.
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun> NOW", mode="HOLD", ttl_seconds=30)
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        clock.advance(31)
+        await self.fail_the_next_picture(controller)
+
+        assert await alerts.sweep() is True
+
+        assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["<icon:moon> LATER"]
+        assert store.load().alert is None
+        assert is_release(priority_writes(transport)[-1])
+        assert alerts.sign_may_not_match
+
+        assert await alerts.promote() is True
+        assert alerts.active.message == "<icon:moon> LATER"
+
+    async def test_a_hand_on_whose_picture_fails_over_a_dismissed_alert_still_releases(
+        self, controller, store, state, clock, transport, alerts
+    ):
+        # The rollback puts the dismissed alert back, since it has not expired,
+        # and the dismissal then releases it as it was asked to.
+        await self.wired(controller, store, state, clock, alerts)
+        await alerts.raise_alert("<icon:sun> NOW", mode="HOLD")
+        await alerts.raise_alert("<icon:moon> LATER", mode="HOLD", if_active="queue")
+        await self.fail_the_next_picture(controller)
+
+        assert await alerts.dismiss() is True
+
+        assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["<icon:moon> LATER"]
+        assert is_release(priority_writes(transport)[-1])
+
 
     async def stale_head(self, registry, alerts, *, replacement, hold=False):
         """Promote while the head changes under it, between its look and its claim.

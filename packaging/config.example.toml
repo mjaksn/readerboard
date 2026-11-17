@@ -105,8 +105,8 @@ picture_count = 0
 # How often to expire messages and alerts, and turn variables stale, once their
 # deadlines have passed, and to put the next waiting alert up once nothing holds
 # the sign. An expiry can land up to this long after its deadline, and so can an
-# alert's, with the next waiting alert going up in the same sweep that releases
-# it. A sweep that finds nothing due writes nothing to the sign, so there is
+# alert's, with the next waiting alert going up over it in the same sweep that
+# ends it. A sweep that finds nothing due writes nothing to the sign, so there is
 # little to gain by raising it.
 registry_sweep_seconds = 1.0
 

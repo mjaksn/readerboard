@@ -259,6 +259,36 @@ guarantees only one of them is visible.
 The 125 byte capacity is fixed and outside the memory pool. `frames.write_text_file`
 rejects a longer priority write rather than letting the sign truncate it silently.
 
+### One alert written over another, measured on 2026-11-17
+
+A priority write landing on a running priority message replaces it with nothing of the
+rotation in between. A release followed by the next write does not: the rotation shows
+for the moment between the two. Both were watched on the sign through the Ethernet
+adapter, with one message in the rotation, no icons, and two alerts held still, red then
+green:
+
+- **Release, then the next write**, sent back to back from the client as the service used
+  to hand one waiting alert on: the rotation flashed between red and green.
+- **The next write over the first**, as `DELETE /alerts` sends it with an alert queued:
+  red went straight to green.
+- **The same, by the ttl**, the sweep handing on from a six second alert to a queued one:
+  red went straight to green, and the rotation came back once green's own six seconds
+  were up.
+
+Then the same dismissal again with icons, on a pool of twelve picture files:
+
+- **The next alert calling an icon whose picture was already on the sign**, a heart:
+  red went straight to green, with the heart drawn properly. The service had nothing to
+  draw, so it had no reason to hand the sign back.
+- **The next alert calling an icon with no picture yet**, a sun: the rotation flashed
+  for about as long as in the first run, and the sun then drew properly. The sign has to
+  be handed back for the picture write, under "A picture written under an alert is not
+  taken" below, so this one is a release followed by a write whatever it replaces.
+
+That is why a waiting alert is now written over the one ending rather than after a
+release, `AlertService._hand_on`. It is what `if_active` `replace` has always sent, now
+watched.
+
 ### What a clean stop leaves, measured on 2026-11-16
 
 The formatted-but-empty write that caused that bug is now used on purpose. A clean stop

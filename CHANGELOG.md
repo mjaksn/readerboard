@@ -11,6 +11,19 @@ bodies, the status codes, and the settings names. The `readerboard` package is
 importable and its modules are documented, but it is a service rather than a
 library, and the names inside it may move without that being a breaking change.
 
+## [Unreleased]
+
+### Changed
+
+- **A waiting alert now goes up straight over the one before it.** When an alert
+  reached its ttl or was released with `DELETE /alerts` and another was waiting, the
+  service released the priority file and then wrote the next alert, and the rotation
+  showed on the sign for the moment in between. The next alert is now written over the
+  one ending, which is released only if nothing waiting can go up in its place. A
+  waiting alert that calls an icon whose picture is not already on the sign still
+  shows the rotation as it goes up, because the sign has to be handed back to draw
+  the picture, as it always has been for an alert replacing another.
+
 ## [0.10.0] - 2026-11-16
 
 **A clean stop now takes the sign down, so that a sign nothing is driving does not

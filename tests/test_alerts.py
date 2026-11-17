@@ -346,15 +346,70 @@ class TestQueue:
         assert alerts.waiting == []
         assert transport.last_packet == priority_packet(b"SECOND")
 
-    async def test_an_expiry_lets_the_next_one_take_the_sign(self, alerts, clock):
+    async def test_an_expiry_puts_the_next_one_straight_over_it(self, alerts, clock, transport):
+        # No release between the two. A release followed by the next write
+        # showed the rotation for as long as the frames took, which was seen.
+        await raise_alert(alerts, "FIRST", ttl_seconds=30)
+        await queue_alert(alerts, "SECOND")
+        clock.advance(31)
+        transport.clear()
+
+        assert await alerts.sweep() is True
+
+        assert alerts.active.message == "SECOND"
+        assert alerts.waiting == []
+        assert transport.packets == [priority_packet(b"SECOND")]
+
+    async def test_an_expiry_with_none_that_can_go_up_is_released(self, alerts, clock, state):
+        await raise_alert(alerts, "FIRST", ttl_seconds=30)
+        await queue_alert(alerts, "BROKEN")
+        state.alert_queue[0].message = "X" * 126
+        clock.advance(31)
+
+        assert await alerts.sweep() is True
+
+        assert alerts.active is None
+        assert alerts.waiting == []
+
+    async def test_an_expiry_whose_next_write_fails_is_released_and_the_next_waits(
+        self, alerts, clock, controller, caplog
+    ):
         await raise_alert(alerts, "FIRST", ttl_seconds=30)
         await queue_alert(alerts, "SECOND")
         clock.advance(31)
 
-        await alerts.sweep()
-        assert await alerts.promote() is True
+        async def unreachable(*args, **kwargs):
+            raise TransportError("cable unplugged")
 
-        assert alerts.active.message == "SECOND"
+        controller.write_priority = unreachable
+        with caplog.at_level("WARNING"):
+            assert await alerts.sweep() is True
+
+        assert "released instead" in caplog.text
+        assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_an_expiry_hands_on_to_nothing_if_an_alert_took_the_sign_meanwhile(
+        self, alerts, registry, clock, transport
+    ):
+        # An urgent alert sent while the expired one was being handed on gets
+        # the locks first. Neither the waiting one nor a release may go over it.
+        alerts.set_rendering(registry.rendering)
+        await raise_alert(alerts, "FIRST", ttl_seconds=30)
+        await queue_alert(alerts, "PARCEL")
+        clock.advance(31)
+
+        async with registry.rendering(None):
+            sweeping = asyncio.create_task(alerts.sweep())
+            await asyncio.sleep(0)
+            smoke = asyncio.create_task(raise_alert(alerts, "SMOKE"))
+            await asyncio.sleep(0)
+        await smoke
+        await sweeping
+
+        assert alerts.active.message == "SMOKE"
+        assert [w.message for w in alerts.waiting] == ["PARCEL"]
+        assert transport.last_packet == priority_packet(b"SMOKE")
 
     async def test_its_ttl_counts_from_when_it_takes_the_sign(self, alerts, clock):
         await raise_alert(alerts, "FIRST")
@@ -754,6 +809,27 @@ class TestQueue:
         assert alerts.active.message == "THIRD"
         assert alerts.waiting == []
 
+    async def test_dismissing_puts_the_next_one_straight_over_it(self, alerts, transport):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        transport.clear()
+
+        assert await alerts.dismiss() is True
+
+        assert alerts.active.message == "SECOND"
+        assert transport.packets == [priority_packet(b"SECOND")]
+
+    async def test_dismissing_with_none_that_can_go_up_releases(self, alerts, state, transport):
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "BROKEN")
+        state.alert_queue[0].message = "X" * 126
+
+        assert await alerts.dismiss() is True
+
+        assert alerts.active is None
+        assert alerts.waiting == []
+        assert transport.last_packet == frames.packet(frames.clear_priority_file())
+
     async def test_dismissing_with_clear_queue_brings_the_rotation_back(self, alerts):
         await raise_alert(alerts, "FIRST")
         await queue_alert(alerts, "SECOND")
@@ -771,15 +847,35 @@ class TestQueue:
         await raise_alert(alerts, "FIRST")
         await queue_alert(alerts, "SECOND")
 
-        async def unreachable():
+        async def unreachable(**kwargs):
             raise TransportError("cable unplugged")
 
         monkeypatch.setattr(alerts, "promote", unreachable)
         with caplog.at_level("WARNING"):
             assert await alerts.dismiss() is True
 
-        assert "could not show the next waiting one yet" in caplog.text
+        assert "released instead" in caplog.text
         assert alerts.active is None
+        assert [w.message for w in alerts.waiting] == ["SECOND"]
+
+    async def test_dismissing_in_the_gap_whose_promotion_fails_is_logged(
+        self, alerts, transport, monkeypatch, caplog
+    ):
+        # Nothing showing and one waiting, which is the gap a release by some
+        # other path leaves. There is nothing to hand on from, so this is the
+        # release and then the promotion, as before.
+        await raise_alert(alerts, "FIRST")
+        await queue_alert(alerts, "SECOND")
+        await alerts.release()
+
+        async def unreachable(**kwargs):
+            raise TransportError("cable unplugged")
+
+        monkeypatch.setattr(alerts, "promote", unreachable)
+        with caplog.at_level("WARNING"):
+            assert await alerts.dismiss() is False
+
+        assert "could not show the next waiting one yet" in caplog.text
         assert [w.message for w in alerts.waiting] == ["SECOND"]
 
 

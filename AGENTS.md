@@ -405,19 +405,30 @@ exit write. So three things back it up:
   then until a restart, so nothing else would.
 
 An alert can also **wait its turn**, `if_active` `queue` on `POST /alerts`. The
-queue is in the state file beside the alert, and four things about it are easy
+queue is in the state file beside the alert, and five things about it are easy
 to get wrong:
 
-- **Promotion happens in the sweep loop, and after `DELETE /alerts`.** An alert
-  ends in several places, and `AlertService._put_back` is one of them with the
-  registry's lock already held, while rendering the next alert has to take that
-  lock first. `AlertService.promote` runs from the sweep, which holds neither, so
-  one step covers every way an alert can end. An alert ending by its ttl is
-  followed in the same sweep that releases it; one ending any other way without
-  a caller asking waits up to a sweep interval. `AlertService.dismiss`, behind
-  `DELETE /alerts`, holds neither too and promotes before it returns, because a
-  second release sent in that gap found nothing showing and was answered 204
-  regardless. Do not promote from anywhere else an alert is released.
+- **Promotion happens in the sweep loop, and in place of a release for a ttl
+  or `DELETE /alerts`.** An alert ends in several places, and
+  `AlertService._put_back` is one of them with the registry's lock already
+  held, while rendering the next alert has to take that lock first.
+  `AlertService.promote` runs from the sweep loop, which holds neither, so one
+  step covers every way an alert can end. The two common ways, an alert
+  reaching its ttl in `AlertService.sweep` and `AlertService.dismiss` behind
+  `DELETE /alerts`, hold neither either, and go through
+  `AlertService._hand_on`: the next waiting alert is written straight over the
+  one ending, which is released only if none can go up. A release followed by
+  the next write showed the rotation between the two, long enough to be seen,
+  and in the sweep loop for as long as the registry's sweep in between took as
+  well. A write over a running priority message shows none of the rotation,
+  measured on 2026-11-17 and recorded in `docs/protocol-notes.md`. The dismissal promotes before it returns either way, because a second
+  release sent in a gap found nothing showing and was answered 204 regardless.
+  One ending any other way without a caller asking waits up to a sweep
+  interval. Do not promote from anywhere else an alert is released, and do not
+  release in `_hand_on` an alert that is no longer the one ending: whatever
+  replaced it in the meantime is somebody else's. A next alert that draws a
+  new picture still hands the sign back for that write, as a replacement always
+  has, so the rotation shows as it goes up.
 - **Everything that changes the queue holds the alert service's lock**, the
   drop for an alert that has waited too long included. A promotion writes the
   head with that lock held and takes it out of the queue afterwards, by identity,
