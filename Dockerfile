@@ -35,7 +35,7 @@
 # the same version it was yesterday. The digest below came from a Dependabot
 # bump to 3.14.7-slim, so its age was not checked when it landed; check it, and
 # the tzdata count below, before relying on either.
-FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -72,7 +72,7 @@ RUN pip install --no-deps --no-build-isolation . \
     && pip uninstall --yes setuptools
 
 
-FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 LABEL org.opencontainers.image.title="readerboard" \
       org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, expiring messages and clock sync" \
