@@ -64,11 +64,11 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     # pytest 9.2 renamed CallSpec2 and deprecated the old name, which anyio's
-    # pytest plugin still imported before 4.16. That is the same collection
-    # error again, raised as the plugin loads, so no test runs at all. anyio is
-    # no longer held back below that, now that the starlette floor further down
-    # replaced its ceiling, so this ceiling can come off too.
-    "pytest>=9.1.1,<9.2",
+    # pytest plugin still imported before 4.16. That was the same collection
+    # error again, raised as the plugin loads, so no test ran at all, and pytest
+    # was held below 9.2 until the starlette floor further down let anyio past
+    # 4.15. Keep anyio at 4.16 or later for as long as pytest is past 9.1.
+    "pytest>=9.1.1,<9.3",
     # Pinned exactly rather than given a range, because the range let pip take
     # 1.4.1.post1 within a week of its release. Move it by hand once a newer
     # version has been out for seven days.
