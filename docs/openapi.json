@@ -1083,6 +1083,7 @@
         "operationId": "delete_waiting_alert_alerts_queue__key__delete",
         "parameters": [
           {
+            "description": "the name a caller gave an alert, so that it can update or cancel it",
             "in": "path",
             "name": "key",
             "required": true,
@@ -1490,6 +1491,7 @@
         "operationId": "delete_slot_slots__key__delete",
         "parameters": [
           {
+            "description": "the name of the slot, chosen by whoever owns it",
             "in": "path",
             "name": "key",
             "required": true,
@@ -1533,6 +1535,7 @@
         "operationId": "get_slot_slots__key__get",
         "parameters": [
           {
+            "description": "the name of the slot, chosen by whoever owns it",
             "in": "path",
             "name": "key",
             "required": true,
@@ -1578,6 +1581,7 @@
         "operationId": "put_slot_slots__key__put",
         "parameters": [
           {
+            "description": "the name of the slot, chosen by whoever owns it",
             "in": "path",
             "name": "key",
             "required": true,
@@ -1640,6 +1644,7 @@
         "operationId": "set_slot_active_slots__key__active_put",
         "parameters": [
           {
+            "description": "the name of the slot, chosen by whoever owns it",
             "in": "path",
             "name": "key",
             "required": true,
@@ -1728,6 +1733,7 @@
         "operationId": "delete_variable_variables__name__delete",
         "parameters": [
           {
+            "description": "the variable's name, one to 32 lowercase letters, digits and underscores. A message calls it as <var:name>",
             "in": "path",
             "name": "name",
             "required": true,
@@ -1769,6 +1775,7 @@
         "operationId": "get_variable_variables__name__get",
         "parameters": [
           {
+            "description": "the variable's name, one to 32 lowercase letters, digits and underscores. A message calls it as <var:name>",
             "in": "path",
             "name": "name",
             "required": true,
@@ -1812,6 +1819,7 @@
         "operationId": "put_variable_variables__name__put",
         "parameters": [
           {
+            "description": "the variable's name, one to 32 lowercase letters, digits and underscores. A message calls it as <var:name>",
             "in": "path",
             "name": "name",
             "required": true,
