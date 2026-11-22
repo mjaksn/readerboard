@@ -21,21 +21,22 @@
 # time. The digest names a manifest list covering amd64, arm64 and arm/v7, and
 # the daemon picks the right one out of it.
 #
-# A patch tag rather than the rolling 3.14-slim, and that is not fussiness.
+# A patch tag rather than the rolling 3.15-slim, and that is not fussiness.
 # The rolling tags are rebuilt every few days, so whatever digest they point
 # at is always a few days old, and nothing that young may be used here.
 #
 # A patch tag is quieter, but it is not still: while it is the newest of its
-# line it is rebuilt too. So the newest patch is exactly the one whose digest
-# keeps moving, which is how 3.14.7-slim was taken here on a digest a day old.
-# Take the patch behind the newest, which has stopped.
+# line it is rebuilt too. So the newest patch is the one whose digest may still
+# be moving, which is how 3.14.7-slim was taken here on a digest a day old.
+# The patch behind the newest has stopped for good. The newest is fine too once
+# its digest has gone a week without a push, which is the check that counts.
 #
 # Check the age rather than assuming it, and do not lean on Dependabot's
 # cooldown for this: the cooldown reads the version, and a rebuilt digest is
-# the same version it was yesterday. The digest below came from a Dependabot
-# bump to 3.14.7-slim, so its age was not checked when it landed; check it, and
-# the tzdata count below, before relying on either.
-FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS builder
+# the same version it was yesterday. This one is the newest 3.15 patch, and its
+# digest was 14 days past its last push when it was pinned. The tzdata count
+# below was checked on it too.
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -72,7 +73,7 @@ RUN pip install --no-deps --no-build-isolation . \
     && pip uninstall --yes setuptools
 
 
-FROM python:3.14.7-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6
+FROM python:3.15.2-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 
 LABEL org.opencontainers.image.title="readerboard" \
       org.opencontainers.image.description="An HTTP service for BetaBrite and Alpha protocol LED signs: several sources share one sign, with alerts, expiring messages and clock sync" \
@@ -86,9 +87,9 @@ LABEL org.opencontainers.image.title="readerboard" \
 # database, and a slim image looked like the obvious exception to that. It is
 # not: the 3.14.6-slim image this was first pinned to has the Debian tzdata
 # package in it, 443 zone files, and `timezone` validates against them. That was
-# checked rather than assumed, and has not been checked again on the digest
-# above since Dependabot moved it; the pin is what keeps it true from one build
-# to the next once it has been.
+# checked rather than assumed, and checked again on the 3.15.2-slim digest
+# above, which carries tzdata 2026f and the same 443 files; the pin is what
+# keeps it true from one build to the next.
 
 # A fixed UID and GID, not an arbitrary one, because the state directory is
 # normally a bind mount and its owner on the host has to match this. 10001 is
