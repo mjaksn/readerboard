@@ -316,7 +316,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        python: ["3.11", "3.12", "3.13"]
+        # The floor up to the version the container image runs, so that every
+        # interpreter the classifiers claim, and the one the image ships, is one
+        # the suite has run on.
+        python: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
