@@ -83,7 +83,7 @@ dev = [
     # collection error before a single test runs. The floor keeps the TestClient
     # off the deprecated name.
     "starlette>=1.7.0,<2",
-    "ruff>=0.16.2,<0.17",
+    "ruff>=0.16.2,<0.18",
     "mypy>=2.3.0,<3",
 ]
 
